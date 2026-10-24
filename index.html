@@ -2180,6 +2180,7 @@ function groundAt(x, z, fromY, fallback) {
   if (sf !== null && sf <= fromY + 0.05 && (!h || y < sf)) { y = sf; h = h || true; }
   if (!h && PAD.grid && insideWorld(x, z)) { const p = padHeight(x, z); if (p <= fromY) y = p; if (MX.ready) { const t = mxHeight(x, z); if (t !== null && t <= fromY + 0.05) y = t; } }   // out in the paddocks
   if (PILES.length && !PILE_OFF) { const ph = pileHeightAt(x, z); if (ph > y && ph <= fromY + 0.05) y = ph; }   // dirt piles are solid ground
+  if (LAD_ON) { const ry = siloRoofY(x, z, fromY); if (ry > y && ry <= fromY + 0.05) y = ry; }   // silo roofs are walkable from above
   return y;
 }
 function castHit(origin, dir, far) {
@@ -2723,85 +2724,224 @@ const FM = {
 function pmesh(geo, mat, x, y, z, parent) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; }
 function pivotAt(parent, x, y, z) { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; }
 
-function buildFarmer() {
+/* ================================================================
+   LOOKS: the farmer builder takes a "look" (height, weight, muscle, skin, hair, hat, shirt, legs, shoes, glasses, face).
+   The default look is Dazza as he always was. Generic Aussie work and weekend wear: nothing here carries a brand.
+   ================================================================ */
+const LK = {
+  skin: [0xe9b08f, 0xf3c9a8, 0xcf9474, 0xa8714f, 0x7a4e35],
+  hair: [0xe0bc68, 0x5a3b22, 0x1c1814, 0xb2552c, 0xb9b9b4],
+  shirt: [0x86a9c9, 0xb8574a, 0x6f8f5e, 0xe0cf8a, 0x2b2f36, 0xf1efe8, 0xd9822b, 0x4a5f8f],
+  legs: [0xa39371, 0x3b4a6b, 0x2b2f36, 0x5f6b45, 0x8a6a45, 0x1f3a5f],
+  shoe: [0x5a4030, 0x1c1814, 0xc9a96e, 0xf7f7f4],
+  hat: [0xc2a56b, 0x2b2f36, 0x4a5f8f, 0xb8574a, 0x5f6b45],
+  names: {
+    skin: ['Fair', 'Pale', 'Tanned', 'Brown', 'Dark'], hair: ['Blonde', 'Brown', 'Black', 'Ranga', 'Grey'],
+    shirt: ['Sky', 'Red', 'Green', 'Sand', 'Black', 'White', 'Orange', 'Navy'], legs: ['Khaki', 'Denim', 'Black', 'Olive', 'Tan', 'Navy'],
+    shoe: ['Brown', 'Black', 'Tan', 'White'], hat: ['Felt', 'Black', 'Blue', 'Red', 'Olive']
+  },
+  styles: {
+    hair: [['curls', 'Curls'], ['crop', 'Short back & sides'], ['buzz', 'Buzz cut'], ['mullet', 'Mullet'], ['long', 'Long'], ['bald', 'Bald']],
+    hat: [['none', 'No hat'], ['akubra', 'Stockman hat'], ['cap', 'Cap'], ['capback', 'Cap, backwards'], ['beanie', 'Beanie'], ['bucket', 'Bucket hat']],
+    shirt: [['drill', 'Drill work shirt'], ['flanno', 'Flannel shirt'], ['hivis', 'Hi-vis shirt'], ['tee', 'T-shirt'], ['singlet', 'Singlet']],
+    legs: [['shorts', 'Work shorts'], ['stubbies', 'Stubbies'], ['long', 'Jeans / work pants']],
+    shoes: [['clogs', 'Clogs'], ['thongs', 'Thongs'], ['boots', 'Work boots']],
+    gl: [['reading', 'Reading glasses'], ['sunnies', 'Sunnies'], ['none', 'No glasses']],
+    fh: [['0', 'Clean shaven'], ['1', 'Stubble'], ['2', 'Moustache'], ['3', 'Beard']]
+  }
+};
+const LOOK_DEFAULT = { h: 0.5, w: 0.5, m: 0, skin: 0, hair: 'curls', hc: 0, hat: 'none', hatc: 0, shirt: 'drill', sc: 0, legs: 'shorts', lc: 0, shoes: 'clogs', shc: 3, gl: 'reading', fh: 0 };
+const lookH = L => 0.88 + 0.24 * (L.h == null ? 0.5 : L.h);
+const lookFix = o => { const L = Object.assign({}, LOOK_DEFAULT); if (o && typeof o === 'object') for (const k of Object.keys(LOOK_DEFAULT)) if (o[k] !== undefined && typeof o[k] === typeof LOOK_DEFAULT[k]) L[k] = o[k];
+  for (const k of ['h', 'w', 'm']) L[k] = Math.max(0, Math.min(1, L[k]));
+  const ok = (k, arr) => { if (!arr.some(a => a[0] === L[k])) L[k] = LOOK_DEFAULT[k]; };
+  ok('hair', LK.styles.hair); ok('hat', LK.styles.hat.concat([['beret']])); ok('shirt', LK.styles.shirt.concat([['breton']])); ok('legs', LK.styles.legs); ok('shoes', LK.styles.shoes); ok('gl', LK.styles.gl);
+  for (const [k, a] of [['skin', LK.skin], ['hc', LK.hair], ['sc', LK.shirt], ['lc', LK.legs], ['shc', LK.shoe], ['hatc', LK.hat]]) L[k] = Math.max(0, Math.min(a.length - 1, Math.round(L[k])));
+  L.fh = Math.max(0, Math.min(3, Math.round(L.fh))); return L; };
+let LOOK = LOOK_DEFAULT;
+try { const s = localStorage.getItem('wfy.look'); if (s) LOOK = lookFix(JSON.parse(s)); } catch (_) {}
+const lookCode = L => [Math.round(L.h * 20), Math.round(L.w * 20), Math.round(L.m * 20), L.skin, L.hc, L.hatc, L.sc, L.lc, L.shc, L.fh, L.hair, L.hat, L.shirt, L.legs, L.shoes, L.gl].join(',');
+const lookFromCode = s => { try { const a = String(s).split(','); if (a.length !== 16) return null; const n = i => +a[i];
+  return lookFix({ h: n(0) / 20, w: n(1) / 20, m: n(2) / 20, skin: n(3), hc: n(4), hatc: n(5), sc: n(6), lc: n(7), shc: n(8), fh: n(9), hair: a[10], hat: a[11], shirt: a[12], legs: a[13], shoes: a[14], gl: a[15] }); } catch (_) { return null; } };
+
+const LK_CACHE = new Map();
+function lookTex(kind, col) {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), hex = '#' + new THREE.Color(col).getHexString();
+  if (kind === 'plaid') { x.fillStyle = hex; x.fillRect(0, 0, 64, 64); x.fillStyle = 'rgba(15,15,15,.55)'; for (let i = 0; i < 64; i += 32) { x.fillRect(i, 0, 14, 64); x.fillRect(0, i, 64, 14); } x.fillStyle = 'rgba(255,255,255,.18)'; x.fillRect(22, 0, 3, 64); x.fillRect(54, 0, 3, 64); x.fillRect(0, 22, 64, 3); x.fillRect(0, 54, 64, 3); }
+  else { x.fillStyle = '#f1efe8'; x.fillRect(0, 0, 64, 64); x.fillStyle = hex; for (let i = 0; i < 64; i += 16) x.fillRect(0, i + 4, 64, 8); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function lookMats(L) {
+  const key = [L.skin, L.hc, L.sc, L.shirt, L.lc, L.shc, L.hatc, L.hair, L.fh].join('|'); let M = LK_CACHE.get(key); if (M) return M;
+  M = Object.assign({}, FM);
+  const lam = (hex, k) => new THREE.MeshLambertMaterial({ color: new THREE.Color(hex).multiplyScalar(k || 1) });
+  if (L.skin) { M.skin = lam(LK.skin[L.skin]); M.skinDark = lam(LK.skin[L.skin], 0.86); }
+  if (L.hc) { const h = LK.hair[L.hc]; M.hair = lam(h); M.hair2 = lam(h, 0.84); M.brow = lam(h, 0.8); }
+  if (L.sc || L.shirt !== 'drill') {
+    const s = LK.shirt[L.sc];
+    if (L.shirt === 'flanno') { const t = lookTex('plaid', s); t.repeat.set(3, 2); M.shirt = new THREE.MeshLambertMaterial({ map: t }); M.shirtDark = lam(s, 0.55); }
+    else if (L.shirt === 'breton') { const t = lookTex('stripe', s); t.repeat.set(1, 3); M.shirt = new THREE.MeshLambertMaterial({ map: t }); M.shirtDark = lam(s, 0.8); }
+    else if (L.shirt === 'hivis') { const c = L.sc % 2 ? 0xd7e22a : 0xff8a1a; M.shirt = lam(c); M.shirtDark = lam(c, 0.82); M.band = new THREE.MeshLambertMaterial({ color: 0xdadcd6 }); }
+    else { M.shirt = lam(s); M.shirtDark = lam(s, 0.82); }
+  }
+  if (L.lc) { const s = LK.legs[L.lc]; M.shorts = lam(s); M.shortsDark = lam(s, 0.86); }
+  if (L.shc !== 3) M.clog = lam(LK.shoe[L.shc]);
+  M.shoeSole = lam(0x2a2622);
+  const hc = LK.hat[L.hatc]; M.hat = lam(hc); M.hatDark = lam(hc, 0.62);
+  const hr = LK.hair[L.hc]; M.stub = lam(new THREE.Color(LK.skin[L.skin]).lerp(new THREE.Color(hr), 0.42).getHex());
+  if (L.hair === 'buzz') M.buzz = lam(new THREE.Color(LK.skin[L.skin]).lerp(new THREE.Color(hr), 0.6).getHex());
+  M.shades = new THREE.MeshPhongMaterial({ color: 0x0c0c0e, specular: 0x888888, shininess: 100 });
+  LK_CACHE.set(key, M); return M;
+}
+const lookTag = m => { m.userData.lk = true; return m; };
+
+function buildFarmer(look) {
+  const L = lookFix(look), M = lookMats(L), pm = (g, m, x, y, z, p) => lookTag(pmesh(g, m, x, y, z, p));
   const root = new THREE.Group();
   const body = pivotAt(root, 0, 0.78, 0);                     // hips
-  const P = { root, body };
-  pmesh(new THREE.BoxGeometry(0.38, 0.2, 0.25), FM.shorts, 0, 0.02, 0, body);
-  pmesh(new THREE.BoxGeometry(0.385, 0.045, 0.255), FM.shortsDark, 0, 0.11, 0, body);      // waistband
+  const P = { root, body, look: L, waist: [] };
+  const sty = L.shirt, longSl = sty === 'drill' || sty === 'flanno' || sty === 'hivis' || sty === 'breton', collared = sty === 'drill' || sty === 'flanno' || sty === 'hivis';
+  const longLeg = L.legs === 'long';
+  P.waist.push(pm(new THREE.BoxGeometry(0.38, 0.2, 0.25), M.shorts, 0, 0.02, 0, body));
+  P.waist.push(pm(new THREE.BoxGeometry(0.385, 0.045, 0.255), M.shortsDark, 0, 0.11, 0, body));      // waistband
   const torso = pivotAt(body, 0, 0.1, 0); P.torso = torso;
-  // shirt: tucked-out drill shirt, collar, button placket, two flap chest pockets
-  const shirt = pmesh(new THREE.CylinderGeometry(0.235, 0.215, 0.56, 16), FM.shirt, 0, 0.3, 0, torso); shirt.scale.set(1, 1, 0.74);
+  const shirt = pm(new THREE.CylinderGeometry(0.235, 0.215, 0.56, 16), M.shirt, 0, 0.3, 0, torso); shirt.scale.set(1, 1, 0.74);
   P.belly = shirt; P.vest = shirt;
-  pmesh(new THREE.SphereGeometry(0.235, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), FM.shirt, 0, 0.58, 0, torso).scale.set(1.08, 0.45, 0.78);   // shoulders
-  pmesh(new THREE.BoxGeometry(0.045, 0.5, 0.012), FM.shirtDark, 0, 0.32, 0.168, torso);
-  for (let i = 0; i < 4; i++) pmesh(new THREE.SphereGeometry(0.011, 6, 5), FM.button, 0, 0.5 - i * 0.12, 0.176, torso);
-  for (const s of [-1, 1]) {
-    pmesh(new THREE.BoxGeometry(0.1, 0.11, 0.012), FM.shirt, s * 0.1, 0.42, 0.17, torso);
-    pmesh(new THREE.BoxGeometry(0.105, 0.035, 0.02), FM.shirtDark, s * 0.1, 0.48, 0.172, torso);
-    const col = pmesh(new THREE.BoxGeometry(0.12, 0.05, 0.015), FM.shirt, s * 0.06, 0.66, 0.12, torso); col.rotation.set(-0.5, -s * 0.5, s * 0.35);
+  pm(new THREE.SphereGeometry(0.235, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), sty === 'singlet' ? M.skin : M.shirt, 0, 0.58, 0, torso).scale.set(1.08, 0.45, 0.78);   // shoulders
+  if (collared) {
+    pm(new THREE.BoxGeometry(0.045, 0.5, 0.012), M.shirtDark, 0, 0.32, 0.168, torso);
+    for (let i = 0; i < 4; i++) pm(new THREE.SphereGeometry(0.011, 6, 5), M.button, 0, 0.5 - i * 0.12, 0.176, torso);
+    for (const s of [-1, 1]) {
+      if (sty !== 'hivis') { pm(new THREE.BoxGeometry(0.1, 0.11, 0.012), M.shirt, s * 0.1, 0.42, 0.17, torso); pm(new THREE.BoxGeometry(0.105, 0.035, 0.02), M.shirtDark, s * 0.1, 0.48, 0.172, torso); }
+      const col = pm(new THREE.BoxGeometry(0.12, 0.05, 0.015), M.shirt, s * 0.06, 0.66, 0.12, torso); col.rotation.set(-0.5, -s * 0.5, s * 0.35);
+    }
   }
-  // head: short curly blonde hair, reading glasses perched on the nose
+  if (sty === 'singlet') for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.06, 0.1, 0.012), M.shirt, s * 0.11, 0.6, 0.16, torso);
+  if (sty === 'hivis') for (const y of [0.17, 0.4]) { const b = pm(new THREE.CylinderGeometry(0.237, 0.231, 0.05, 16), M.band, 0, y, 0, torso); b.scale.set(1, 1, 0.74); }
+  // head
   const head = pivotAt(torso, 0, 0.66, 0.0); P.head = head;
-  pmesh(new THREE.CylinderGeometry(0.07, 0.08, 0.12, 10), FM.skin, 0, 0.03, 0, head);
-  const skull = pmesh(new THREE.SphereGeometry(0.175, 18, 14), FM.skin, 0, 0.2, 0.01, head); skull.scale.set(0.95, 1.08, 1);
-  pmesh(new THREE.SphereGeometry(0.025, 8, 6), FM.skinDark, 0, 0.18, 0.18, head).scale.set(1, 1.2, 1.2);         // nose
+  pm(new THREE.CylinderGeometry(0.07, 0.08, 0.12, 10), M.skin, 0, 0.03, 0, head);
+  const skull = pm(new THREE.SphereGeometry(0.175, 18, 14), M.skin, 0, 0.2, 0.01, head); skull.scale.set(0.95, 1.08, 1);
+  pm(new THREE.SphereGeometry(0.025, 8, 6), M.skinDark, 0, 0.18, 0.18, head).scale.set(1, 1.2, 1.2);         // nose
   for (const s of [-1, 1]) {
-    pmesh(new THREE.SphereGeometry(0.017, 8, 6), FM.eye, s * 0.056, 0.225, 0.17, head);
-    pmesh(new THREE.BoxGeometry(0.06, 0.013, 0.015), FM.brow, s * 0.058, 0.262, 0.166, head).rotation.z = -s * 0.12;
-    pmesh(new THREE.SphereGeometry(0.035, 8, 6), FM.skin, s * 0.167, 0.2, 0.0, head).scale.set(0.45, 1, 0.8);   // ears
+    pm(new THREE.SphereGeometry(0.017, 8, 6), M.eye, s * 0.056, 0.225, 0.17, head);
+    pm(new THREE.BoxGeometry(0.06, 0.013, 0.015), M.brow, s * 0.058, 0.262, 0.166, head).rotation.z = -s * 0.12;
+    pm(new THREE.SphereGeometry(0.035, 8, 6), M.skin, s * 0.167, 0.2, 0.0, head).scale.set(0.45, 1, 0.8);   // ears
   }
-  pmesh(new THREE.BoxGeometry(0.07, 0.013, 0.012), FM.lip, 0, 0.128, 0.171, head);
-  // curls: small blobs over the crown, back and sides, two tones of blonde
-  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  for (let i = 0; i < 70; i++) {
-    const th = Math.acos(1 - rnd() * 1.15), ph = rnd() * Math.PI * 2;
-    const x = Math.sin(th) * Math.cos(ph), y = Math.cos(th), z = Math.sin(th) * Math.sin(ph);
-    if (z > 0.45 && y < 0.6) continue;                         // keep the forehead clear
-    const r = 0.04 + rnd() * 0.018;
-    pmesh(new THREE.SphereGeometry(r, 7, 6), rnd() < 0.6 ? FM.hair : FM.hair2, x * 0.168, 0.21 + y * 0.18, 0.01 + z * 0.17, head);
+  pm(new THREE.BoxGeometry(0.07, 0.013, 0.012), M.lip, 0, 0.128, 0.171, head);
+  // face hair
+  if (L.fh === 1 || L.fh === 3) { const sh = pm(new THREE.SphereGeometry(0.1785, 16, 10, L.fh === 3 ? 0 : 0.2 * Math.PI, L.fh === 3 ? Math.PI * 2 : 0.6 * Math.PI, 1.62, L.fh === 3 ? 1.0 : 0.85), L.fh === 3 ? M.hair : M.stub, 0, 0.2, 0.01, head); sh.scale.set(0.95, 1.08, 1); }
+  if (L.fh === 2 || L.fh === 3) { pm(new THREE.BoxGeometry(0.1, 0.024, 0.02), M.hair, 0, 0.152, 0.176, head); for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.02, 0.05, 0.02), M.hair, s * 0.052, 0.13, 0.172, head); }
+  // hair
+  const hs = L.hair;
+  if (hs === 'curls') {
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 70; i++) {
+      const th = Math.acos(1 - rnd() * 1.15), ph = rnd() * Math.PI * 2;
+      const x = Math.sin(th) * Math.cos(ph), y = Math.cos(th), z = Math.sin(th) * Math.sin(ph);
+      if (z > 0.45 && y < 0.6) continue;
+      const r = 0.04 + rnd() * 0.018;
+      pm(new THREE.SphereGeometry(r, 7, 6), rnd() < 0.6 ? M.hair : M.hair2, x * 0.168, 0.21 + y * 0.18, 0.01 + z * 0.17, head);
+    }
+  } else if (hs !== 'bald') {
+    const R = hs === 'buzz' ? 0.178 : 0.186, tl = hs === 'long' ? 2.15 : hs === 'mullet' ? 1.85 : 1.72;
+    const cap = pm(new THREE.SphereGeometry(R, 18, 12, 0, Math.PI * 2, 0, tl), hs === 'buzz' ? M.buzz : M.hair, 0, 0.2, 0.01, head); cap.scale.set(0.97, 1.09, 1.02); cap.rotation.x = -0.3;
+    if (hs === 'mullet') { pm(new THREE.BoxGeometry(0.22, 0.2, 0.06), M.hair2, 0, 0.08, -0.15, head).rotation.x = 0.25; for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.04, 0.12, 0.12), M.hair, s * 0.165, 0.2, -0.04, head); }
+    if (hs === 'long') { pm(new THREE.BoxGeometry(0.34, 0.42, 0.05), M.hair2, 0, 0.04, -0.17, head).rotation.x = 0.12; for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.04, 0.34, 0.16), M.hair, s * 0.17, 0.08, -0.06, head); }
   }
-  // translucent reading glasses
+  // glasses
   const gl = pivotAt(head, 0, 0.212, 0.188); P.glasses = gl;
-  for (const s of [-1, 1]) {
-    const fr = pmesh(new THREE.TorusGeometry(0.036, 0.0065, 6, 20), FM.frame, s * 0.052, 0, 0, gl); fr.scale.set(1.25, 0.85, 1);
-    const ln = pmesh(new THREE.CircleGeometry(0.035, 20), FM.lensMat, s * 0.052, 0, 0.001, gl); ln.scale.set(1.25, 0.85, 1);
-    const arm = pmesh(new THREE.BoxGeometry(0.006, 0.008, 0.16), FM.frame, s * 0.098, 0.006, -0.08, gl); arm.rotation.y = s * 0.08;
+  if (L.gl === 'reading') {
+    for (const s of [-1, 1]) {
+      const fr = pm(new THREE.TorusGeometry(0.036, 0.0065, 6, 20), M.frame, s * 0.052, 0, 0, gl); fr.scale.set(1.25, 0.85, 1);
+      const ln = pm(new THREE.CircleGeometry(0.035, 20), M.lensMat, s * 0.052, 0, 0.001, gl); ln.scale.set(1.25, 0.85, 1);
+      const arm = pm(new THREE.BoxGeometry(0.006, 0.008, 0.16), M.frame, s * 0.098, 0.006, -0.08, gl); arm.rotation.y = s * 0.08;
+    }
+    pm(new THREE.BoxGeometry(0.03, 0.006, 0.006), M.frame, 0, 0.012, 0, gl);
+  } else if (L.gl === 'sunnies') {
+    for (const s of [-1, 1]) { pm(new THREE.BoxGeometry(0.085, 0.05, 0.014), M.shades, s * 0.053, -0.004, 0.004, gl); const arm = pm(new THREE.BoxGeometry(0.008, 0.01, 0.16), M.shades, s * 0.098, 0.006, -0.08, gl); arm.rotation.y = s * 0.06; }
+    pm(new THREE.BoxGeometry(0.03, 0.008, 0.012), M.shades, 0, 0.006, 0.004, gl);
   }
-  pmesh(new THREE.BoxGeometry(0.03, 0.006, 0.006), FM.frame, 0, 0.012, 0, gl);
+  // hat
   P.hat = new THREE.Group(); head.add(P.hat);
-  // arms: sleeves rolled to the elbow (left = +X)
+  const ht = L.hat;
+  if (ht === 'akubra') { pm(new THREE.CylinderGeometry(0.31, 0.31, 0.014, 26), M.hat, 0, 0.315, 0.01, P.hat); pm(new THREE.CylinderGeometry(0.15, 0.178, 0.13, 20), M.hat, 0, 0.375, 0.01, P.hat); pm(new THREE.CylinderGeometry(0.18, 0.18, 0.03, 20), M.hatDark, 0, 0.34, 0.01, P.hat); }
+  else if (ht === 'cap' || ht === 'capback') {
+    const d = pm(new THREE.SphereGeometry(0.19, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), M.hat, 0, 0.27, 0.01, P.hat); d.scale.set(0.97, 0.92, 1.04);
+    const pk = pm(new THREE.BoxGeometry(0.2, 0.012, 0.15), M.hatDark, 0, 0.285, ht === 'cap' ? 0.2 : -0.2, P.hat); pk.rotation.x = ht === 'cap' ? 0.12 : -0.12;
+  }
+  else if (ht === 'beanie') { const d = pm(new THREE.SphereGeometry(0.192, 18, 12, 0, Math.PI * 2, 0, 1.95), M.hat, 0, 0.25, 0.005, P.hat); d.scale.set(0.97, 1.0, 1.04); pm(new THREE.CylinderGeometry(0.192, 0.192, 0.05, 18), M.hatDark, 0, 0.285, 0.008, P.hat).scale.set(0.97, 1, 1.04); }
+  else if (ht === 'bucket') { pm(new THREE.CylinderGeometry(0.17, 0.185, 0.14, 18), M.hat, 0, 0.35, 0.01, P.hat); pm(new THREE.CylinderGeometry(0.27, 0.19, 0.045, 20), M.hat, 0, 0.285, 0.01, P.hat); }
+  else if (ht === 'beret') { const d = pm(new THREE.SphereGeometry(0.2, 16, 10), M.hat, 0.02, 0.37, 0.0, P.hat); d.scale.set(1.12, 0.34, 1.12); d.rotation.z = -0.12; pm(new THREE.CylinderGeometry(0.008, 0.008, 0.04, 5), M.hatDark, 0.02, 0.425, 0, P.hat); }
+  // arms
   for (const s of [1, -1]) {
     const sh = pivotAt(torso, s * 0.27, 0.55, 0);
-    pmesh(new THREE.CapsuleGeometry(0.068, 0.22, 4, 8), FM.shirt, 0, -0.15, 0, sh);
     const el = pivotAt(sh, 0, -0.31, 0);
-    pmesh(new THREE.CylinderGeometry(0.074, 0.07, 0.07, 10), FM.shirtDark, 0, 0.0, 0, el);     // rolled cuff
-    pmesh(new THREE.CapsuleGeometry(0.05, 0.2, 4, 8), FM.skin, 0, -0.14, 0, el);
-    pmesh(new THREE.SphereGeometry(0.062, 10, 8), FM.skin, 0, -0.28, 0.01, el);
+    if (longSl) {
+      pm(new THREE.CapsuleGeometry(0.068, 0.22, 4, 8), M.shirt, 0, -0.15, 0, sh);
+      if (sty === 'drill') { pm(new THREE.CylinderGeometry(0.074, 0.07, 0.07, 10), M.shirtDark, 0, 0.0, 0, el); pm(new THREE.CapsuleGeometry(0.05, 0.2, 4, 8), M.skin, 0, -0.14, 0, el); }     // sleeves rolled
+      else { pm(new THREE.CapsuleGeometry(0.058, 0.2, 4, 8), M.shirt, 0, -0.14, 0, el); pm(new THREE.CylinderGeometry(0.058, 0.054, 0.045, 10), M.shirtDark, 0, -0.26, 0, el); }
+    } else if (sty === 'tee') {
+      pm(new THREE.CapsuleGeometry(0.07, 0.1, 4, 8), M.shirt, 0, -0.07, 0, sh); pm(new THREE.CapsuleGeometry(0.058, 0.13, 4, 8), M.skin, 0, -0.22, 0, sh); pm(new THREE.CapsuleGeometry(0.05, 0.2, 4, 8), M.skin, 0, -0.14, 0, el);
+    } else { pm(new THREE.CapsuleGeometry(0.064, 0.22, 4, 8), M.skin, 0, -0.15, 0, sh); pm(new THREE.CapsuleGeometry(0.05, 0.2, 4, 8), M.skin, 0, -0.14, 0, el); }
+    pm(new THREE.SphereGeometry(0.062, 10, 8), M.skin, 0, -0.28, 0.01, el);
+    if (sty === 'hivis') pm(new THREE.CylinderGeometry(0.07, 0.07, 0.04, 10), M.band, 0, -0.16, 0, sh);
     if (s > 0) { P.shL = sh; P.elL = el; } else { P.shR = sh; P.elR = el; }
   }
-  P.can = pivotAt(P.elR, 0, -0.33, 0.05);                     // (empty: nothing in his hands on foot)
+  P.can = pivotAt(P.elR, 0, -0.33, 0.05);
   const remote = pivotAt(torso, 0, 0.3, 0.4); P.remote = remote; remote.visible = false;
-  pmesh(new THREE.BoxGeometry(0.2, 0.05, 0.1), FM.remote, 0, 0, 0, remote);
-  for (const s of [-1, 1]) pmesh(new THREE.CylinderGeometry(0.012, 0.012, 0.04, 6), FM.dark, s * 0.06, 0.04, 0, remote);
-  // legs: work shorts to just above the knee, bare legs, white clogs
+  pm(new THREE.BoxGeometry(0.2, 0.05, 0.1), M.remote, 0, 0, 0, remote);
+  for (const s of [-1, 1]) pm(new THREE.CylinderGeometry(0.012, 0.012, 0.04, 6), M.dark, s * 0.06, 0.04, 0, remote);
+  // legs
   for (const s of [1, -1]) {
     const hip = pivotAt(body, s * 0.1, -0.02, 0);
-    pmesh(new THREE.CylinderGeometry(0.105, 0.098, 0.26, 10), FM.shorts, 0, -0.12, 0, hip);
-    const knee = pivotAt(hip, 0, -0.34, 0);
-    pmesh(new THREE.CapsuleGeometry(0.05, 0.08, 4, 8), FM.skin, 0, 0.06, 0, knee);
-    pmesh(new THREE.CapsuleGeometry(0.046, 0.24, 4, 8), FM.skin, 0, -0.16, 0, knee);
-    const clog = pmesh(new THREE.CapsuleGeometry(0.062, 0.17, 4, 10), FM.clog, 0, -0.37, 0.06, knee); clog.rotation.x = Math.PI / 2; clog.scale.set(1.08, 1, 0.75);
-    pmesh(new THREE.BoxGeometry(0.13, 0.022, 0.3), FM.clog, 0, -0.418, 0.06, knee);
-    for (let i = 0; i < 6; i++) pmesh(new THREE.CylinderGeometry(0.009, 0.009, 0.01, 6), FM.hole, ((i % 2) - 0.5) * 0.05, -0.322, 0.11 + Math.floor(i / 2) * 0.035, knee);
-    const strap = pmesh(new THREE.TorusGeometry(0.055, 0.009, 6, 14, Math.PI), FM.clog, 0, -0.37, -0.04, knee); strap.rotation.set(0, Math.PI / 2, Math.PI / 2);
+    if (longLeg) pm(new THREE.CylinderGeometry(0.105, 0.098, 0.36, 10), M.shorts, 0, -0.17, 0, hip);
+    else if (L.legs === 'stubbies') pm(new THREE.CylinderGeometry(0.108, 0.104, 0.16, 10), M.shorts, 0, -0.07, 0, hip);
+    else pm(new THREE.CylinderGeometry(0.105, 0.098, 0.26, 10), M.shorts, 0, -0.12, 0, hip);
+    const knee = pivotAt(hip, 0, -0.34, 0), lm = longLeg ? M.shorts : M.skin;
+    pm(new THREE.CapsuleGeometry(0.05, 0.08, 4, 8), lm, 0, 0.06, 0, knee);
+    pm(new THREE.CapsuleGeometry(longLeg ? 0.049 : 0.046, 0.24, 4, 8), lm, 0, -0.16, 0, knee);
+    if (L.shoes === 'thongs') {
+      pm(new THREE.CapsuleGeometry(0.05, 0.06, 4, 8), M.skin, 0, -0.33, 0.01, knee);
+      pm(new THREE.BoxGeometry(0.1, 0.03, 0.22), M.skin, 0, -0.395, 0.08, knee);
+      pm(new THREE.BoxGeometry(0.115, 0.02, 0.29), M.clog, 0, -0.418, 0.07, knee);
+      pm(new THREE.BoxGeometry(0.105, 0.012, 0.012), M.clog, 0, -0.378, 0.1, knee);
+      for (const t of [-1, 1]) { const b = pm(new THREE.BoxGeometry(0.012, 0.012, 0.12), M.clog, t * 0.038, -0.384, 0.05, knee); b.rotation.y = -t * 0.55; }
+    } else {
+      const clog = pm(new THREE.CapsuleGeometry(0.062, 0.17, 4, 10), M.clog, 0, -0.37, 0.06, knee); clog.rotation.x = Math.PI / 2; clog.scale.set(1.08, 1, 0.75);
+      pm(new THREE.BoxGeometry(0.13, 0.022, 0.3), L.shoes === 'boots' ? M.shoeSole : M.clog, 0, -0.418, 0.06, knee);
+      if (L.shoes === 'boots') pm(new THREE.CylinderGeometry(0.06, 0.066, 0.2, 10), M.clog, 0, -0.29, 0, knee);
+      else {
+        for (let i = 0; i < 6; i++) pm(new THREE.CylinderGeometry(0.009, 0.009, 0.01, 6), M.hole, ((i % 2) - 0.5) * 0.05, -0.322, 0.11 + Math.floor(i / 2) * 0.035, knee);
+        const strap = pm(new THREE.TorusGeometry(0.055, 0.009, 6, 14, Math.PI), M.clog, 0, -0.37, -0.04, knee); strap.rotation.set(0, Math.PI / 2, Math.PI / 2);
+      }
+    }
     if (s > 0) { P.hipL = hip; P.kneeL = knee; } else { P.hipR = hip; P.kneeR = knee; }
   }
-  root.scale.setScalar(0.9);
+  root.scale.setScalar(0.9 * lookH(L));
+  lookScales(P, L);
   return P;
 }
+// weight and muscle: body parts get fatter or thicker (not longer)
+function lookScales(P, L) {
+  const wk = 0.82 + 0.36 * L.w, mk = 1 + 0.2 * L.m;
+  P.belly.scale.x = wk * mk; P.belly.scale.z = 0.74 * (0.8 + 0.4 * L.w) * (1 + 0.1 * L.m);
+  for (const m of P.waist) { m.scale.x = (0.9 + 0.2 * L.w) * mk; m.scale.z = 0.92 + 0.16 * L.w; }
+  const lk = (0.9 + 0.2 * L.w) * (1 + 0.28 * L.m), ak = (0.92 + 0.14 * L.w) * (1 + 0.5 * L.m);
+  P.hipL.scale.set(lk, 1, lk); P.hipR.scale.set(lk, 1, lk); P.shL.scale.set(ak, 1, ak); P.shR.scale.set(ak, 1, ak);
+}
+// re-dress an existing farmer in place: pivots (and anything held or attached to them) stay, the clothes and body parts are swapped
+function lookApply(P, look) {
+  const L = lookFix(look), N = buildFarmer(L), keys = ['body', 'torso', 'head', 'glasses', 'hat', 'shL', 'shR', 'elL', 'elR', 'hipL', 'hipR', 'kneeL', 'kneeR'];
+  for (const k of keys) {
+    for (const c of P[k].children.slice()) if (c.userData && c.userData.lk) { P[k].remove(c); if (c.geometry) c.geometry.dispose(); }
+    for (const c of N[k].children.slice()) if (c.userData && c.userData.lk) P[k].add(c);
+  }
+  P.belly = P.vest = N.belly; P.waist = N.waist; P.look = L; lookScales(P, L); return L;
+}
 
-const DAZZA = buildFarmer();
+const DAZZA = buildFarmer(LOOK);
+let FSCALE = 0.9 * lookH(LOOK);
 scene.add(DAZZA.root);
 DAZZA.root.visible = false;
 
@@ -2869,6 +3009,10 @@ function animateFarmer(dt) {
     shLx = -2.3 + f * 0.5; shRx = -2.3 - f * 0.5; shLz = 0.6; shRz = -0.6; elL = elR = -0.4;
     hipL = -0.5 + Math.sin(F.t * 11) * 0.4; hipR = -0.2 - Math.sin(F.t * 11) * 0.4; kneeL = kneeR = 0.8;
     headX = -0.2;
+  } else if (F.mode === 'climb') {
+    const cp = F.cph || 0, c = Math.sin(cp);
+    shLx = -2.55 + c * 0.55; shRx = -2.55 - c * 0.55; shLz = 0.25; shRz = -0.25; elL = -0.5 - Math.max(0, -c) * 0.5; elR = -0.5 - Math.max(0, c) * 0.5;
+    hipL = -0.55 - c * 0.5; hipR = -0.55 + c * 0.5; kneeL = 0.9 + Math.max(0, c) * 0.7; kneeR = 0.9 + Math.max(0, -c) * 0.7; torsoX = 0.08; headX = -0.25; bodyY = 0.02 * Math.abs(c);
   } else if (F.mode === 'down') {
     shLz = 1.3; shRz = -1.3; shLx = shRx = -0.2; hipL = 0.1; hipR = -0.15; elL = elR = -0.2;
   } else if (F.mode === 'getup') {
@@ -4297,7 +4441,7 @@ function seatFarmer(parent, s) {
   DAZZA.root.position.set(s.x, s.hip - 0.702 * s.k, s.z); DAZZA.root.quaternion.identity(); DAZZA.root.scale.setScalar(0.9 * s.k);
 }
 function standFarmerAt(spot, yaw, airborne) {
-  scene.attach(DAZZA.root); DAZZA.root.scale.setScalar(0.9);
+  scene.attach(DAZZA.root); DAZZA.root.scale.setScalar(FSCALE);
   F.pos.set(spot.x, spot.y, spot.z); F.yaw = yaw; F.vel.set(0, 0, 0);
   F.onGround = !airborne; F.mode = airborne ? 'air' : 'walk'; F.fallY = spot.y; setFarmerProps(F.mode);
   placeFarmerRoot();
@@ -4536,7 +4680,7 @@ function nearestVehicle() {
   let best = null, bd = Infinity;
   for (const v of Object.values(VEH)) {
     let d;
-    if ((v.kind === 'air' && v.st.crashed) || v.coast || v.mp) continue;
+    if ((v.kind === 'air' && v.st.crashed) || v.coast || v.mp || v.npc) continue;
     if (isRemote(v)) { d = F.pos.distanceTo(v.st.pos); if (d > v.range) continue; d += 6; }      // a remote control works from a distance
     else {
       if (v.kind === 'air' && (!v.st.landed || (v.P.plane && v.st.spd > 1))) continue;
@@ -4556,6 +4700,7 @@ const ACT = { more: false, for: '' };
 function updateActions() {
   let items = [];
   if (activeName === 'foot') {
+    ladderActions(items); npcActions(items);
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: 'Open the gun locker', cls: 'warn' });
@@ -4603,7 +4748,7 @@ function updateActions() {
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
-  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|extOut|extIn|spray|flip|locker)$|^(in|jack):/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
+  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc):/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
   if (items.length > 3) { const keep = items.filter(pri), rest = items.filter(it => !pri(it));
     if (rest.length) items = ACT.more ? [...keep, { id: 'more', label: '\u2715', cls: 'more' }, ...rest] : [...keep, { id: 'more', label: '\u22ef', cls: 'more' }]; }
   const key = JSON.stringify(items); if (key === actKey) return; actKey = key;
@@ -4621,6 +4766,8 @@ function doAction(id) {
   if (id === 'more') { ACT.more = !ACT.more; actKey = ''; return; }
   if (id.startsWith('in:')) enterVehicle(id.slice(3));
   else if (id.startsWith('jack:')) mpJack(id.slice(5));
+  else if (id.startsWith('lad:')) ladAct(id);
+  else if (id === 'npc:kick') npcKick();
   else if (id === 'locker') wpnOpenLocker();
   else if (id === 'mxgo') mxGo(true);
   else if (id === 'mxhome') mxGo(false);
@@ -4883,12 +5030,12 @@ function updateWorld(dt) {
     if (isRemote(v)) { F.yaw = Math.atan2(v.st.pos.x - F.pos.x, v.st.pos.z - F.pos.z); farmerStep(dt, false); placeFarmerRoot(); }
     else animateFarmer(dt);
   }
-  applyView(dt);
+  applyView(dt); lookCamStep(dt);
   if (activeName === 'foot' && F.mode === 'walk' && F.speedH < 0.1) { idleSayT += dt; if (idleSayT > 24) { say('idle'); idleSayT = 0; } } else idleSayT = 0;
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
+  hudStep(dt); npcStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) drawMinimap();
@@ -7635,6 +7782,12 @@ function pigStep(a, dt) {
     const d = Math.hypot(foot.x - a.pos.x, foot.z - a.pos.z);
     if (d < 11 && a.chargeCD <= 0) { a.chargeCD = 30; if (Math.random() < 0.45) { a.st = 'paw'; a.t = 0; faSay(a.pos, 'fa_grunt2', 1.2, 0.85); if (!FA.told.charge) { FA.told.charge = 1; toast('Boar’s not happy… move!', 2); } } }
   }
+  // ambush: at random times a shed pig (or the boar) stops, paws the ground and comes for you
+  if ((a.shed || a.boar) && foot && foot.walk && activeName === 'foot' && (a.st === 'walk' || a.st === 'root')) {
+    a.ambT = (a.ambT == null ? 20 + Math.random() * 40 : a.ambT) - dt;
+    if (a.ambT <= 0) { a.ambT = 25 + Math.random() * 50; const d = Math.hypot(foot.x - a.pos.x, foot.z - a.pos.z);
+      if (d < 24 && d > 2.5 && Math.abs(foot.y - a.pos.y) < 1.5) { a.st = 'paw'; a.t = 0; faSay(a.pos, 'fa_grunt2', 1.2, 0.85); if (!FA.told.amb) { FA.told.amb = 1; toast('That pig’s got a look in its eye…', 2.2); } } }
+  }
   const dang = a.st === 'charge' || a.st === 'paw' ? null : faDanger(a, 1.1, 15, 16, 12);      // walk up quietly and they only shuffle off; run at them and they bolt
   if (dang && a.st !== 'flee') { a.st = 'flee'; a.t = 0; a.fleeH = dang.h; if (Math.random() < 0.7) faSay(a.pos, Math.random() < 0.55 ? 'fa_yelp' : 'fa_grunt1', 0.9, (0.92 + Math.random() * 0.2) / a.s, 18); }
   else if (dang) a.fleeH = dang.h;
@@ -7643,7 +7796,7 @@ function pigStep(a, dt) {
   else if (a.st === 'charge') {
     if (!foot || activeName !== 'foot') { a.st = 'flee'; a.t = 0; }
     else { const dx = foot.x - a.pos.x, dz = foot.z - a.pos.z, d = Math.hypot(dx, dz); h = Math.atan2(dx, dz); sp = 7.5;
-      if (d < 0.85 && F.mode === 'walk') { startTumble(new THREE.Vector3(dx / d * 4.5, 4.2, dz / d * 4.5)); camShake = Math.max(camShake, 0.7); faSay(a.pos, 'fa_grunt0', 1.3, 0.8); sfx('thud', a.pos, 0.8); say('ouch', true);
+      if (d < 0.85 && F.mode === 'walk' && Math.abs(foot.y - a.pos.y) < 1.5) { startTumble(new THREE.Vector3(dx / d * 4.5, 4.2, dz / d * 4.5)); wpnHurt(8 + Math.random() * 6, new THREE.Vector3(dx / d * 2, 1, dz / d * 2), 'pig'); camShake = Math.max(camShake, 0.7); faSay(a.pos, 'fa_grunt0', 1.3, 0.8); sfx('thud', a.pos, 0.8); say('ouch', true);
         toast(FA.told.bowled ? 'Bowled again' : 'Bowled over by a boar', 2.2); FA.told.bowled = 1; a.st = 'flee'; a.t = 0; a.fleeH = h; }
       if (a.t > 4) { a.st = 'flee'; a.t = 0; a.fleeH = h; } }
   }
@@ -7990,7 +8143,7 @@ function faunaStep(dt) {
   for (const a of FA.pigs.slice()) { pigStep(a, dt); const vis = faCamD(a.pos) < 140; a.M.root.visible = vis; if (vis) pigPose(a, dt); }
   for (const G of FA.groups.slice()) { G.t += dt; G.moveT -= dt;
     if (G.st !== 'leave' && G.t > G.life) G.st = 'leave';
-    if (G.st !== 'leave' && G.moveT <= 0) { G.moveT = 35 + Math.random() * 25; G.center = faPick(G.center[0], G.center[1], 25, 1) || G.center; }
+    if (G.st !== 'leave' && G.moveT <= 0) { G.moveT = 35 + Math.random() * 25; G.center = faPick(G.anchor ? G.anchor[0] : G.center[0], G.anchor ? G.anchor[1] : G.center[1], G.anchor ? 14 : 25, 1) || G.center; }
     for (const a of G.pigs.slice()) { const far = faCamD(a.pos) > 70;
       if (a.st === 'down' && a.downT > 90 && far) removePig(a);
       else if (G.st === 'leave' && G.exit && a.st !== 'down' && a.st !== 'tumble' && Math.hypot(a.pos.x - G.exit[0], a.pos.z - G.exit[1]) < 3 && faCamD(a.pos) > 25) removePig(a); } }
@@ -8481,7 +8634,7 @@ function mpRecv(m) {
   }
   if (m.k === 'ros') { MP.roster = m.roster; const me = m.roster.find(r => r.id === MP.me); if (me) MP.slot = me.slot; for (const r of m.roster) { const p = MP.peers.get(r.id); if (p) { p.slot = r.slot; p.name = r.name; mpTint(p); } } mpSheet(); return; }
   if (m.k === 'bye') { const p = MP.peers.get(m.f); if (p) { toast(p.name + ' left', 1.8); mpDrop(p); MP.peers.delete(m.f); } if (MP.host) { MP.roster = MP.roster.filter(r => r.id !== m.f); mpSend({ k: 'ros', f: MP.me, roster: MP.roster }); } mpSheet(); return; }
-  if (m.k === 's') { const p = mpPeer(m.f); const now = MP.clock; p.buf.push({ ...m, at: now }); if (p.buf.length > 40) p.buf.shift(); p.last = now;
+  if (m.k === 's') { const p = mpPeer(m.f); if (m.lk && m.lk !== p.lk) mpPeerLook(p, m.lk); const now = MP.clock; p.buf.push({ ...m, at: now }); if (p.buf.length > 40) p.buf.shift(); p.last = now;
     const off = now - m.t; p.offs.push(off); if (p.offs.length > 30) p.offs.shift(); p.off = Math.min(...p.offs); return; }
   if (m.k === 'sh' || m.k === 'dmg' || m.k === 'boom' || m.k === 'fire' || m.k === 'vdmg' || m.k === 'fl') { if (typeof wpnNet === 'function') wpnNet(m); return; }
   if (m.k === 'jack') { mpGotJacked(m); return; }
@@ -8524,7 +8677,7 @@ const MP_JOINTS = P => [P.hipL.rotation.x, P.hipR.rotation.x, P.kneeL.rotation.x
   P.torso.rotation.x, P.torso.rotation.y, P.body.rotation.z, P.head.rotation.x, P.head.rotation.y, P.body.position.y, P.belly.scale.y];
 function mpState() {
   const R = DAZZA.root; R.updateWorldMatrix(true, false); R.getWorldPosition(_mpP); R.getWorldQuaternion(_mpQ);
-  const o = { k: 's', f: MP.me, t: MP.clock, a: activeName, m: F.mode, c: DAZZA.can.visible ? 1 : 0, rm: DAZZA.remote.visible ? 1 : 0,
+  const o = { k: 's', lk: LOOKC, f: MP.me, t: MP.clock, a: activeName, m: F.mode, c: DAZZA.can.visible ? 1 : 0, rm: DAZZA.remote.visible ? 1 : 0,
               r: [_mpP.x, _mpP.y, _mpP.z, _mpQ.x, _mpQ.y, _mpQ.z, _mpQ.w].map(mpR), j: MP_JOINTS(DAZZA).map(mpR) };
   const v = activeVeh();
   if (v && v.kind === 'ground') { const T = v.model; o.g = [S.pos.x, S.pos.y, S.pos.z, S.yaw, S.pitch, S.roll, T.body.rotation.x, T.body.rotation.z, T.body.position.y, S.steer || 0, S.v].map(mpR); }
@@ -8937,7 +9090,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll();
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -9247,6 +9400,7 @@ function wpnTrace(o, d, far) {
     const t = rayOBB(o, d, b, best.t); if (t !== null && t < best.t && t > 0.3) best = { t, kind: 'veh', v }; }
   for (const a of FA.pigs) { const s = a.s || 1, c = _w2.set(a.pos.x, a.pos.y + (a.st === 'down' ? 0.25 : 0.45) * s, a.pos.z);
     const t = raySphere(o, d, c, 0.42 * s, best.t); if (t !== null && t < best.t) best = { t, kind: 'pig', a }; }
+  npcTrace(o, d, best);
   if (MP.on) for (const p of MP.peers.values()) { if (p.veh) continue; const R = p.av.root.position;
     for (const [hy, r] of [[0.35, 0.3], [0.8, 0.32], [1.2, 0.3], [1.6, 0.2]]) { const t = raySphere(o, d, _w2.set(R.x, R.y + hy, R.z), r, best.t); if (t !== null && t < best.t) best = { t, kind: 'mate', p, head: hy > 1.5 }; } }
   best.point = o.clone().addScaledVector(d, best.t);
@@ -9283,6 +9437,7 @@ function wpnApplyHit(hit, d, dmg, W) {
     return;
   }
   if (hit.kind === 'pig') { wpnPigShot(hit.a, d, dmg, P); return; }
+  if (hit.kind === 'npc') { npcShot(hit.n, d, dmg, P, hit.head); return; }
   if (hit.kind === 'mate') { const p = hit.p, dm = Math.round(dmg * (hit.head ? 2.6 : 1)); wpnBloodSpray(P, d, Math.min(30, 6 + dm * 0.5)); WPN.hitT = 0.25; WPN.hitKind = hit.head ? 'head' : 'body';
     mpSend({ k: 'dmg', f: MP.me, to: p.id, dmg: dm, v: [d.x * (3 + dm * 0.05), 1 + dm * 0.03, d.z * (3 + dm * 0.05)] }); return; }
 }
@@ -9433,6 +9588,7 @@ function wpnBoom(P, R, pw, local, quiet) {
     wpnVehDamage(v, 300 * k * pw, dir, 'blast', true); dmgBlast(v, P, R); }
   for (const a of FA.pigs) { const dd = a.pos.distanceTo(P), k = 1 - dd / (R * 1.3); if (k <= 0) continue; const dir = _w4.copy(a.pos).sub(P).setY(0).normalize();
     wpnPigShot(a, dir, 120 * k, _w3.copy(a.pos).setY(a.pos.y + 0.4)); if (a.st === 'tumble') { a.vel.set(dir.x * 10 * k, 5 + 6 * k, dir.z * 10 * k); a.spin.multiplyScalar(2); } wpnBloodSpray(_w3.copy(a.pos).setY(a.pos.y + 0.4), _w2.set(0, 1, 0), 30); }
+  npcBlast(P, R);
   if (activeName === 'foot') { const dd = F.pos.distanceTo(P), k = 1 - dd / (R * 1.4); if (k > 0) { const dir = _w4.copy(F.pos).sub(P).setY(0).normalize(); const vel = new THREE.Vector3(dir.x * 11 * k, 5 + 6 * k, dir.z * 11 * k); if (F.mode === 'walk' || F.mode === 'air' || F.mode === 'emote') startTumble(vel); wpnHurt(140 * k * pw, vel, 'blast'); } }
   for (const P2 of WPN.proj.slice()) if (P2.id !== 'rpg' && P2.pos.distanceTo(P) < R * 0.6 && (P2.id === 'grenade' || P2.id === 'sticky')) { setTimeout(() => { if (WPN.proj.includes(P2)) { wpnBoom(P2.pos.clone(), WEAPONS[P2.id].R, WEAPONS[P2.id].pw); wpnRemove(P2); } }, 120); }
 }
@@ -9638,11 +9794,12 @@ const MEL_OUCH = {
   jab: ['Ow, the knuckles', 'That’s tin, mate'], cross: ['Ow, the knuckles', 'That’s tin, mate'], upper: ['Uppercut a steel beam. Smart.', 'Ow ow ow'],
   kick: ['Tornado-kicked a post. Ow.', 'Something went crunch. It was you'], head: ['Headbutted it. Genius.', 'Seeing stars'],
 };
-const melAnimals = () => FA.pigs.filter(a => a.st !== 'down' && a.st !== 'tumble').concat(FA.wal || []);
+const melAnimals = () => FA.pigs.filter(a => a.st !== 'down' && a.st !== 'tumble').concat(FA.wal || []).concat(NPC.list.filter(n => npcAlive(n) && n.st !== 'drive'));
 function melTarget(r) {
   if (activeName !== 'foot' || F.mode !== 'walk' || F.dead > 0) return null;
   let best = null, bd = r;
   for (const a of FA.pigs) { if (a.st === 'down' || a.st === 'tumble') continue; const d = Math.hypot(a.pos.x - F.pos.x, a.pos.z - F.pos.z); if (d < bd) { bd = d; best = a; } }
+  for (const n of NPC.list) { if (!npcAlive(n) || n.st === 'drive') continue; const d = Math.hypot(n.pos.x - F.pos.x, n.pos.z - F.pos.z); if (d < bd) { bd = d; best = n; } }
   return best;
 }
 function melCan() { return activeName === 'foot' && F.dead <= 0 && !wpnArmed() && (F.mode === 'walk' || F.mode === 'air' || !!MEL.cur); }
@@ -9683,7 +9840,7 @@ function melOuch(C, M, s) {
   if (C.kind === 'head' || C.kind === 'kick') MEL.starsT = 2.6;
   toast(lines[Math.floor(Math.random() * lines.length)] + (s.what === 'machine' ? ` (the ${s.v.label || s.v.name} won)` : ''), 2); say('ouch', true);
 }
-function melHitAnimal(a, kind, M) { if (FA.pigs.includes(a)) melHitPig(a, kind, M); else melHitWal(a); MEL.slowT = M.big ? (kind === 'head' ? 0.32 : 0.2) : 0.06; }
+function melHitAnimal(a, kind, M) { if (FA.pigs.includes(a)) melHitPig(a, kind, M); else if (a.npc) npcHit(a, kind, M); else melHitWal(a); MEL.slowT = M.big ? (kind === 'head' ? 0.32 : 0.2) : 0.06; }
 function melStep(dt) {
   MEL.cd -= dt; MEL.comboT -= dt; melStars(dt);
   // fists up when a pig's having a go at you
@@ -10234,10 +10391,502 @@ function hsBuild() {
 }
 /*HS-END*/
 
+/* ================================================================
+   CUSTOMISE DAZZA: height, weight, muscle, skin, hair, hat, face, glasses, top, legs, shoes.
+   Opens from the menu. Saved on this device and shown to mates in the yard.
+   ================================================================ */
+const LKUI = { on: false, ang: 0.5, built: false };
+let LOOKC = lookCode(LOOK);
+function lookSave() { try { localStorage.setItem('wfy.look', JSON.stringify(LOOK)); } catch (_) {} }
+function lookSet(patch, save) {
+  LOOK = lookFix(Object.assign({}, LOOK, patch)); lookApply(DAZZA, LOOK); FSCALE = 0.9 * lookH(LOOK); LOOKC = lookCode(LOOK);
+  if (DAZZA.root.parent === scene) DAZZA.root.scale.setScalar(FSCALE);
+  if (save) lookSave();
+}
+function mpPeerLook(p, code) {
+  const L = lookFromCode(code); if (!L) { p.lk = code; return; }
+  lookApply(p.av, L); p.av.root.scale.setScalar(0.9 * lookH(L)); p.lk = code; p.mats = null; mpTint(p);
+}
+const LKROWS = [
+  ['sl', 'h', 'Height', 'Short', 'Tall'], ['sl', 'w', 'Weight', 'Lean', 'Heavy'], ['sl', 'm', 'Muscle', 'Skinny', 'Jacked'],
+  ['sw', 'skin', 'Skin', LK.skin], ['ch', 'hair', 'Hair', LK.styles.hair], ['sw', 'hc', 'Hair colour', LK.hair], ['ch', 'fh', 'Face', LK.styles.fh],
+  ['ch', 'hat', 'Hat', LK.styles.hat], ['sw', 'hatc', 'Hat colour', LK.hat], ['ch', 'gl', 'Glasses', LK.styles.gl],
+  ['ch', 'shirt', 'Top', LK.styles.shirt], ['sw', 'sc', 'Top colour', LK.shirt], ['ch', 'legs', 'Legs', LK.styles.legs], ['sw', 'lc', 'Legs colour', LK.legs],
+  ['ch', 'shoes', 'Shoes', LK.styles.shoes], ['sw', 'shc', 'Shoe colour', LK.shoe]
+];
+function lookUIBuild() {
+  if (LKUI.built) return; LKUI.built = true;
+  const st = document.createElement('style');
+  st.textContent = `#lookSheet{position:fixed;z-index:32;top:max(10px,env(safe-area-inset-top,0px));right:max(10px,env(safe-area-inset-right,0px));bottom:max(10px,env(safe-area-inset-bottom,0px));width:min(340px,50vw);display:none;flex-direction:column;background:var(--card);border-radius:18px;box-shadow:var(--shadow);font:14px/1.35 var(--font);color:var(--ink);overflow:hidden}
+#lookSheet.show{display:flex}#lookSheet .lh{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px}#lookSheet h2{margin:0;font-size:17px}
+#lookSheet .lb{flex:1;overflow:auto;padding:0 14px 8px;-webkit-overflow-scrolling:touch}#lookSheet .lr{margin:8px 0 2px}#lookSheet .ll{font:700 11px var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+#lookSheet .lc{display:flex;flex-wrap:wrap;gap:5px}#lookSheet .lc button{border:1.5px solid var(--inset);background:var(--card-2);color:var(--ink);border-radius:999px;padding:6px 11px;font:600 13px var(--font);cursor:pointer}
+#lookSheet .lc button.on{background:var(--accent);border-color:var(--accent);color:#fff}#lookSheet .lc button.sw{width:30px;height:30px;padding:0;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1.5px var(--inset)}
+#lookSheet .lc button.sw.on{box-shadow:0 0 0 3px var(--accent)}#lookSheet input[type=range]{width:100%;accent-color:var(--accent)}#lookSheet .lm{display:flex;justify-content:space-between;font:600 11px var(--font);color:var(--ink-3)}
+#lookSheet .lf{display:flex;gap:8px;padding:8px 14px 12px;border-top:1px solid var(--sep)}#lookSheet .lf button{flex:1;height:40px;border-radius:12px;border:0;font:700 14px var(--font);cursor:pointer;background:var(--inset);color:var(--ink)}
+#lookSheet .lf button.pri{background:var(--accent);color:#fff}#lookX{width:34px;height:34px;border-radius:50%;border:0;background:var(--inset);font:700 16px var(--font);cursor:pointer;color:var(--ink)}
+@media (max-aspect-ratio:1/1){#lookSheet{top:auto;left:10px;right:10px;width:auto;height:52vh}}`;
+  document.head.appendChild(st);
+  const sh = document.createElement('div'); sh.id = 'lookSheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-label', 'Customise Dazza');
+  sh.innerHTML = '<div class="lh"><h2>Customise Dazza</h2><button id="lookX" type="button" aria-label="Close">&times;</button></div><div class="lb" id="lookBody"></div><div class="lf"><button type="button" id="lookRnd">Surprise me</button><button type="button" id="lookRst">Reset</button><button type="button" id="lookOk" class="pri">Done</button></div>';
+  document.body.appendChild(sh);
+  const body = sh.querySelector('#lookBody');
+  for (const r of LKROWS) {
+    const row = document.createElement('div'); row.className = 'lr'; row.dataset.k = r[1];
+    const lab = document.createElement('div'); lab.className = 'll'; lab.textContent = r[2]; row.appendChild(lab);
+    if (r[0] === 'sl') {
+      const inp = document.createElement('input'); inp.type = 'range'; inp.min = 0; inp.max = 100; inp.step = 1; inp.dataset.k = r[1];
+      inp.addEventListener('input', () => lookSet({ [r[1]]: inp.value / 100 }, false)); inp.addEventListener('change', lookSave);
+      const m = document.createElement('div'); m.className = 'lm'; m.innerHTML = '<span>' + r[3] + '</span><span>' + r[4] + '</span>'; row.appendChild(inp); row.appendChild(m);
+    } else {
+      const c = document.createElement('div'); c.className = 'lc';
+      const opts = r[0] === 'sw' ? r[3].map((h, i) => [i, LK.names[r[1] === 'skin' ? 'skin' : r[1] === 'hc' ? 'hair' : r[1] === 'hatc' ? 'hat' : r[1] === 'sc' ? 'shirt' : r[1] === 'lc' ? 'legs' : 'shoe'][i], h]) : r[3];
+      for (const o of opts) {
+        const b = document.createElement('button'); b.type = 'button'; b.dataset.v = o[0];
+        if (r[0] === 'sw') { b.className = 'sw'; b.style.background = '#' + o[2].toString(16).padStart(6, '0'); b.setAttribute('aria-label', o[1]); b.title = o[1]; } else b.textContent = o[1];
+        b.addEventListener('click', () => {
+          const v = r[1] === 'fh' || r[0] === 'sw' ? +o[0] : o[0], p = { [r[1]]: v };
+          if (r[1] === 'shoes' && v === 'boots' && LOOK.shc === 3) p.shc = 0;
+          lookSet(p, true); lookUIFill();
+        });
+        c.appendChild(b);
+      }
+      row.appendChild(c);
+    }
+    body.appendChild(row);
+  }
+  const close = () => lookUIOpen(false);
+  $('lookX').addEventListener('click', close); $('lookOk').addEventListener('click', close);
+  $('lookRst').addEventListener('click', () => { lookSet(Object.assign({}, LOOK_DEFAULT), true); lookUIFill(); });
+  $('lookRnd').addEventListener('click', () => {
+    const pk = a => a[Math.floor(Math.random() * a.length)], p = { h: Math.random(), w: Math.random(), m: Math.random() * 0.8, skin: Math.floor(Math.random() * 5), hair: pk(LK.styles.hair)[0], hc: Math.floor(Math.random() * 5), fh: Math.floor(Math.random() * 4),
+      hat: pk(LK.styles.hat)[0], hatc: Math.floor(Math.random() * 5), gl: pk(LK.styles.gl)[0], shirt: pk(LK.styles.shirt)[0], sc: Math.floor(Math.random() * 8), legs: pk(LK.styles.legs)[0], lc: Math.floor(Math.random() * 6), shoes: pk(LK.styles.shoes)[0], shc: Math.floor(Math.random() * 3) };
+    lookSet(p, true); lookUIFill();
+  });
+}
+function lookUIFill() {
+  for (const row of $('lookBody').children) {
+    const k = row.dataset.k, v = LOOK[k], inp = row.querySelector('input');
+    if (inp) inp.value = Math.round(v * 100);
+    for (const b of row.querySelectorAll('button')) b.classList.toggle('on', String(b.dataset.v) === String(v));
+  }
+}
+function lookUIOpen(on) {
+  lookUIBuild(); LKUI.on = on; $('lookSheet').classList.toggle('show', on);
+  if (on) { lookUIFill(); LKUI.ang = 0.5; } else { camera.clearViewOffset(); lookSave(); camInit = false; }
+}
+// the camera swings round to the front of Dazza while the sheet is open
+function lookCamStep(dt) {
+  if (!LKUI.on) return;
+  LKUI.ang += dt * 0.35; const R = DAZZA.root; R.updateWorldMatrix(true, false); R.getWorldPosition(_v1);
+  const yaw = F.mode === 'seated' ? R.rotation.y : F.yaw, a = yaw + LKUI.ang, d = 3.0 * Math.max(0.9, lookH(LOOK));
+  camera.position.set(_v1.x + Math.sin(a) * d, _v1.y + 1.15, _v1.z + Math.cos(a) * d); camera.lookAt(_v1.x, _v1.y + 0.95, _v1.z);
+  const w = innerWidth, h = innerHeight, port = h > w;
+  camera.setViewOffset(w, h, port ? 0 : w * 0.2, port ? h * 0.2 : 0, w, h);
+}
+(() => {
+  const panel = $('menuPanel'), b = document.createElement('button'); b.type = 'button'; b.id = 'lookbtn';
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20c.6-3.8 3.1-6 6.5-6s5.9 2.2 6.5 6"/></svg><span class="mlbl">Customise Dazza</span>';
+  const help = $('helpbtn'); help ? panel.insertBefore(b, help) : panel.appendChild(b);
+  b.addEventListener('click', () => lookUIOpen(true));
+})();
+
+/* ================================================================
+   SILO LADDERS: walk up to a ladder, tap Climb, stick up and down to go, step off onto the roof.
+   The roof is the cone itself: it is walkable, and it is a long way down if you walk off the edge.
+   ================================================================ */
+var LAD_ON = false;
+const LAD = { cy: 0, G: null, cph: 0, toldRoof: false };
+const ladSilos = () => STRUCTS.groups.filter(G => G.silo);
+const siloOk = G => !G.silo.down && !G.silo.fall;
+const ladBase = G => ({ x: G.silo.x, z: G.silo.z + SILO.r + 0.12, gy: G.silo.gy });
+const LAD_TOP = SILO.h + 0.3;
+// height of the cone roof under (x,z), if you're above it
+function siloRoofY(x, z, fromY) {
+  for (const G of STRUCTS.groups) {
+    const s = G.silo; if (!s || s.down || s.fall) continue;
+    const dx = x - s.x, dz = z - s.z, R = SILO.r + 0.08; if (dx * dx + dz * dz > R * R) continue;
+    const y = s.gy + SILO.h + SILO.roof * (1 - Math.sqrt(dx * dx + dz * dz) / R);
+    if (fromY >= y - 0.05) return y;
+  }
+  return -1e9;
+}
+// standing on or above a silo roof: its own walls and roof boxes mustn't block you
+function ladRoofGroup() {
+  if (!LAD_ON) return null;
+  for (const G of STRUCTS.groups) { const s = G.silo; if (!s || s.down || s.fall) continue;
+    if ((F.pos.x - s.x) ** 2 + (F.pos.z - s.z) ** 2 < (SILO.r + 0.5) ** 2 && F.pos.y > s.gy + SILO.h - 0.4) return G; }
+  return null;
+}
+function ladNear() {
+  if (!LAD_ON || activeName !== 'foot') return null;
+  if (F.mode === 'walk' && F.onGround) for (const G of STRUCTS.groups) { const s = G.silo; if (!s || !siloOk(G)) continue;
+    const L = ladBase(G);
+    if (Math.hypot(F.pos.x - L.x, F.pos.z - L.z) < 1.5 && Math.abs(F.pos.y - L.gy) < 0.7) return { G, dir: 'up' };
+    if (F.pos.y > L.gy + SILO.h - 0.3 && Math.hypot(F.pos.x - s.x, F.pos.z - (s.z + 1.5)) < 1.15) return { G, dir: 'down' }; }
+  return null;
+}
+function ladderActions(items) {
+  if (!LAD_ON || activeName !== 'foot') return;
+  if (F.mode === 'climb') { items.push({ id: 'lad:off', label: 'Let go', cls: 'neg' }); return; }
+  const n = ladNear(); if (n) items.push({ id: 'lad:' + n.dir, label: n.dir === 'up' ? 'Climb the ladder' : 'Climb down', cls: 'warn' });
+}
+function ladAct(id) {
+  if (id === 'lad:off') { if (F.mode === 'climb') { const L = ladBase(LAD.G); F.mode = 'air'; F.onGround = false; F.fallY = F.pos.y; F.vel.set(0, 0.6, 1.6); F.jumpCD = 0.5; F.pos.z = L.z + 0.4; setFarmerProps('air'); LAD.G = null; } return; }
+  const n = ladNear(); if (!n) return;
+  if (MEL && MEL.cur) return;
+  if (typeof WPN !== 'undefined' && WPN.cur) { toast('Put the weapon away to climb', 1.8); return; }
+  LAD.G = n.G; const L = ladBase(n.G);
+  F.mode = 'climb'; F.vel.set(0, 0, 0); F.speedH = 0; F.onGround = false; F.yaw = Math.PI; F.q.setFromAxisAngle(UPV, F.yaw); setFarmerProps('climb');
+  LAD.cy = n.dir === 'up' ? 0 : LAD_TOP; F.pos.set(L.x, L.gy + LAD.cy, L.z + 0.3);
+  if (!LAD.toldRoof) { LAD.toldRoof = true; toast('Stick up or down to climb. Jump to let go', 2.6); }
+}
+function ladClimb(dt, controlled) {
+  const G = LAD.G; if (!G || !siloOk(G)) { F.mode = 'air'; F.onGround = false; F.vel.set(0, 0, 1.5); F.fallY = F.pos.y; setFarmerProps('air'); LAD.G = null; return; }
+  const L = ladBase(G); let iy = 0, jump = false;
+  if (controlled) { iy = THREE.MathUtils.clamp(input.y + input.kWS, -1, 1); jump = input.jump || keys.has(' '); }
+  F.jumpCD = Math.max(0, F.jumpCD - dt);
+  if (jump && F.jumpCD <= 0) { ladAct('lad:off'); return; }
+  LAD.cy += iy * 1.55 * dt; LAD.cph += iy * dt * 3.4; F.cph = LAD.cph;
+  if (Math.abs(iy) > 0.2 && Math.floor(LAD.cph / Math.PI) !== Math.floor((LAD.cph - iy * dt * 3.4) / Math.PI) && typeof sfx === 'function') sfx('thud', F.pos, 0.12, 2.2, 3);
+  F.speedH = 0; F.pos.set(L.x, L.gy + Math.max(0, LAD.cy), L.z + 0.3);
+  if (LAD.cy <= 0 && iy < 0) { F.mode = 'walk'; F.onGround = true; F.pos.set(L.x, L.gy, L.z + 0.95); F.vel.set(0, 0, 0); setFarmerProps('walk'); LAD.G = null; return; }
+  if (LAD.cy >= LAD_TOP && iy > 0) {                                      // over the top and onto the roof
+    const s = G.silo; F.mode = 'walk'; F.onGround = true; STRUCTS.skip = G; const ry = groundAt(s.x, s.z + 1.5, s.gy + SILO.h + 3, s.gy + SILO.h + 0.4); STRUCTS.skip = null; F.pos.set(s.x, ry, s.z + 1.5); F.vel.set(0, 0, 0); F.yaw = 0; setFarmerProps('walk'); LAD.G = null;
+    toast('On the roof. Mind the edge', 2); return;
+  }
+}
+// the on-foot step runs with this silo's own boxes switched off while you're on its roof
+const farmerStep0 = farmerStep;
+farmerStep = function (dt, controlled) {
+  if (F.mode === 'climb') { ladClimb(dt, controlled); animateFarmer(dt); placeFarmerRoot(); return; }
+  const G = ladRoofGroup(); if (!G) return farmerStep0(dt, controlled);
+  STRUCTS.skip = G; try { farmerStep0(dt, controlled); } finally { STRUCTS.skip = null; }
+};
+LAD_ON = true;
+
+/* ================================================================
+   MORE LIFE AROUND THE SHED + FRENCH BACKPACKERS
+   - A few resident pigs and wallabies mooch about out front of the machinery shed, and the pigs are not always friendly:
+     at random times one stops, paws the ground and charges you.
+   - Three French backpackers wander the yard. Every so often one hops into a parked machine and drives it round like an idiot.
+     Chase it down on foot and kick them out. They get furious (in French, with subtitles) and want a fight, fists only.
+   Nothing here is meant as a dig at anyone: they are mates having a go.
+   ================================================================ */
+const NPC = { list: [], ready: false, t: 0, told: {}, center: new THREE.Vector3(), anchor: [0, 0], shedT: 3, shedWait: 0, kickCD: 0 };
+const NPC_L = {
+  enter: [['Oh, ça a l’air amusant !', 'Ooh, this looks fun!'], ['Je l’emprunte, d’accord ?', 'I’ll just borrow it, OK?'], ['Allez, on y va !', 'Right, off we go!']],
+  drive: [['Wouhou ! Ça roule !', 'Woo-hoo! Look at it go!'], ['Oh là là, c’est génial !', 'Oh my, this is brilliant!'], ['Vive la France !', 'Long live France!'], ['Pardon, pardon !', 'Sorry, sorry!'], ['Je conduis comme un pro !', 'I drive like a pro!']],
+  kicked: [['Eh ! Mais qu’est-ce que tu fais ?!', 'Hey! What are you doing?!'], ['C’est ma voiture !', 'That’s my car!'], ['Espèce d’abruti !', 'You absolute idiot!'], ['Tu es fou, toi !', 'You’re mad!']],
+  angry: [['Tu vas voir, toi !', 'You’ll see!'], ['Viens ici, bonhomme !', 'Come here, mate!'], ['Je vais te casser la figure !', 'I’ll smash your face in!'], ['Pauvre type !', 'Loser!'], ['Allez, viens ! Viens !', 'Come on then! Come on!'], ['Tu vas le regretter !', 'You’ll regret this!']],
+  hurt: [['Aïe ! Mon nez !', 'Ow! My nose!'], ['Oh là là !', 'Oh my!'], ['Ça fait mal !', 'That hurts!'], ['Mais arrête !', 'Stop it!']],
+  ko: [['Ça va, ça va ! J’arrête !', 'OK, OK! I’m done!'], ['Pardon… pardon…', 'Sorry… sorry…'], ['Vous êtes tous fous…', 'You’re all mad…']],
+  win: [['Ha ! Je t’avais prévenu !', 'Ha! I warned you!'], ['Et voilà !', 'There you go!']]
+};
+const npcPick = a => a[Math.floor(Math.random() * a.length)];
+const NPC_LOOKS = [
+  { name: 'Mathieu', shirt: 'breton', sc: 7, hat: 'beret', hatc: 1, hair: 'crop', hc: 1, legs: 'long', lc: 1, shoes: 'boots', shc: 1, gl: 'none', fh: 2, skin: 1, h: 0.58, w: 0.3, m: 0.1 },
+  { name: 'Alexandre', shirt: 'tee', sc: 6, hat: 'capback', hatc: 2, hair: 'mullet', hc: 0, legs: 'stubbies', lc: 4, shoes: 'thongs', shc: 3, gl: 'sunnies', fh: 1, skin: 2, h: 0.7, w: 0.2, m: 0.35 },
+  { name: 'Chloé', shirt: 'breton', sc: 1, hat: 'none', hair: 'long', hc: 3, legs: 'shorts', lc: 3, shoes: 'boots', shc: 0, gl: 'none', fh: 0, skin: 1, h: 0.3, w: 0.25, m: 0 }
+];
+function npcBubble(n) {
+  const c = document.createElement('canvas'); c.width = 640; c.height = 170;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true, sizeAttenuation: true })); sp.scale.set(3.6, 0.95, 1); sp.renderOrder = 12; sp.visible = false; scene.add(sp);
+  n.bub = { c, t, sp, time: 0 };
+}
+function npcSay(n, line, dur = 3.2) {
+  if (!n.bub) return; const [fr, en] = line, B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
+  x.fillStyle = 'rgba(255,255,255,.96)'; x.strokeStyle = 'rgba(30,30,40,.8)'; x.lineWidth = 4; x.beginPath(); x.roundRect ? x.roundRect(6, 6, 628, 130, 26) : x.rect(6, 6, 628, 130); x.fill(); x.stroke();
+  x.beginPath(); x.moveTo(300, 134); x.lineTo(320, 166); x.lineTo(340, 134); x.closePath(); x.fillStyle = 'rgba(255,255,255,.96)'; x.fill();
+  x.textAlign = 'center'; x.textBaseline = 'middle'; let fs = 40; x.font = '800 ' + fs + 'px system-ui,sans-serif'; while (x.measureText(fr).width > 590 && fs > 22) { fs -= 2; x.font = '800 ' + fs + 'px system-ui,sans-serif'; }
+  x.fillStyle = '#1b1b22'; x.fillText(fr, 320, 48);
+  fs = 28; x.font = 'italic 600 ' + fs + 'px system-ui,sans-serif'; while (x.measureText(en).width > 590 && fs > 16) { fs -= 2; x.font = 'italic 600 ' + fs + 'px system-ui,sans-serif'; }
+  x.fillStyle = '#5b5f66'; x.fillText(en, 320, 98);
+  B.t.needsUpdate = true; B.sp.visible = true; B.time = dur; B.sp.material.opacity = 1;
+}
+function npcBuild() {
+  NPC.ready = true;
+  const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)];
+  NPC.anchor = [D.cx + U[0] * 15, D.cz + U[1] * 15]; NPC.center.set(NPC.anchor[0], 0, NPC.anchor[1]);
+  NPC_LOOKS.forEach((L, i) => {
+    const P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
+    const pack = new THREE.Group(); P.torso.add(pack);
+    const bm = new THREE.MeshLambertMaterial({ color: [0x5f6b45, 0xb8574a, 0x2f5f8a][i] });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.5, 0.22), bm); body.position.set(0, 0.32, -0.27); pack.add(body);
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.4, 10), new THREE.MeshLambertMaterial({ color: 0xd9c37a })); top.rotation.z = Math.PI / 2; top.position.set(0, 0.62, -0.27); pack.add(top);
+    const pocket = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.08), bm); pocket.position.set(0, 0.2, -0.4); pack.add(pocket);
+    const n = { npc: true, name: L.name, P, root: P.root, pack, look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'wander', t: 0, hp: 60, max: 60, tilt: 0, gy: 0, gT: 0, ph: Math.random() * 6, side: 1, stuck: 0, tgt: null,
+      veh: null, vehT: 6 + i * 7 + Math.random() * 6, driveT: 0, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null };
+    npcBubble(n); NPC.list.push(n); npcPlace(n, i);
+  });
+  NPC.shedWait = 0;
+}
+function npcPlace(n, i) {
+  const p = faPick(NPC.anchor[0], NPC.anchor[1], 16, 0.8, 4) || [NPC.anchor[0], NPC.anchor[1]];
+  if (n.root.parent !== scene) scene.attach(n.root);
+  n.pos.set(p[0], 0, p[1]); n.gy = n.pos.y = groundAt(p[0], p[1], 30, 0); n.yaw = Math.random() * 6.28; n.st = 'wander'; n.t = 0; n.hp = n.max; n.tilt = 0; n.sp = 0; n.tgt = null; n.veh = null; n.pack.visible = true;
+  n.vehT = 8 + (i || 0) * 6 + Math.random() * 8; n.root.scale.setScalar(n.s);
+}
+const npcAlive = n => n.st !== 'ko' && n.st !== 'down' && n.st !== 'tumble' && n.st !== 'getup';
+function npcFace(n, tx, tz, k, dt) { let d = Math.atan2(tx - n.pos.x, tz - n.pos.z) - n.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); n.yaw += d * Math.min(1, k * dt); }
+function npcWalk(n, h, sp, dt, turn = 6) {
+  let d = h - n.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); n.yaw += THREE.MathUtils.clamp(d, -turn * dt, turn * dt);
+  n.sp += (sp - n.sp) * Math.min(1, dt * 6);
+  const nx = n.pos.x + Math.sin(n.yaw) * n.sp * dt, nz = n.pos.z + Math.cos(n.yaw) * n.sp * dt;
+  if (faWalk(nx, nz)) { n.pos.x = nx; n.pos.z = nz; } else { n.sp *= 0.3; n.stuck += dt; }
+  pushOutOfVehicles(n.pos, 0.38);
+  n.gT -= dt; if (n.gT <= 0) { n.gT = 0.1; n.gy = groundAt(n.pos.x, n.pos.z, n.pos.y + 1.4, n.gy); }
+  n.pos.y = n.pos.y + (n.gy - n.pos.y) * Math.min(1, dt * 16);
+}
+// a parked machine one of them can pinch
+function npcPickVehicle(n) {
+  let best = null, bd = 60;
+  for (const name of ['x5', 'bmw', 'tractor', 'suv', 'tele', 'dozer', 'trophy', 'truck']) {
+    const v = VEH[name]; if (!v || v.coast || v.mp || v.npc || name === activeName || (WPN.VD[name] && WPN.VD[name].wrecked) || !v.state || !v.state.pos) continue;
+    if (name === 'tractor' && typeof IMPL !== 'undefined' && IMPL.hooked) continue;
+    const d = Math.hypot(v.state.pos.x - n.pos.x, v.state.pos.z - n.pos.z); if (d < bd) { bd = d; best = v; }
+  }
+  return best;
+}
+function npcEnter(n, v) {
+  n.veh = v; v.npc = n; v.coast = false; n.st = 'drive'; n.driveT = 28 + Math.random() * 34; n.mode = 'zig'; n.modeT = 0; n.sp = 0; n.pack.visible = false;
+  const s = v.seat; (v.kind === 'ground' ? v.model.body : v.model.tilt).add(n.root); n.root.position.set(s.x, s.hip - 0.702 * s.k, s.z); n.root.quaternion.identity(); n.root.scale.setScalar(0.9 * s.k);
+  npcSay(n, npcPick(NPC_L.enter)); sfx && sfx('thud', v.state.pos, 0.25, 1.3, 6);
+}
+const NPC_MODES = ['zig', 'donut', 'rampage', 'reverse', 'stopgo', 'rampage'];
+// drive a machine with the sticks: same trick as a machine rolling to a stop, but with the controls held
+function npcDrive(v, dt, thr, str) {
+  const keepS = snapshotS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepK = [...keys];
+  keys.clear(); input.x = str; input.y = thr; input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
+  activeName = v.name; T = v.model; V = v.spec; drift.on = false; loadS(v.state);
+  step(dt);
+  const vx = S.vx, vz = S.vz, sp = Math.hypot(vx, vz), vF = S.v;
+  v.state = snapshotS();
+  activeName = keepA; T = keepT; V = keepV; drift.on = keepD; loadS(keepS); Object.assign(input, keepIn); keepK.forEach(k => keys.add(k));
+  // run into someone on foot and they go flying
+  if (sp > 3 && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air')) {
+    const o = vehicleOBB(v), dx = F.pos.x - o.cx, dz = F.pos.z - o.cz;
+    const dd = Math.hypot(Math.max(0, Math.abs(dx * o.fx + dz * o.fz) - o.hl), Math.max(0, Math.abs(dx * o.lx + dz * o.lz) - o.hw));
+    if (dd < FOOT.r + 0.1 && F.pos.y < o.top) { startTumble(new THREE.Vector3(vx * 0.8, 3.2, vz * 0.8)); camShake = Math.max(camShake, 0.4); say('ouch', true); }
+  }
+  return vF;
+}
+function npcDriveAI(n, dt) {
+  const v = n.veh, st = v.state; n.modeT -= dt; n.driveT -= dt; n.sayT -= dt;
+  if (n.modeT <= 0) { n.modeT = 4 + Math.random() * 5; n.mode = npcPick(NPC_MODES); n.dir = Math.random() < 0.5 ? -1 : 1; n.wpt = null; }
+  const cap = v.name === 'dozer' ? 3.5 : v.name === 'truck' ? 6 : v.name === 'tractor' || v.name === 'tele' ? 6.5 : 8.5;
+  let thr = 0, str = 0; const t = NPC.t;
+  if (n.mode === 'zig') { thr = 0.8; str = Math.sin(t * 1.7 + n.ph) * 0.95; }
+  else if (n.mode === 'donut') { thr = 0.65; str = n.dir; }
+  else if (n.mode === 'reverse') { thr = -0.7; str = Math.sin(t * 1.1 + n.ph) * 0.8; }
+  else if (n.mode === 'stopgo') { thr = Math.sin(t * 2.2 + n.ph) > 0 ? 1 : -0.2; str = Math.sin(t * 0.8) * 0.5; }
+  else { // rampage: a random spot in the yard, flat out
+    if (!n.wpt || Math.hypot(n.wpt[0] - st.pos.x, n.wpt[1] - st.pos.z) < 4) n.wpt = faPick(NPC.anchor[0], NPC.anchor[1], 34, 3) || [NPC.anchor[0], NPC.anchor[1]];
+    let e = Math.atan2(n.wpt[0] - st.pos.x, n.wpt[1] - st.pos.z) - st.yaw; e = Math.atan2(Math.sin(e), Math.cos(e)); thr = 0.9; str = THREE.MathUtils.clamp(e * 1.6, -1, 1); }
+  if (Math.abs(st.v) > cap && thr > 0) thr = 0;
+  if (n.sayT <= 0 && Math.random() < dt * 0.3) { n.sayT = 6; npcSay(n, npcPick(NPC_L.drive)); }
+  npcDrive(v, dt, thr, str);
+  if (n.driveT <= 0 || (WPN.VD[v.name] && WPN.VD[v.name].wrecked)) npcEject(n, n.driveT <= 0 ? 'park' : 'wreck');
+}
+// out of the machine: bored, kicked out, or the thing blew up
+function npcEject(n, why) {
+  const v = n.veh; if (!v) return;
+  const st = v.state, o = vehicleOBB(v); v.npc = null; n.veh = null; n.pack.visible = true;
+  scene.attach(n.root); n.root.scale.setScalar(n.s);
+  if (st) { const k = why === 'kick' ? 0.15 : 0.5; st.v *= k; st.vx *= k; st.vz *= k; }
+  v.coast = true;
+  const side = o ? (F.pos.x - o.cx) * o.lx + (F.pos.z - o.cz) * o.lz > 0 ? -1 : 1 : 1, lx = o ? o.lx : 1, lz = o ? o.lz : 0, hw = o ? o.hw : 1;
+  const px = (o ? o.cx : n.pos.x) + lx * side * (hw + 0.7), pz = (o ? o.cz : n.pos.z) + lz * side * (hw + 0.7);
+  n.pos.set(px, (o ? o.bottom : st.pos.y) + 0.8, pz); n.gy = groundAt(px, pz, n.pos.y + 2, n.pos.y - 0.8);
+  n.yaw = Math.atan2(lx * side, lz * side) + Math.PI; n.sp = 0;
+  if (why === 'park') { n.pos.y = n.gy; n.st = 'wander'; n.vehT = 20 + Math.random() * 20; n.tgt = null; npcSay(n, ['À plus !', 'See ya!'], 2); return; }
+  const k = why === 'wreck' ? 6 : 4.2; n.vel.set(lx * side * k, 4.2, lz * side * k); n.st = 'tumble'; n.t = 0; n.spinT = (Math.random() < 0.5 ? -1 : 1) * 6; n.angry = true; n.tilt = 0;
+  if (why === 'wreck') { n.hp -= 20; }
+  npcSay(n, npcPick(NPC_L.kicked)); camShake = Math.max(camShake, 0.3);
+}
+// the player's Kick Out button
+function npcKickTarget() {
+  if (!NPC.ready || activeName !== 'foot' || F.mode !== 'walk' || F.dead > 0 || (typeof WPN !== 'undefined' && WPN.cur)) return null;
+  let best = null, bd = 2.3;
+  for (const n of NPC.list) { if (n.st !== 'drive' || !n.veh) continue; const o = vehicleOBB(n.veh); if (!o) continue;
+    const dx = F.pos.x - o.cx, dz = F.pos.z - o.cz, d = Math.hypot(Math.max(0, Math.abs(dx * o.fx + dz * o.fz) - o.hl), Math.max(0, Math.abs(dx * o.lx + dz * o.lz) - o.hw));
+    if (d < bd && Math.abs(F.pos.y - o.bottom) < 2.5) { bd = d; best = n; } }
+  return best;
+}
+function npcKick() {
+  const n = npcKickTarget(); if (!n) return;
+  if (typeof sfx === 'function') sfx('m_punch', n.veh.state.pos, 0.9, 0.8, 8); camShake = Math.max(camShake, 0.3);
+  F.yaw = Math.atan2(n.veh.state.pos.x - F.pos.x, n.veh.state.pos.z - F.pos.z);
+  npcEject(n, 'kick'); toast('Kicked out of the ' + (n.look.name || '') + '’s joyride', 1.6);
+}
+function npcActions(items) {
+  if (!NPC.ready || activeName !== 'foot') return;
+  const n = npcKickTarget(); if (n) items.push({ id: 'npc:kick', label: 'Kick ' + n.name + ' out!', cls: 'neg' });
+}
+// melee hooks: they take a punch like anyone else
+function npcHit(n, kind, M) {
+  const dx = n.pos.x - F.pos.x, dz = n.pos.z - F.pos.z, d = Math.hypot(dx, dz) || 1, nx = dx / d, nz = dz / d;
+  n.hp -= M.dmg; n.angry = true; if (n.st === 'drive') { npcEject(n, 'kick'); return; }
+  if (typeof sfx === 'function') sfx('m_punch', _w1.set(n.pos.x, n.pos.y + 1.2, n.pos.z), M.big ? 1 : 0.75, 0.9 + Math.random() * 0.2, 9); camShake = Math.max(camShake, M.big ? 0.35 : 0.16);
+  if (n.hp <= 0) { n.hp = 0; n.vel.set(nx * (M.push + 1), (M.lift || 1.8) + 1.2, nz * (M.push + 1)); n.st = 'tumble'; n.t = 0; n.spinT = 6; n.ko = true; npcSay(n, npcPick(NPC_L.ko), 3.5); return; }
+  if (M.big || kind === 'upper') { n.vel.set(nx * M.push, (M.lift || 2.2), nz * M.push); n.st = 'tumble'; n.t = 0; n.spinT = -5; n.ko = false; }
+  else { n.st = 'stag'; n.t = 0; n.vel.set(nx * M.push, 0, nz * M.push); }
+  if (Math.random() < 0.6) npcSay(n, npcPick(NPC_L.hurt), 2);
+}
+function npcLaunch(n, vx, vz, dmg) {
+  n.hp -= dmg; n.vel.set(vx, 3.5 + Math.min(5, Math.hypot(vx, vz) * 0.25), vz); n.st = 'tumble'; n.t = 0; n.spinT = 7; n.ko = n.hp <= 0; n.angry = true;
+  npcSay(n, npcPick(n.hp <= 0 ? NPC_L.ko : NPC_L.hurt), 2.6); if (typeof sfx === 'function') sfx('thud', n.pos, 0.8, 0.8, 8);
+}
+function npcThink(n, dt) {
+  n.t += dt; const hostile = n.angry && n.hp > 0 && F.dead <= 0;
+  const dpx = F.pos.x - n.pos.x, dpz = F.pos.z - n.pos.z, dP = Math.hypot(dpx, dpz);
+  if (n.st === 'drive') { if (n.veh) npcDriveAI(n, dt); else n.st = 'wander'; return; }
+  // run over by the player's machine
+  const veh = FA.threats.find(t => t.kind === 'veh');
+  if (veh && veh.sp > 2.5 && npcAlive(n)) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
+    if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
+  if (n.st === 'tumble') {
+    n.vel.y -= 9.8 * dt; n.pos.addScaledVector(n.vel, dt); n.tilt = Math.max(-1.5, n.tilt + (n.spinT || 0) * dt * 0.0 - 5 * dt);
+    n.gT -= dt; if (n.gT <= 0) { n.gT = 0.08; n.gy = groundAt(n.pos.x, n.pos.z, n.pos.y + 1, n.gy); }
+    if (n.pos.y <= n.gy && n.vel.y < 0) { n.pos.y = n.gy; if (n.vel.y < -2 && typeof sfx === 'function') sfx('thud', n.pos, Math.min(0.8, -n.vel.y / 8), 1.1, 6);
+      n.vel.y = 0; n.vel.x *= 0.4; n.vel.z *= 0.4; if (Math.hypot(n.vel.x, n.vel.z) < 1.2 || n.t > 1.4) { n.st = n.hp <= 0 ? 'ko' : 'down'; n.t = 0; n.vel.set(0, 0, 0); n.tilt = -1.5; } }
+    else if (!faWalk(n.pos.x, n.pos.z) && n.pos.y < faTop(n.pos.x, n.pos.z)) { n.vel.x *= -0.3; n.vel.z *= -0.3; }
+    return;
+  }
+  if (n.st === 'down') { n.tilt = -1.5; if (n.t > 1.3) { n.st = 'getup'; n.t = 0; } return; }
+  if (n.st === 'ko') { n.tilt = -1.5; if (n.t > 9) { n.st = 'getup'; n.t = 0; n.hp = 25; n.angry = false; n.fleeT = 7; } return; }
+  if (n.st === 'getup') { n.tilt += (0 - n.tilt) * Math.min(1, dt * 7); if (n.t > 0.8) { n.tilt = 0; n.st = n.fleeT ? 'flee' : (n.angry && n.hp > 0 ? 'chase' : 'wander'); n.t = 0; if (n.st === 'chase' && F.dead <= 0) npcSay(n, npcPick(NPC_L.angry)); } return; }
+  n.tilt = 0;
+  if (n.st === 'stag') { n.pos.x += n.vel.x * dt; n.pos.z += n.vel.z * dt; n.vel.multiplyScalar(Math.exp(-7 * dt)); if (!faWalk(n.pos.x, n.pos.z)) { n.pos.x -= n.vel.x * dt; n.pos.z -= n.vel.z * dt; }
+    if (n.t > 0.35) { n.st = hostile ? 'fight' : 'wander'; n.t = 0; n.atk = 0; n.atkPh = ''; } return; }
+  if (n.st === 'flee') { n.fleeT -= dt; npcWalk(n, faSteer(n, Math.atan2(-dpx, -dpz), 3), 4.2, dt); if (n.fleeT <= 0 || dP > 40) { n.fleeT = 0; n.st = 'wander'; n.hp = Math.max(n.hp, 40); } return; }
+  if (F.dead > 0 && (n.st === 'chase' || n.st === 'fight')) { n.st = 'wander'; npcSay(n, npcPick(NPC_L.win), 2.6); n.angry = false; return; }
+  if (n.st === 'chase' || n.st === 'fight') {
+    if (!hostile) { n.st = 'wander'; return; }
+    if (dP > 34) { n.farT += dt; if (n.farT > 6) { n.st = 'wander'; n.angry = false; n.farT = 0; return; } } else n.farT = 0;
+    n.sayT -= dt; if (n.sayT <= 0) { n.sayT = 5 + Math.random() * 3; npcSay(n, npcPick(NPC_L.angry), 2.8); }
+    if (activeName !== 'foot' && dP < 2.6) { npcFace(n, F.pos.x, F.pos.z, 8, dt); n.sp *= 0.8; return; }      // you're in a machine: they stand there shaking a fist
+    if (n.st === 'chase') { npcWalk(n, faSteer(n, Math.atan2(dpx, dpz), 2), dP > 5 ? 4.6 : 3.6, dt, 9); if (dP < 2.2) { n.st = 'fight'; n.t = 0; n.atk = 0.5; n.atkPh = ''; } return; }
+    // fight: square up, wind up, throw
+    npcFace(n, F.pos.x, F.pos.z, 12, dt); n.sp *= 0.85;
+    if (dP > 2.9) { n.st = 'chase'; return; }
+    if (n.atkPh === '' ) { n.atk -= dt; if (n.atk <= 0 && dP < 2.2) { n.atkPh = 'wind'; n.t = 0; } else if (dP > 1.5) { n.pos.x += Math.sin(n.yaw) * 1.4 * dt; n.pos.z += Math.cos(n.yaw) * 1.4 * dt; } }
+    else if (n.atkPh === 'wind') { if (n.t > 0.4) { n.atkPh = 'hit'; n.t = 0;
+      if (dP < 2.3 && (F.mode === 'walk' || F.mode === 'air') && F.dead <= 0 && activeName === 'foot') { n.hitsDone++; const big = n.hitsDone % 4 === 0, v3 = new THREE.Vector3(Math.sin(n.yaw) * 2, 1, Math.cos(n.yaw) * 2);
+        wpnHurt(big ? 11 : 7, v3, 'fist'); if (typeof sfx === 'function') sfx('m_punch', F.pos, 0.9, 0.8, 8); camShake = Math.max(camShake, big ? 0.5 : 0.25);
+        if (big && F.mode === 'walk' && F.dead <= 0) { F.vel.set(v3.x * 1.5, 2.2, v3.z * 1.5); startTumble(F.vel.clone()); } else { F.vel.x += v3.x * 0.8; F.vel.z += v3.z * 0.8; }
+        if (!NPC.told.punched) { NPC.told.punched = 1; toast('Punch them back! (PUNCH / KICK / HEADBUTT)', 2.6); } }
+      else if (typeof sfx === 'function') sfx('m_swish', n.pos, 0.5, 1.1, 5); } }
+    else if (n.atkPh === 'hit') { if (n.t > 0.25) { n.atkPh = ''; n.atk = 0.5 + Math.random() * 0.5; } }
+    return;
+  }
+  // wander about the shed; sometimes pinch a machine
+  n.vehT -= dt;
+  if (n.st === 'wander') {
+    if (n.vehT <= 0) { n.vehT = 16 + Math.random() * 18; const v = npcPickVehicle(n); if (v && dP > 6) { n.veh = v; n.st = 'toVeh'; n.t = 0; return; } }
+    if (!n.tgt || Math.hypot(n.tgt[0] - n.pos.x, n.tgt[1] - n.pos.z) < 1 || n.stuck > 2) { n.stuck = 0; n.tgt = Math.random() < 0.4 ? null : (faPick(NPC.anchor[0], NPC.anchor[1], 20, 0.8) || null); n.idle = n.tgt ? 0 : 1.5 + Math.random() * 3; }
+    if (!n.tgt) { n.idle -= dt; n.sp *= 0.85; if (n.idle <= 0) n.tgt = faPick(NPC.anchor[0], NPC.anchor[1], 20, 0.8) || null; }
+    else npcWalk(n, faSteer(n, Math.atan2(n.tgt[0] - n.pos.x, n.tgt[1] - n.pos.z), 2.5), 1.3, dt);
+    return;
+  }
+  if (n.st === 'toVeh') {
+    const v = n.veh; if (!v || v.coast || v.mp || v.npc || v.name === activeName || n.t > 30) { n.veh = null; n.st = 'wander'; return; }
+    const o = vehicleOBB(v); if (!o) { n.veh = null; n.st = 'wander'; return; }
+    const dx = n.pos.x - o.cx, dz = n.pos.z - o.cz, gap = Math.hypot(Math.max(0, Math.abs(dx * o.fx + dz * o.fz) - o.hl), Math.max(0, Math.abs(dx * o.lx + dz * o.lz) - o.hw));
+    if (gap < 1.1) { npcEnter(n, v); return; }
+    npcWalk(n, faSteer(n, Math.atan2(o.cx - n.pos.x, o.cz - n.pos.z), 2.2), 2.6, dt);
+  }
+}
+// pose: the same rig as Dazza, driven by simple state rules
+function npcPose(n, dt) {
+  const P = n.P, R = n.root; let hipL = 0, hipR = 0, kneeL = 0, kneeR = 0, shLx = 0.05, shRx = 0.05, shLz = 0.32, shRz = -0.32, elL = -0.25, elR = -0.85, torsoX = 0, torsoY = 0, headX = 0, headY = 0, bodyY = 0.78;
+  if (n.st === 'drive') {
+    const v = n.veh, q = seatedPose(v.pose); hipL = q.hipL; hipR = q.hipR; kneeL = q.kneeL; kneeR = q.kneeR; shLx = q.shLx; shRx = q.shRx; shLz = 0.18; shRz = -0.18; elL = q.elL; elR = q.elR; torsoX = q.torso; headX = q.head;
+    headY = Math.sin(NPC.t * 0.9 + n.ph) * 0.4; bodyY = 0.78;
+  } else {
+    const sp = n.sp, run = THREE.MathUtils.clamp((sp - 1.6) / 3, 0, 1);
+    if (n.st === 'tumble' || n.st === 'down' || n.st === 'ko') { shLz = 1.3; shRz = -1.3; shLx = shRx = -0.3; hipL = 0.1; hipR = -0.15; elL = elR = -0.2; if (n.st === 'tumble') { shLx = -2.2 + Math.sin(NPC.t * 15) * 0.5; shRx = -2.2 - Math.sin(NPC.t * 15) * 0.5; hipL = -0.5; hipR = -0.2; kneeL = kneeR = 0.8; } }
+    else if (n.st === 'getup') { hipL = hipR = -1.0; kneeL = kneeR = 1.6; shLx = shRx = -0.6; }
+    else if (n.st === 'stag') { torsoX = -0.35; shLx = -0.8; shRx = -0.6; elL = elR = -1.2; headX = -0.25; }
+    else if (n.st === 'fight' || (n.st === 'chase' && sp < 2) ) {
+      shLx = -1.15; shRx = -1.0; shLz = 0.25; shRz = -0.25; elL = -1.8; elR = -1.7; torsoX = 0.12; hipL = -0.15; hipR = 0.15; kneeL = 0.2; kneeR = 0.25;
+      const bob = Math.sin(NPC.t * 6 + n.ph) * 0.06; bodyY += bob * 0.5; torsoY = Math.sin(NPC.t * 3 + n.ph) * 0.1;
+      if (n.atkPh === 'wind') { const k = Math.min(1, n.t / 0.4); shRx = -0.6 + k * 0.9; elR = -1.9; torsoY = 0.5 * k; }
+      else if (n.atkPh === 'hit') { const k = Math.min(1, n.t / 0.1); shRx = -1.55 * k - 0.2; elR = -0.15; torsoY = -0.6 * k; }
+    }
+    else if (sp > 0.15) {
+      const ph0 = n.ph; n.ph += dt * (2.6 + sp * 1.25); const s = Math.sin(n.ph), c = Math.cos(n.ph), A = 0.45 + run * 0.5;
+      hipL = -s * A; hipR = s * A; kneeL = Math.max(0, Math.sin(n.ph - 1.3)) * (0.7 + run * 0.7); kneeR = Math.max(0, Math.sin(n.ph + Math.PI - 1.3)) * (0.7 + run * 0.7);
+      shLx = s * (0.45 + run * 0.6); shRx = -s * (0.45 + run * 0.6); elL = elR = -0.3 - run * 0.9; bodyY += Math.abs(c) * (0.035 + run * 0.06); torsoX = 0.05 + run * 0.2; torsoY = -s * 0.12;
+    } else { headY = Math.sin(NPC.t * 0.4 + n.ph) * 0.3; }
+  }
+  const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
+  lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
+  lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
+  P.body.position.y += (bodyY - P.body.position.y) * L;
+  if (n.st !== 'drive') {
+    R.position.copy(n.pos); _fe.set(n.tilt, n.yaw, 0, 'YXZ'); R.quaternion.setFromEuler(_fe);
+    if (n.tilt < -0.2) R.position.y = n.pos.y + Math.min(0.2, -n.tilt * 0.14);
+  }
+  R.visible = n.st === 'drive' ? true : faCamD(n.pos) < 180;
+  // speech bubble follows their head and fades
+  const B = n.bub; if (B.time > 0) { B.time -= dt; R.getWorldPosition(_w2); B.sp.position.set(_w2.x, _w2.y + (n.st === 'drive' ? 2.4 : 2.45) * Math.max(1, n.s / 0.9), _w2.z); B.sp.material.opacity = Math.min(1, B.time * 2.5); if (B.time <= 0) B.sp.visible = false; }
+}
+// resident animals out the front of the shed: two or three pigs and a couple of wallabies, always about
+function shedFauna(dt) {
+  if (!FA.ready || !NPC.ready) return;
+  const have = FA.pigs.filter(a => a.shed).length;
+  if (have >= 3) { NPC.shedWait = 0; }
+  else { NPC.shedWait -= dt; if (NPC.shedWait <= 0) { NPC.shedWait = have ? 40 : 1.5; spawnShedPig(have === 0); } }
+  if (!NPC.walAdded) { NPC.walAdded = true;
+    for (let i = 0; i < 2; i++) { const M = buildWallaby(), h = NPC.anchor, p = faPick(h[0], h[1], 14, 0.5, 3) || h;
+      const w = { M, home: h, pos: new THREE.Vector3(p[0], 0, p[1]), yaw: Math.random() * 6.28, sp: 0, st: 'graze', t: Math.random() * 5, tgt: null, ph: 0, hopH: 0, gy: 0, gT: 0, side: 1, look: 0, pitch: 0.15, sitK: 0, stuck: 0, s: 0.92 + Math.random() * 0.16 };
+      w.gy = w.pos.y = groundAt(p[0], p[1], 30, 0); M.root.scale.setScalar(w.s); FA.wal.push(w); } }
+}
+function spawnShedPig(first) {
+  const a0 = NPC.anchor, kinds = ['sow', 'brown', 'spot'];
+  let G = FA.groups.find(g => g.shed);
+  if (!G) { G = { pigs: [], st: 'in', t: 0, life: 1e9, center: [a0[0], a0[1]], exit: null, moveT: 30, shed: true, anchor: [a0[0], a0[1]] }; FA.groups.push(G); }
+  const kind = kinds[G.pigs.length % 3], M = buildPig(kind), s = 0.85 + Math.random() * 0.2; M.root.scale.setScalar(s);
+  const p = faPick(a0[0], a0[1], 15, 0.8, 5) || a0;
+  const a = { M, G, kind, boar: false, shed: true, s, pos: new THREE.Vector3(p[0], 0, p[1]), yaw: Math.random() * 6.28, sp: 0, st: 'walk', t: 0, tgt: null, ph: Math.random() * 6, root: 0, gy: 0, gT: 0,
+    vel: new THREE.Vector3(), spin: new THREE.Vector3(), q: new THREE.Quaternion(), side: 1, chargeCD: 20, gruntT: 2 + Math.random() * 6, stuck: 0, downT: 0, ambT: 14 + Math.random() * 40 };
+  a.gy = a.pos.y = groundAt(p[0], p[1], 30, 0); G.pigs.push(a); FA.pigs.push(a);
+}
+function npcStep(dt) {
+  if (!NPC.ready) { if (FA.ready && STRUCTS.ready && HOME.bmw && VEH.bmw && VEH.bmw.state) npcBuild(); else return; }
+  dt = Math.min(dt, 0.05); NPC.t += dt;
+  for (const n of NPC.list) { npcThink(n, dt); npcPose(n, dt); }
+  shedFauna(dt);
+}
+function npcReset() {
+  NPC.shedWait = 0; if (!NPC.ready) return;
+  for (const n of NPC.list) { if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; }
+  NPC.list.forEach((n, i) => npcPlace(n, i));
+}
+// guns and blasts work on them too
+function npcShot(n, d, dmg, P, head) {
+  wpnBloodSpray(P, d, Math.min(26, 5 + dmg * 0.5)); n.hp -= dmg * (head ? 2.6 : 1); n.angry = true;
+  if (n.st === 'drive') { if (n.hp <= 0 || Math.random() < 0.35) { if (n.hp <= 0) n.ko = true; npcEject(n, 'kick'); } return; }
+  if (n.hp <= 0 && n.st !== 'ko' && n.st !== 'tumble') { n.hp = 0; n.vel.set(d.x * (3 + dmg * 0.05), 2.5, d.z * (3 + dmg * 0.05)); n.st = 'tumble'; n.t = 0; n.ko = true; npcSay(n, npcPick(NPC_L.ko), 3.5); }
+  else if (n.st === 'wander' || n.st === 'toVeh') { n.st = 'chase'; n.t = 0; npcSay(n, npcPick(NPC_L.angry), 2.8); }
+  else if (!(n.sqT > NPC.t)) { n.sqT = NPC.t + 0.9; npcSay(n, npcPick(NPC_L.hurt), 2); }
+}
+function npcBlast(P, R) {
+  for (const n of NPC.list) { if (n.st === 'drive') continue; const dd = Math.hypot(n.pos.x - P.x, n.pos.z - P.z, (n.pos.y - P.y) * 0.5), k = 1 - dd / (R * 1.3); if (k <= 0) continue;
+    const dx = n.pos.x - P.x, dz = n.pos.z - P.z, l = Math.hypot(dx, dz) || 1; npcLaunch(n, dx / l * 10 * k, dz / l * 10 * k, 90 * k); }
+}
+function npcTrace(o, d, best) {
+  for (const n of NPC.list) { const R = n.root.getWorldPosition(_w3), lying = n.tilt < -1;
+    for (const [hy, r] of (lying ? [[0.3, 0.7]] : [[0.35, 0.3], [0.8, 0.32], [1.2, 0.3], [1.6, 0.2]])) { const t = raySphere(o, d, _w2.set(R.x, R.y + hy * (n.s / 0.9), R.z), r, best.t); if (t !== null && t < best.t) { best.t = t; best.kind = 'npc'; best.n = n; best.head = hy > 1.5; } } }
+}
+
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
+Object.assign(window.__game, { wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
