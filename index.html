@@ -1413,22 +1413,31 @@ function restoreTree(t) {
     if (t.pivot) { scene.remove(t.pivot); t.pivot.traverse(o => o.geometry && o.geometry.dispose()); t.pivot = null; }
     t.ext = false;
   }
-  t.lean = 0; t.falling = false; t.down = false; t.w = 0; t.axis = null; t.pushT = 0;
+  t.lean = 0; t.falling = false; t.down = false; t.w = 0; t.axis = null; t.pushT = 0; t.dmg = 0; t.cracked = false;
   for (const p of t.parts) p.alive = true;
   treeSync(t);
 }
 function treePush(t, dir, speed, mass) {
   STRUCTS.dirty = true;
   if (t.falling || t.down) return { through: true, keep: 0.9 };
+  if (mass < 300) return { through: false, keep: 0 };                    // a bike or scooter just bounces off a trunk
+  const E = 0.5 * mass * speed * speed / 1000, sizeK = Math.max(0.5, t.h / 7), stand = 3 * sizeK * sizeK;
+  if (E < stand && mass < 7000) return { through: false, keep: 0 };       // a gentle bump does nothing
   if (!t.ext) extractTree(t);
   if (!t.axis || t.lean < 0.02) t.axis = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), dir.clone().setY(0).normalize()).normalize();
-  const E = 0.5 * mass * speed * speed / 1000;
-  const sizeK = Math.max(0.5, t.h / 7);
-  // a hit puts a lean in it; a heavy machine leaning on it keeps pushing
+  t.dmg = (t.dmg || 0) + E;
+  // a proper hit cracks the trunk: splinters, a bang, and a lean that stays
+  if (E > stand * 1.5 && (!t.crackT || performance.now() - t.crackT > 600)) {
+    t.crackT = performance.now(); _dB.copy(t.base).setY(t.base.y + 1.1);
+    if (AU.buf.crack) sfx('crack', t.base, Math.min(1, 0.5 + E / 150), 0.9 + Math.random() * 0.3, 25);
+    if (WPN.ready) for (let k = 0; k < 12; k++) wpnPart(WPN.chip, _dB, 0.9, _dA.set((Math.random() - 0.5) * 4, Math.random() * 3, (Math.random() - 0.5) * 4));
+    dustBurst(_dB, 3, t.r || 0.4);
+    if (!t.cracked) { t.cracked = true; if (activeName !== 'foot') toast('Trunk cracked', 1.4); }
+  }
   t.lean += E / (30 * sizeK * sizeK) * 0.05 + (mass / 18000) * 0.5 * (1 / 60) / sizeK;
   if (!t.pushT || performance.now() - t.pushT > 1500) { creakSound(t.base); if (AU.buf.tin) sfx('creak', t.base, 0.5, 1.6, 15); }
   t.pushT = performance.now();
-  if (t.lean > 0.3) { t.falling = true; t.w = 0.25; say('tree', true); }
+  if (t.lean > 0.3 || t.dmg > 55 * sizeK * sizeK) { t.falling = true; t.lean = Math.max(t.lean, 0.08); t.w = 0.25; say('tree', true); }
   treeSync(t);
   return { through: false, keep: mass >= 7000 ? 0.92 : 0 };
 }
@@ -2394,6 +2403,7 @@ function step(dt) {
     steerIn = THREE.MathUtils.clamp(input.x + input.kx, -1, 1);
     braking = input.brake || input.kb;
   }
+  if (DMG.v[activeName]) steerIn = dmgPre(activeName, V, steerIn);          // flat tyres: slower, greasier, and it pulls to that side
 
   let newYaw, nx, nz, yawRate, accelObs, latAcc, moveX, moveZ, dist, D = null;
   if (S.air) {
@@ -2508,6 +2518,7 @@ function step(dt) {
       const sgn = (moveX * fwd.x + moveZ * fwd.z) >= 0 ? 1 : -1;
       if (res.through || res.keep > 0) { S.v = sgn * impact * (res.through ? res.keep : res.keep); if (drift.on) { S.vx = fwd.x * S.v; S.vz = fwd.z * S.v; } }
     }
+    if (impact > 1.8 && activeName !== 'foot') dmgCrash(activeName, hitN, impact, !!(sHit && sHit.struct && ['tree', 'wall', 'roof', 'gable'].includes(sHit.struct.kind)));
   } else {
     S.pos.x = nx; S.pos.z = nz; S.yaw = newYaw;
     if (drift.on) { S.vx = D.vx; S.vz = D.vz; S.r = D.r; }
@@ -2545,6 +2556,7 @@ function step(dt) {
   const sh = S.shake * S.shake;
   T.body.rotation.set(S.bodyPitch + (Math.random() - 0.5) * 0.06 * sh, 0, S.bodyRoll + (Math.random() - 0.5) * 0.06 * sh);
   T.body.position.y = S.sus + (Math.random() - 0.5) * 0.12 * sh;
+  if (DMG.v[activeName]) dmgBody(activeName, true, dt);
   const spinRear = handbrake ? 0 : S.v + (drift.on && throttle > 0.5 && Math.abs(S.v) < 18 ? throttle * 6 : 0);   // wheelspin under power, locked on the handbrake
   for (const w of T.wheels) w.spin.rotation.x += (w.rear ? spinRear : S.v) / w.r * dt;
   for (const p of T.steerPivots) p.rotation.y = S.steer;
@@ -6141,7 +6153,7 @@ function buildBox(B) {
     m: B.mass, half: new THREE.Vector3(B.L / 2, B.H / 2, B.W / 2), sleep: true, home: null, burnt: false };
   rb.home = { pos: rb.pos.clone(), q: rb.q.clone() };
   group.rb = rb; STRUCTS.boxes[B.id] = group;
-  const p = addPart(group, { kind: B.kind, obj: body, hp: B.kind === 'tank' ? 3 : 1e9 }); group.part = p;
+  const p = addPart(group, { kind: B.kind, obj: body, hp: B.kind === 'tank' ? 45 : 1e9 }); group.part = p;
   syncBox(group);
 }
 function containerModel(B) {
@@ -6160,7 +6172,7 @@ function containerModel(B) {
 }
 function tankModel(B) {
   const g = new THREE.Group(), D = 1.9, L = B.L;
-  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(D / 2, D / 2, L, 24, 4), SMAT.tank); cyl.rotation.z = Math.PI / 2; cyl.position.y = B.H / 2 - D / 2; g.add(cyl);
+  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(D / 2, D / 2, L, 24, 14), SMAT.tank); cyl.rotation.z = Math.PI / 2; cyl.position.y = B.H / 2 - D / 2; g.add(cyl);
   for (const s of [-1, 1]) { const cap = new THREE.Mesh(new THREE.SphereGeometry(D / 2, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), SMAT.tank); cap.scale.y = 0.18; cap.rotation.z = -s * Math.PI / 2; cap.position.set(s * L / 2, cyl.position.y, 0); g.add(cap); }
   // skid cradle, bowser pump box, hose and a big diesel decal band
   for (const s of [-1, 1]) { const sk = new THREE.Mesh(new THREE.BoxGeometry(L + 0.2, 0.18, 0.18), SMAT.tankDark); sk.position.set(0, -B.H / 2 + 0.09, s * 0.85); g.add(sk); }
@@ -6225,7 +6237,16 @@ function structImpact(part, point, dir, speed, mass) {
     dustBurst(_sA, 6, 1.6); checkRoof(G);
     return { through: true, keep: 0.85 };
   }
-  if (part.kind === 'tank') { if (E > part.hp || speed > 4) explodeTank(G, dir, point); return { through: false, keep: 0.2 }; }
+  if (part.kind === 'tank') {
+    G.bdmg = (G.bdmg || 0) + E * 1.2;
+    if (E > part.hp || G.bdmg > 150) explodeTank(G, dir, point);
+    else if (E > 0.5) {
+      dentRound(G.body.userData.shell, point, dir, Math.min(0.5, 0.05 * Math.sqrt(E) + 0.03), 0.9); metalSound(point, Math.min(1, E / 40), 0.7);
+      if (WPN.ready) for (let k = 0; k < Math.min(14, 3 + E); k++) wpnPart(WPN.grain, point, 1.2, _w2.copy(dir).multiplyScalar(-1.5).add(_w3.set(Math.random() - 0.5, 0.8, Math.random() - 0.5)));
+      if (E > 4 && !G.toldDent) { G.toldDent = 1; toast('Diesel tank dented, it’s leaking', 1.8); }
+    }
+    return { through: false, keep: 0.2 };
+  }
   if (part.kind === 'container') return boxShove(G, point, dir, speed, mass);
   metalSound(point, Math.min(1, E / 60), part.kind === 'col' ? 0.8 : 1);
   if (part.kind === 'col') {
@@ -8038,6 +8059,7 @@ function airLand(gH, tPitch) {
   if (moto && (err > 0.85 || vn > 10.5)) verdict = 'Crash';
   else if (err > (moto ? 0.4 : 0.5) || vn > 6.5) { verdict = err > 0.4 ? 'Hard' : 'Heavy'; k = moto ? 0.62 : 0.8; S.shake = Math.min(1, S.shake + 0.45); prevShake = S.shake; camShake = Math.max(camShake, 0.45); sfx('thud', S.pos, 0.9, 0.7); }
   else { k = vn > 4 ? 0.94 : 0.99; sfx('thud', S.pos, Math.min(0.7, 0.2 + Math.max(0, vn) * 0.07), 1.15); camShake = Math.max(camShake, Math.min(0.25, Math.max(0, vn) * 0.04)); }
+  if (activeName !== 'foot') { if (verdict === 'Crash') dmgLanding(activeName, vn, true); else if (vn > 6.5) dmgLanding(activeName, vn, vn > 9); }
   S.v *= k; S.vx *= k; S.vz *= k;
   S.pitch = S.pitch * 0.4 + slope * 0.6;
   if (airT > 0.4 && activeName !== 'foot') {
@@ -8851,7 +8873,7 @@ function buildSilos() {
   wpnMats(); if (!WMAT.silo) { const tx = corrTex([186, 190, 188], true); tx.repeat.set(26, 1); tx.rotation = Math.PI / 2; WMAT.silo = new THREE.MeshLambertMaterial({ map: tx, side: THREE.DoubleSide }); WMAT.siloRoof = new THREE.MeshLambertMaterial({ color: 0xb4b9b8, side: THREE.DoubleSide }); }
   for (let i = 0; i < SILO_DEFS.length; i++) {
     const [x, z] = SILO_DEFS[i], gy = rawGround(x, z, 20), root = new THREE.Group(); root.position.set(x, gy, z); scene.add(root);
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(SILO.r, SILO.r, SILO.h, 28, 1, true), WMAT.silo); body.position.y = SILO.h / 2; root.add(body);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(SILO.r, SILO.r, SILO.h, 28, 12, true), WMAT.silo); body.position.y = SILO.h / 2; root.add(body);
     const roof = new THREE.Mesh(new THREE.ConeGeometry(SILO.r + 0.08, SILO.roof, 28, 1, true), WMAT.siloRoof); roof.position.y = SILO.h + SILO.roof / 2; root.add(roof);
     const hatch = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.18, 10), WMAT.siloRoof); hatch.position.y = SILO.h + SILO.roof - 0.05; root.add(hatch);
     for (const s of [-1, 1]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(0.04, SILO.h + 0.4, 0.04), SMAT.steel); rail.position.set(s * 0.2, (SILO.h + 0.4) / 2, SILO.r + 0.12); root.add(rail); }
@@ -8874,6 +8896,7 @@ function siloImpact(part, point, dir, speed, mass) {
   const G = part.group, s = G.silo; if (s.down || s.fall) return { through: false, keep: 0 };
   const E = 0.5 * mass * speed * speed / 1000; if (E < 0.3) return { through: false, keep: 0 };
   metalSound(point, Math.min(1, E / 60), 0.7); s.hp -= E;
+  dentRound(G.body, point, dir, Math.min(0.45, 0.03 * Math.sqrt(E) + 0.02), 1.1);
   if (E > 3) for (let k = 0; k < Math.min(6, E / 8); k++) siloHole(G, _w2.set(s.x + (Math.random() - 0.5) * 3, s.gy + 0.6 + Math.random() * 3.5, s.z + (Math.random() - 0.5) * 3).sub(_w3.set(s.x, 0, s.z)).setY(0).setLength(SILO.r).add(_w3.set(s.x, s.gy + 0.6 + Math.random() * 3.5, s.z)), dir);
   if (s.hp <= 0) { const d = _w1.set(dir.x, 0, dir.z); if (d.lengthSq() < 1e-4) d.set(Math.random() - 0.5, 0, Math.random() - 0.5); d.normalize(); s.fall = { dir: d.clone(), th: 0.04, w: 0.25 + Math.min(1, speed / 20) }; STRUCTS.dirty = true; toast('Silo’s going over!', 1.6); }
   return { through: false, keep: 0.1 };
@@ -8914,7 +8937,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = [];
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -8947,7 +8970,7 @@ function wpnUnwreck(name) {
   const D = WPN.VD[name], v = VEH[name]; if (!D || !v) return;
   if (D.mats) for (const [o, m] of D.mats) o.material = m;
   if (D.fire) { for (const s of D.fire) scene.remove(s); D.fire = null; }
-  v.wrecked = false;
+  v.wrecked = false; dmgReset(name);
 }
 function wpnVehStep(dt) {
   for (const [name, D] of Object.entries(WPN.VD)) {
@@ -8971,6 +8994,215 @@ function wpnVehStep(dt) {
     if (H.v !== activeVeh() && H.v.state) { T.root.position.copy(H.v.state.pos).setY(H.v.state.pos.y + H.y); T.root.rotation.set(H.rx * Math.min(1, H.t * 3), H.v.state.yaw, H.rz * Math.min(1, H.t * 3), 'YXZ'); }
     if (H.y <= 0 && H.vy < 0) { WPN.hops.splice(WPN.hops.indexOf(H), 1); sfx('crash', vehPos(H.v) || camera.position, 0.8, 0.7, 20); } }
 }
+
+/* ---------- crash damage: dents that bend the body, tyres that pop, tanks and silos that buckle ----------
+   Any wheeled machine that hits something hard gets a dent: the vertices round the contact point are pushed in
+   (scanned cars bend their photo-mesh; the modelled machines get their panels cut up first so they can crumple),
+   with a dark scuff painted into vertex colours. A big hit near a wheel, a hard landing, a bullet, a blast or a fire
+   pops tyres: the tyre sags, the car lists to that corner, grinds sparks on the rim, pulls to that side and loses
+   grip and top speed. Bikes pop tyres but never dent. Reset (the menu) puts everything back. */
+const DMG = { v: {} };
+const _dA = new THREE.Vector3(), _dB = new THREE.Vector3(), _dC = new THREE.Vector3(), _dD = new THREE.Vector3(), _dI = new THREE.Matrix4();
+const DMG_NODENT = new Set(['bike', 'scooter', 'dirtbike']);
+const dmgHash = (x, y, z) => { const h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453; return h - Math.floor(h); };
+function dmgSt(name) { return DMG.v[name] || (DMG.v[name] = { E: 0, dents: 0, tyres: null, nPop: 0, s0: null, cd: 0, tilt: { x: 0, z: 0, drop: 0 }, meshes: null, sp: 0, fireT: 0 }); }
+function dmgTyres(name) {
+  const st = dmgSt(name); if (st.tyres) return st.tyres;
+  const v = VEH[name], T = v && v.model; if (!T || !T.wheels || !T.wheels.length || (v.spec && v.spec.skid)) return st.tyres = [];
+  T.root.updateMatrixWorld(true);
+  const ws = T.wheels.map(w => { const p = w.spin.getWorldPosition(new THREE.Vector3()); T.root.worldToLocal(p); return { w, lx: p.x, ly: p.y, lz: p.z, y0: w.spin.position.y, popped: false, k: 1 }; });
+  st.zmid = ws.reduce((q, t) => q + t.lz, 0) / ws.length; return st.tyres = ws;
+}
+function dmgMeshes(name) {
+  const st = dmgSt(name); if (st.meshes) return st.meshes;
+  const T = VEH[name].model, spins = new Set((T.wheels || []).map(w => w.spin)), out = [];
+  const walk = (o, inWheel) => {
+    if (spins.has(o)) inWheel = true;
+    if (o.isMesh && !o.isInstancedMesh && !inWheel && o.geometry && o.geometry.attributes.position && o.material && !Array.isArray(o.material) && !o.material.transparent && !o.userData.nodent && o.geometry.attributes.position.count < 60000) out.push(o);
+    for (const c of o.children) walk(c, inWheel);
+  };
+  walk(T.root, false); return st.meshes = out;
+}
+// cut every triangle into four, `level` times (non-indexed; position, normal, uv)
+function dmgSubdiv(g, level) {
+  const names = ['position', 'normal', 'uv'].filter(n => g.attributes[n]);
+  let A = names.map(n => ({ n, s: g.attributes[n].itemSize, a: Array.from(g.attributes[n].array) }));
+  const mid = (arr, s, i, j) => { const o = []; for (let k = 0; k < s; k++) o.push((arr[i * s + k] + arr[j * s + k]) * 0.5); return o; };
+  for (let L = 0; L < level; L++) {
+    const nt = A[0].a.length / A[0].s / 3, out = A.map(q => ({ n: q.n, s: q.s, a: [] }));
+    for (let t = 0; t < nt; t++) { const a = t * 3, b = a + 1, c = a + 2;
+      A.forEach((q, qi) => { const m01 = mid(q.a, q.s, a, b), m12 = mid(q.a, q.s, b, c), m20 = mid(q.a, q.s, c, a), P = i => Array.prototype.slice.call(q.a, i * q.s, i * q.s + q.s), o = out[qi].a;
+        o.push(...P(a), ...m01, ...m20, ...m01, ...P(b), ...m12, ...m20, ...m12, ...P(c), ...m01, ...m12, ...m20); }); }
+    A = out;
+  }
+  const r = new THREE.BufferGeometry(); for (const q of A) r.setAttribute(q.n, new THREE.BufferAttribute(new Float32Array(q.a), q.s));
+  return r;
+}
+// get a mesh ready to bend: float positions, a colour channel, its own material, panels cut small enough to crumple
+function dmgPrep(m) {
+  if (m.userData.dmg) return true;
+  const g0 = m.geometry, n0 = g0.attributes.position.count; let g;
+  if (n0 < 3000) {
+    g0.computeBoundingBox(); const sz = g0.boundingBox.getSize(new THREE.Vector3()), big = Math.max(sz.x, sz.y, sz.z) * Math.max(m.matrixWorld.getMaxScaleOnAxis(), 1e-3);
+    if (big < 0.3) return false;
+    let src = g0.index ? g0.toNonIndexed() : g0.clone(); const tris = src.attributes.position.count / 3;
+    let lv = 0; while (lv < 3 && big / Math.pow(2, lv) > 0.3 && tris * Math.pow(4, lv + 1) < 16000) lv++;
+    g = lv ? dmgSubdiv(src, lv) : src; if (!g.attributes.normal) g.computeVertexNormals();
+  } else g = g0.clone();
+  const pa = g.attributes.position, N = pa.count, arr = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { arr[i * 3] = pa.getX(i); arr[i * 3 + 1] = pa.getY(i); arr[i * 3 + 2] = pa.getZ(i); }
+  const c0 = new Float32Array(N * 3).fill(1), oc = g.attributes.color; if (oc) for (let i = 0; i < N; i++) { c0[i * 3] = oc.getX(i); c0[i * 3 + 1] = oc.getY(i); c0[i * 3 + 2] = oc.getZ(i); }
+  g.setAttribute('position', new THREE.BufferAttribute(arr, 3)); g.setAttribute('color', new THREE.BufferAttribute(c0.slice(), 3));
+  const mat = m.material.clone(); mat.vertexColors = true; mat.needsUpdate = true;
+  m.userData.dmg = { g0, mat0: m.material, mat, p0: arr.slice(), c0, sc: new Float32Array(N).fill(1) };
+  m.geometry = g; m.material = mat; return true;
+}
+// push the body in round a world point, along the way the obstacle pushed
+function dmgDent(name, wp, inward, E) {
+  const depth = THREE.MathUtils.clamp(0.03 * Math.sqrt(E), 0.025, 0.34), R = THREE.MathUtils.clamp(0.45 + 0.04 * Math.sqrt(E), 0.5, 1.35);
+  const st = dmgSt(name); let moved = 0;
+  for (const m of dmgMeshes(name)) {
+    m.updateMatrixWorld(true);
+    if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+    const bs = m.geometry.boundingSphere, sc = Math.max(m.matrixWorld.getMaxScaleOnAxis(), 1e-3);
+    _dA.copy(bs.center).applyMatrix4(m.matrixWorld); if (_dA.distanceTo(wp) > bs.radius * sc + R) continue;
+    if (!dmgPrep(m)) continue;
+    const u = m.userData.dmg, g = m.geometry, pa = g.attributes.position, ca = g.attributes.color, Mw = m.matrixWorld; _dI.copy(Mw).invert(); let any = false;
+    for (let i = 0; i < pa.count; i++) {
+      _dB.set(pa.getX(i), pa.getY(i), pa.getZ(i)).applyMatrix4(Mw);
+      const d = _dB.distanceTo(wp); if (d > R) continue;
+      const q = 1 - d / R, k = q * q * (3 - 2 * q), r = dmgHash(_dB.x, _dB.y, _dB.z);
+      const a = depth * k * (0.75 + 0.5 * r);
+      _dC.copy(_dB).addScaledVector(inward, a); _dC.x += (r - 0.5) * a * 0.3; _dC.z += (dmgHash(_dB.z, _dB.x, _dB.y) - 0.5) * a * 0.3;
+      _dD.set(u.p0[i * 3], u.p0[i * 3 + 1], u.p0[i * 3 + 2]).applyMatrix4(Mw); const o = _dC.distanceTo(_dD); if (o > 0.5) _dC.lerp(_dD, 1 - 0.5 / o);      // never bend further than ~half a metre
+      _dC.applyMatrix4(_dI); pa.setXYZ(i, _dC.x, _dC.y, _dC.z);
+      const s = Math.min(u.sc[i], 1 - 0.55 * k * (0.7 + 0.3 * r)); u.sc[i] = s;
+      ca.setXYZ(i, u.c0[i * 3] * s, u.c0[i * 3 + 1] * s * 0.96, u.c0[i * 3 + 2] * s * 0.92); any = true;
+    }
+    if (any) { pa.needsUpdate = true; ca.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere(); moved++; }
+  }
+  st.dents++; return moved;
+}
+function dmgHiss(P) {
+  if (AU.ctx && !AU.buf.hiss && typeof toBuf === 'function') { const sr = AU.sr, n = Math.floor(sr * 1.1), d = new Float32Array(n); let lp = 0;
+    for (let i = 0; i < n; i++) { const t = i / sr, w = Math.random() * 2 - 1; lp += (w - lp) * 0.55; d[i] = (w - lp) * Math.exp(-t / 0.32) * (t < 0.01 ? t / 0.01 : 1) * 0.8; }
+    AU.buf.hiss = toBuf(d); }
+  if (AU.buf.hiss) sfx('hiss', P, 1, 0.95 + Math.random() * 0.1, 14); else if (AU.buf.thud) sfx('thud', P, 0.6, 1.5, 12);
+}
+function dmgPop(name, i, why) {
+  const st = dmgSt(name), ty = dmgTyres(name), t = ty[i]; if (!t || t.popped) return false;
+  t.popped = true; st.nPop = ty.filter(x => x.popped).length;
+  const v = VEH[name], T = v.model; const P = T.root.localToWorld(new THREE.Vector3(t.lx, t.ly, t.lz));
+  dmgHiss(P);
+  for (let k = 0; k < 8; k++) wpnPart(WPN.spark, P, 0.25, _dA.set((Math.random() - 0.5) * 3, Math.random() * 2, (Math.random() - 0.5) * 3));
+  dustBurst(P, 4, 0.5);
+  if (v === activeVeh()) { toast(st.nPop === ty.length ? 'All tyres are gone' : st.nPop > 1 ? st.nPop + ' flat tyres' : 'Tyre blown!', 1.6); camShake = Math.max(camShake, 0.3); }
+  return true;
+}
+// the closest still-inflated tyre to a world point, if it is within maxD
+function dmgNearTyre(name, wp, maxD) {
+  const ty = dmgTyres(name), T = VEH[name].model; let best = -1, bd = maxD;
+  for (let i = 0; i < ty.length; i++) { if (ty[i].popped) continue; const P = T.root.localToWorld(_dB.set(ty[i].lx, ty[i].ly, ty[i].lz)); const d = P.distanceTo(wp); if (d < bd) { bd = d; best = i; } }
+  return best;
+}
+// a collision. hitN (Vector2, x/z) points from the obstacle toward the machine; impact is the speed into it
+function dmgCrash(name, hitN, impact, soft) {
+  const v = VEH[name]; if (!v || v.kind !== 'ground' || v.wrecked || v.mp) return;
+  const st = dmgSt(name); if (st.cd > 0) return;
+  const mass = VEH_MASS[name] || 1500, light = mass < 500, mEff = Math.min(mass, 3500);
+  const E = 0.5 * mEff * impact * impact / 1000 * (soft ? 0.5 : 1);
+  if (light ? impact < 5 : E < 5) return; st.cd = 0.3; st.E += E;
+  const sp = v.spec, T = v.model, yaw = S.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw), sx = Math.cos(yaw), sz = -Math.sin(yaw);
+  const dx = -hitN.x, dz = -hitN.y, f = dx * fx + dz * fz, l = dx * sx + dz * sz;           // the way the obstacle lies, in the vehicle's frame (+X = left)
+  const hl = (sp.front + sp.rear) / 2, zc = (sp.front - sp.rear) / 2, hw = sp.halfW;
+  const t = Math.min(hw / Math.max(Math.abs(l), 1e-3), hl / Math.max(Math.abs(f), 1e-3)) * 0.98;
+  const hy = (sp.rayH && sp.rayH.length ? sp.rayH[Math.min(1, sp.rayH.length - 1)] : 0.7) * 0.85;
+  T.root.updateMatrixWorld(true);
+  const wp = T.root.localToWorld(new THREE.Vector3(l * t, hy, f * t + zc)), inward = new THREE.Vector3(hitN.x, 0, hitN.y).normalize();
+  if (!DMG_NODENT.has(name) && !light) dmgDent(name, wp, inward, E);
+  // a crash costs hit points, so a wreck-up is possible
+  const dm = light ? Math.max(0, impact - 5) * 6 : Math.max(0, E - 12) * 0.15; if (dm > 0) wpnVehDamage(v, dm, inward, 'crash', true);
+  metalSound(wp, Math.min(1, (light ? impact * 4 : E) / 80), 0.75);
+  if (light) { if (impact > 8 && Math.random() < Math.min(0.8, (impact - 8) / 14)) { const i = dmgNearTyre(name, wp, 1.4); if (i >= 0) dmgPop(name, i, 'crash'); } return; }
+  if (E > 45) { const i = dmgNearTyre(name, wp, 1.25); if (i >= 0 && Math.random() < THREE.MathUtils.clamp((E - 40) / 160, 0.12, 0.85)) dmgPop(name, i, 'crash'); }
+  if (E > 220) { const i = dmgNearTyre(name, wp, 2.2); if (i >= 0 && Math.random() < 0.5) dmgPop(name, i, 'crash'); }
+}
+function dmgLanding(name, vn, big) {
+  const v = VEH[name]; if (!v || v.kind !== 'ground') return; const ty = dmgTyres(name); if (!ty.length) return;
+  if (Math.random() > (big ? 0.55 : 0.2)) return;
+  const open = ty.map((t, i) => i).filter(i => !ty[i].popped); if (open.length) dmgPop(name, open[Math.floor(Math.random() * open.length)], 'land');
+}
+function dmgShot(v, P, dmg) {
+  if (!v || !v.model || v.kind !== 'ground') return; const i = dmgNearTyre(v.name, P, 0.5);
+  if (i >= 0 && Math.random() < Math.min(0.9, 0.35 + dmg * 0.03)) dmgPop(v.name, i, 'shot');
+}
+function dmgBlast(v, P, r) {
+  if (!v || !v.model || v.kind !== 'ground') return; const ty = dmgTyres(v.name), T = v.model;
+  for (let i = 0; i < ty.length; i++) { if (ty[i].popped) continue; const W = T.root.localToWorld(_dB.set(ty[i].lx, ty[i].ly, ty[i].lz)); if (W.distanceTo(P) < r * 1.1 && Math.random() < 0.7) dmgPop(v.name, i, 'blast'); }
+  if (!DMG_NODENT.has(v.name) && (VEH_MASS[v.name] || 1500) > 500) { const c = T.root.position; if (c.distanceTo(P) < r * 0.9) { const away = _dC.copy(P).sub(c).setY(0); if (away.lengthSq() > 1e-4) dmgDent(v.name, _dD.copy(c).lerp(P, 0.25).setY(c.y + 0.8), away.clone().normalize(), 80); } }
+}
+// each frame before the physics: slower, greasier, and a pull toward the flat side
+function dmgPre(name, V, steerIn) {
+  const st = DMG.v[name]; if (!st || !st.tyres) return steerIn;
+  if (!st.s0) st.s0 = { top: V.top, accel: V.accel, grip: V.grip, d: V.drift ? { mu: V.drift.mu, drive: V.drift.drive, top: V.drift.top } : null };
+  const n = st.nPop, fr = n / Math.max(1, st.tyres.length), f = 1 - 0.5 * fr, s0 = st.s0;     // all tyres flat: half the top speed, a third less grip
+  V.top = s0.top * f; V.accel = s0.accel * (1 - 0.4 * fr); V.grip = s0.grip * (1 - 0.7 * fr);
+  if (V.drift && s0.d) { V.drift.mu = s0.d.mu * (1 - 0.7 * fr); V.drift.drive = s0.d.drive * (1 - 0.4 * fr); V.drift.top = s0.d.top * f; }
+  if (!n) return steerIn;
+  let pull = 0; for (const t of st.tyres) if (t.popped) pull += -Math.sign(t.lx || 1) * (t.lz > st.zmid ? 1 : 0.55);
+  return THREE.MathUtils.clamp(steerIn + THREE.MathUtils.clamp(pull * 0.11, -0.3, 0.3) * Math.min(1, Math.abs(S.v) / 7), -1, 1);
+}
+// sag, list, spark. The active machine: added on top of the body motion; parked ones are placed outright
+function dmgBody(name, active, dt) {
+  const st = DMG.v[name]; if (!st || !st.tyres || !st.tyres.length) return;
+  const v = VEH[name], T = v.model; let tx = 0, tz = 0, drop = 0;
+  for (const t of st.tyres) {
+    t.k += ((t.popped ? 0.78 : 1) - t.k) * Math.min(1, dt * 9); t.w.spin.scale.set(1, t.k, t.k); t.w.spin.position.y = t.y0 - (t.w.r || 0.35) * (1 - t.k);
+    if (t.popped) { tz += -Math.sign(t.lx || 1) * 0.03; tx += (t.lz > st.zmid ? 0.026 : -0.02); drop += 0.02; }
+  }
+  const e = Math.min(1, dt * 6); st.tilt.x += (tx - st.tilt.x) * e; st.tilt.z += (tz - st.tilt.z) * e; st.tilt.drop += (drop - st.tilt.drop) * e;
+  if (active) { T.body.rotation.x += st.tilt.x; T.body.rotation.z += st.tilt.z; T.body.position.y -= st.tilt.drop; }
+  else { T.body.rotation.set(st.tilt.x, 0, st.tilt.z); T.body.position.y = -st.tilt.drop; }
+  // grinding on the rim
+  if (active && Math.abs(S.v) > 2.5 && !S.air) { st.sp += dt * Math.min(30, Math.abs(S.v) * 2.2); while (st.sp > 1) { st.sp -= 1;
+    for (const t of st.tyres) if (t.popped) { const P = T.root.localToWorld(_dB.set(t.lx, 0.02, t.lz)); wpnPart(WPN.spark, P, 0.2 + Math.random() * 0.15, _dA.set((Math.random() - 0.5) * 2, 0.8 + Math.random() * 1.6, (Math.random() - 0.5) * 2).addScaledVector(_dC.set(S.vx, 0, S.vz), -0.15)); } } }
+}
+function dmgStep(dt) {
+  const act = activeVeh();
+  for (const [name, st] of Object.entries(DMG.v)) {
+    if (st.cd > 0) st.cd -= dt;
+    const v = VEH[name]; if (!v || !st.tyres || v.mp) continue;
+    if (v !== act && !v.coast && (st.nPop || Math.abs(st.tilt.x) > 1e-4 || Math.abs(st.tilt.z) > 1e-4)) dmgBody(name, false, dt);
+    // burning machines lose their tyres, one at a time
+    const D = WPN.VD && WPN.VD[name]; if (D && D.burn > 0) { st.fireT += dt; if (st.fireT > 4.5) { st.fireT = 3.4; const o = st.tyres.findIndex(t => !t.popped); if (o >= 0) dmgPop(name, o, 'fire'); } } else st.fireT = 0;
+  }
+}
+function dmgReset(name) {
+  const st = DMG.v[name]; if (!st) return; const v = VEH[name];
+  if (st.meshes) for (const m of st.meshes) { const u = m.userData.dmg; if (!u) continue; const g = m.geometry; m.geometry = u.g0; if (m.material === u.mat) u.mat.dispose(); m.material = u.mat0; g.dispose(); delete m.userData.dmg; }
+  if (st.tyres) for (const t of st.tyres) { t.popped = false; t.k = 1; t.w.spin.scale.set(1, 1, 1); t.w.spin.position.y = t.y0; }
+  if (st.s0 && v) { const V = v.spec; V.top = st.s0.top; V.accel = st.s0.accel; V.grip = st.s0.grip; if (V.drift && st.s0.d) Object.assign(V.drift, st.s0.d); }
+  if (v && v.model && v.model.body && v !== activeVeh()) { v.model.body.rotation.set(0, 0, 0); v.model.body.position.y = 0; }
+  delete DMG.v[name];
+}
+/* round things that buckle rather than tear: silos and the diesel tank. Push the shell in along the way the hit travelled. */
+const DENT_LOG = [];
+function dentRound(m, point, dir, depth, R) {
+  if (!m || !m.geometry) return; m.updateMatrixWorld(true);
+  const g = m.geometry, pa = g.attributes.position; if (!g.userData.p0) { g.userData.p0 = pa.array.slice(); DENT_LOG.push(g); }
+  const p0 = g.userData.p0, Mw = m.matrixWorld; _dI.copy(Mw).invert(); const d0 = _dA.copy(dir).setY(0).normalize(); let moved = false;
+  for (let i = 0; i < pa.count; i++) {
+    _dB.set(pa.getX(i), pa.getY(i), pa.getZ(i)).applyMatrix4(Mw);
+    const d = _dB.distanceTo(point); if (d > R) continue;
+    const q = 1 - d / R, k = q * q * (3 - 2 * q), r = dmgHash(_dB.x, _dB.y, _dB.z), a = depth * k * (0.8 + 0.4 * r);
+    _dC.copy(_dB).addScaledVector(d0, a);
+    _dD.set(p0[i * 3], p0[i * 3 + 1], p0[i * 3 + 2]).applyMatrix4(Mw); const o = _dC.distanceTo(_dD); if (o > 0.6) _dC.lerp(_dD, 1 - 0.6 / o);
+    _dC.applyMatrix4(_dI); pa.setXYZ(i, _dC.x, _dC.y, _dC.z); moved = true;
+  }
+  if (moved) { pa.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere(); }
+}
+function dentReset() { for (const g of DENT_LOG) { g.attributes.position.array.set(g.userData.p0); g.attributes.position.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere(); } }
+function dmgResetAll() { for (const n of Object.keys(DMG.v)) dmgReset(n); dentReset(); }
 
 /* ---------- people and pigs ---------- */
 function wpnBloodSpray(p, dir, n, gy) {
@@ -9027,8 +9259,8 @@ function wpnApplyHit(hit, d, dmg, W) {
     const part = hit.part, G = part.group; if (!part || !part.alive) return;
     for (let k = 0; k < 5; k++) wpnPart(WPN.spark, P, 0.25, _w2.copy(hit.n).multiplyScalar(2 + Math.random() * 3).add(_w3.set((Math.random() - 0.5) * 2, Math.random() * 2, (Math.random() - 0.5) * 2)));
     if (part.kind === 'tree') { for (let k = 0; k < 6; k++) wpnPart(WPN.chip, P, 0.8, _w2.set((Math.random() - 0.5) * 3, Math.random() * 2, (Math.random() - 0.5) * 3)); return; }
-    if (part.kind === 'silo') { siloHole(G, P, d); G.silo.hp -= dmg * 0.25; if (G.silo.hp <= 0 && !G.silo.fall && !G.silo.down) siloImpact(part, P, d, 6, 4000); return; }
-    if (part.kind === 'tank') { G.bdmg = (G.bdmg || 0) + dmg; wpnDecal(WMAT.hole, P, hit.n, 0.1, G.body);
+    if (part.kind === 'silo') { siloHole(G, P, d); dentRound(G.body, P, d, 0.03, 0.4); G.silo.hp -= dmg * 0.25; if (G.silo.hp <= 0 && !G.silo.fall && !G.silo.down) siloImpact(part, P, d, 6, 4000); return; }
+    if (part.kind === 'tank') { G.bdmg = (G.bdmg || 0) + dmg; dentRound(G.body.userData.shell, P, d, 0.035, 0.4); wpnDecal(WMAT.hole, P, hit.n, 0.1, G.body);
       for (let k = 0; k < 10; k++) wpnPart(WPN.grain, P, 1.2, _w2.copy(hit.n).multiplyScalar(2 + Math.random() * 2).add(_w3.set(0, 0.6, 0)));     // diesel spurting out
       metalSound(P, 0.4, 0.8);
       if (G.bdmg > 100 && !STRUCTS.blown) explodeTank(G, d, P);
@@ -9045,7 +9277,7 @@ function wpnApplyHit(hit, d, dmg, W) {
     for (let k = 0; k < 6; k++) wpnPart(WPN.spark, P, 0.25, _w2.copy(d).multiplyScalar(-2 - Math.random() * 2).add(_w3.set((Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3)));
     wpnDecal(WMAT.hole, P, _w2.copy(d).negate(), 0.08, T.root);
     metalSound(P, 0.25, 1.4 + Math.random() * 0.3);
-    wpnVehDamage(v, dmg, d, 'bullet');
+    wpnVehDamage(v, dmg, d, 'bullet'); dmgShot(v, P, dmg);
     // a mate behind the wheel feels it too
     if (v.mp && MP.on) { const p = MP.peers.get(v.mp); if (p && Math.random() < 0.15) mpSend({ k: 'dmg', f: MP.me, to: p.id, dmg: Math.round(dmg * 0.4), v: [d.x, d.y, d.z] }); }
     return;
@@ -9198,7 +9430,7 @@ function wpnBoom(P, R, pw, local, quiet) {
     const dir = _w4.copy(c).sub(P).normalize();
     if (v === activeVeh() && v.kind === 'ground') { S.v += (dir.x * Math.sin(S.yaw) + dir.z * Math.cos(S.yaw)) * 9 * k; S.shake = 1; prevShake = 1; }
     if (v.kind === 'air' && !v.st.crashed && !v.st.landed && v === activeVeh()) v.st.vel.addScaledVector(dir, 14 * k).y += 6 * k;
-    wpnVehDamage(v, 300 * k * pw, dir, 'blast', true); }
+    wpnVehDamage(v, 300 * k * pw, dir, 'blast', true); dmgBlast(v, P, R); }
   for (const a of FA.pigs) { const dd = a.pos.distanceTo(P), k = 1 - dd / (R * 1.3); if (k <= 0) continue; const dir = _w4.copy(a.pos).sub(P).setY(0).normalize();
     wpnPigShot(a, dir, 120 * k, _w3.copy(a.pos).setY(a.pos.y + 0.4)); if (a.st === 'tumble') { a.vel.set(dir.x * 10 * k, 5 + 6 * k, dir.z * 10 * k); a.spin.multiplyScalar(2); } wpnBloodSpray(_w3.copy(a.pos).setY(a.pos.y + 0.4), _w2.set(0, 1, 0), 30); }
   if (activeName === 'foot') { const dd = F.pos.distanceTo(P), k = 1 - dd / (R * 1.4); if (k > 0) { const dir = _w4.copy(F.pos).sub(P).setY(0).normalize(); const vel = new THREE.Vector3(dir.x * 11 * k, 5 + 6 * k, dir.z * 11 * k); if (F.mode === 'walk' || F.mode === 'air' || F.mode === 'emote') startTumble(vel); wpnHurt(140 * k * pw, vel, 'blast'); } }
@@ -9275,7 +9507,7 @@ function wpnCam(dt) {
 function wpnStep(dt) {
   if (!WPN.ready) return;
   dt = Math.min(dt, 0.05);
-  siloStep(dt); wpnProjStep(dt); wpnFireStep(dt); wpnBoomStep(dt); wpnVehStep(dt);
+  siloStep(dt); wpnProjStep(dt); wpnFireStep(dt); wpnBoomStep(dt); wpnVehStep(dt); dmgStep(dt);
   wpnParts(WPN.spark, dt); wpnParts(WPN.chip, dt); wpnParts(WPN.flame, dt);
   wpnParts(WPN.blood, dt, (k, x, y, z) => { if (Math.random() < 0.35) wpnSplat(x, y, z, 0.12 + Math.random() * 0.25); });
   wpnParts(WPN.grain, dt);
@@ -10002,7 +10234,7 @@ function hsBuild() {
 }
 /*HS-END*/
 
-window.__game = { HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
