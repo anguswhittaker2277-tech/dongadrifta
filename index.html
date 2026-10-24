@@ -313,6 +313,11 @@ body.c-foot #trial,body.c-foot #trial.show{opacity:0;pointer-events:none}
 .mp-warn{background:#fff4d6;color:#6b4a00;border-radius:10px;padding:8px 10px;font-size:13px}
 .mp-code{font-size:15px;margin:8px 0 10px}.mp-code b{font-size:26px;letter-spacing:.18em;margin-left:6px}
 #mpList{margin-bottom:12px}
+#nameAsk{position:fixed;inset:0;z-index:60;background:rgba(22,26,25,.45);display:none;align-items:center;justify-content:center;padding:16px}#nameAsk.show{display:flex}
+#nameCard{background:var(--card);border-radius:var(--r1);box-shadow:var(--shadow);width:min(360px,100%);padding:18px 20px 16px;box-sizing:border-box;font:14px/1.4 var(--font);color:var(--ink)}
+#nameCard h2{margin:0 0 4px;font-size:18px}#nameCard p{margin:0 0 12px;color:var(--ink-2);font-size:13px}
+#nameCard input{width:100%;height:44px;border-radius:12px;border:1.5px solid var(--inset);background:var(--card-2);padding:0 12px;font:600 17px var(--font);color:var(--ink);box-sizing:border-box;margin-bottom:10px}
+#nameSolo{display:block;margin:10px auto 0;border:0;background:none;color:var(--ink-2);font:600 13px var(--font);text-decoration:underline;cursor:pointer}
 #mpbtn{position:static;background:var(--card);color:var(--ink);border:0;border-radius:999px;box-shadow:var(--shadow);height:44px;min-width:44px;display:flex;align-items:center;justify-content:center;gap:4px;padding:0 10px;cursor:pointer;touch-action:manipulation;font:800 13px var(--font)}
 #mpbtn svg{width:21px;height:21px;stroke:var(--accent);flex:none}#mpbtn.live{background:var(--accent);color:#fff}#mpbtn.live svg{stroke:#fff}#mpCount:empty{display:none}
 #chalSheet{position:fixed;inset:0;z-index:30;background:rgba(22,26,25,.35);display:none;align-items:center;justify-content:center;padding:16px}
@@ -556,11 +561,14 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 <div id="mpSheet" role="dialog" aria-modal="true" aria-label="Play with a mate"><div id="mpCard"><div class="ch-head"><h2>Play with a mate</h2><button id="mpX" type="button" aria-label="Close">&times;</button></div>
 <p id="mpWhere" class="mp-warn" hidden>Multiplayer works on <b>dongadrifta.netlify.app</b>. Open it there on both phones.</p>
 <div id="mpIdle"><label class="mp-lbl">Your name<input id="mpName" maxlength="12" autocomplete="off" spellcheck="false"></label>
+<button id="mpPub" type="button" class="mp-btn pri" hidden>Join the public yard</button>
+<div class="ch-sec" id="mpPrivLbl" hidden>Or play privately</div>
 <button id="mpHost" type="button" class="mp-btn pri">Host a game</button>
 <div class="ch-sec">Or join a mate</div><div class="mp-row"><input id="mpCode" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false"><button id="mpJoin" type="button" class="mp-btn">Join</button></div>
 <p class="mp-small">You'll see each other and every machine you drive. Walk up to a machine your mate is in and tap <b>Pull out</b>. Wrecked sheds, animals and weather aren't shared yet.</p></div>
-<div id="mpLive" hidden><div class="mp-code">Code <b id="mpCodeShow" class="mono"></b></div><div id="mpList"></div><button id="mpLeave" type="button" class="mp-btn">Leave the game</button></div>
+<div id="mpLive" hidden><div class="mp-code" id="mpCodeLine">Code <b id="mpCodeShow" class="mono"></b></div><div id="mpList"></div><button id="mpLeave" type="button" class="mp-btn">Leave the game</button></div>
 <p id="mpNote" class="mp-small"></p></div></div>
+<div id="nameAsk" role="dialog" aria-modal="true" aria-label="Your name"><div id="nameCard"><h2>Who's this, mate?</h2><p>Your name shows to everyone in the yard.</p><input id="nameIn" maxlength="12" autocomplete="off" spellcheck="false" placeholder="Your name"><button id="nameGo" type="button" class="mp-btn pri">Into the yard</button><button id="nameSolo" type="button">Play on my own</button></div></div>
 <div id="chalSheet" role="dialog" aria-modal="true" aria-label="Time trials and pickups"><div id="chalCard"><div class="ch-head"><h2>Time trials &amp; pickups</h2><button id="chalX" type="button" aria-label="Close">&times;</button></div><div id="chalBody"></div></div></div>
 
 <div class="ui" id="stickZone"></div>
@@ -8375,7 +8383,7 @@ $('wxbtn').addEventListener('click', e => { e.preventDefault(); wxCycle(); });
    plus the machine's placement. Everyone else's copy of that machine is driven by those updates.
    Not shared yet: wrecked sheds, the tank, trees, piles, animals, cultivated ground, weather.
    ================================================================ */
-const MP = { on: false, me: Math.random().toString(36).slice(2, 8), host: false, code: '', name: 'Player', slot: 1, peers: new Map(), tx: null, sendT: 0, clock: 0, hitCD: 0, jack: null,
+const MP = { pub: false, on: false, me: Math.random().toString(36).slice(2, 8), host: false, code: '', name: 'Player', slot: 1, peers: new Map(), tx: null, sendT: 0, clock: 0, hitCD: 0, jack: null,
              status: '', local: /[?&]mp=local/.test(location.search), roster: [] };
 try { MP.name = STORE.get('wfy.mpname', '') || 'Player'; } catch (_) {}
 const MP_COL = [0x2f6db5, 0x2f6db5, 0xc8402e, 0x2e9a4f, 0x8a4fc2];   // shirts by slot (1 = host)
@@ -8417,25 +8425,27 @@ async function mpTxPeer(code, isHost, onMsg, onDrop) {
 }
 
 /* ---------- session ---------- */
-async function mpStart(isHost, code) {
+async function mpStart(isHost, code, fixed, pub) {
   if (MP.on) mpLeave(true);
   code = (code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (isHost) code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
+  if (isHost && !fixed) code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
   if (code.length !== 4) { mpStatus('Codes are 4 letters'); return false; }
-  MP.code = code; MP.host = isHost; MP.slot = isHost ? 1 : 0; MP.roster = isHost ? [{ id: MP.me, slot: 1, name: MP.name }] : [];
+  MP.pub = !!pub; MP.code = code; MP.host = isHost; MP.slot = isHost ? 1 : 0; MP.roster = isHost ? [{ id: MP.me, slot: 1, name: MP.name }] : [];
   mpStatus(isHost ? 'Opening a game…' : 'Joining ' + code + '…');
   try {
     MP.tx = await (MP.local ? mpTxLocal : mpTxPeer)(code, isHost, mpRecv, why => { toast(why, 2.6); mpLeave(true); });
-  } catch (e) { mpStatus(e.message || 'Couldn’t connect'); return false; }
+  } catch (e) { MP.pub = false; mpStatus(pub ? '' : (e.message || 'Couldn’t connect')); return false; }
   MP.on = true; MP.clock = 0;
   if (!isHost) MP.tx.send({ k: 'hi', f: MP.me, name: MP.name });
-  mpStatus(isHost ? 'Hosting. Tell your mate the code' : 'Connected'); mpSheet(); return true;
+  mpStatus(pub ? (isHost ? 'You opened the yard. Anyone who opens the link joins you' : 'In the public yard') : isHost ? 'Hosting. Tell your mate the code' : 'Connected'); mpSheet(); return true;
 }
 function mpLeave(quiet) {
+  const wasPub = MP.pub; MP.pub = false;
   if (MP.tx) { try { MP.tx.send({ k: 'bye', f: MP.me }); } catch (_) {} setTimeout(((t) => () => t.close())(MP.tx), 200); }
   for (const p of MP.peers.values()) mpDrop(p);
   MP.peers.clear(); MP.tx = null; MP.on = false; MP.roster = []; MP.code = '';
   if (!quiet) toast('Left the game', 1.4); mpStatus(''); mpSheet();
+  if (wasPub && typeof PUB !== 'undefined' && PUB.wanted) PUB.retryT = 1 + Math.random() * 3;     // the host left: somebody opens the yard again
 }
 function mpStatus(s) { MP.status = s; const el = $('mpNote'); if (el) el.textContent = s; }
 function mpSend(o) { if (MP.on && MP.tx) MP.tx.send(o); }
@@ -8616,11 +8626,13 @@ function mpSheet() {
   const el = $('mpSheet'); if (!el) return;
   $('mpbtn').classList.toggle('live', MP.on); $('mpCount').textContent = MP.on ? String(MP.peers.size + 1) : '';
   $('mpIdle').hidden = MP.on; $('mpLive').hidden = !MP.on;
-  if (MP.on) { $('mpCodeShow').textContent = MP.code;
+  if (typeof PUB !== 'undefined') { $('mpPub').hidden = !PUB.on || MP.on; $('mpPrivLbl').hidden = !PUB.on || MP.on; }
+  $('mpLeave').textContent = MP.pub ? 'Leave the public yard' : 'Leave the game';
+  if (MP.on) { $('mpCodeLine').innerHTML = MP.pub ? 'The <b style="font-size:18px;letter-spacing:0">public yard</b>' : 'Code <b id="mpCodeShow" class="mono">' + MP.code + '</b>';
     const rows = (MP.roster.length ? MP.roster : [{ id: MP.me, slot: MP.slot || 1, name: MP.name }, ...[...MP.peers.values()].map(p => ({ id: p.id, slot: p.slot, name: p.name }))]);
     $('mpList').innerHTML = rows.map(r => `<div class="ch-row"><b><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${MP_CSS[r.slot] || MP_CSS[2]};margin-right:8px"></i>${r.name.replace(/[<>&]/g, '')}${r.id === MP.me ? ' (you)' : ''}</b><span>${r.slot === 1 ? 'host' : ''}</span></div>`).join(''); }
   $('mpNote').textContent = MP.status;
-  const netlify = MP.local || /netlify\.app$|localhost|127\.0\.0\.1|t\.test/.test(location.hostname);
+  const netlify = MP.local || /netlify\.app$|github\.io$|localhost|127\.0\.0\.1|t\.test/.test(location.hostname);
   $('mpWhere').hidden = netlify;
 }
 (() => {
@@ -8630,12 +8642,58 @@ function mpSheet() {
   $('mpX').addEventListener('click', () => sh.classList.remove('show'));
   sh.addEventListener('click', e => { if (e.target === sh) sh.classList.remove('show'); });
   const nm = () => { MP.name = ($('mpName').value || '').trim().slice(0, 12) || 'Player'; try { STORE.set('wfy.mpname', MP.name); } catch (_) {} };
-  $('mpHost').addEventListener('click', async () => { nm(); audioInit && audioInit(); await mpStart(true); });
-  $('mpJoin').addEventListener('click', async () => { nm(); await mpStart(false, $('mpCode').value); });
-  $('mpLeave').addEventListener('click', () => mpLeave());
+  $('mpHost').addEventListener('click', async () => { nm(); PUB.wanted = false; audioInit && audioInit(); await mpStart(true); });
+  $('mpJoin').addEventListener('click', async () => { nm(); PUB.wanted = false; await mpStart(false, $('mpCode').value); });
+  $('mpPub').addEventListener('click', async () => { nm(); PUB.wanted = true; PUB.pinged = false; audioInit && audioInit(); await pubJoin(); });
+  $('mpLeave').addEventListener('click', () => { if (MP.pub) PUB.wanted = false; mpLeave(); });
   for (const id of ['mpName', 'mpCode']) { const i = $(id); ['keydown', 'keyup'].forEach(ev => i.addEventListener(ev, e => { e.stopPropagation(); if (ev === 'keydown' && e.key === 'Enter') (id === 'mpCode' ? $('mpJoin') : $('mpHost')).click(); })); }
   addEventListener('beforeunload', () => { if (MP.on) mpSend({ k: 'bye', f: MP.me }); });
 })();
+
+/* ---------- the public yard ----------
+   On the live site everyone who opens the link lands in the same room (the fixed code YARD): the first
+   one in opens it, the rest join them, and when the host leaves somebody else opens it again.
+   A tiny push alert (ntfy) tells the owner when someone arrives, so he can jump in too. */
+const PUB = { on: /github\.io$/.test(location.hostname) || /[?&]public=1/.test(location.search), solo: /[?&]solo=1/.test(location.search),
+  code: 'YARD', topic: 'wfy-06bd1y2q17dx4a', wanted: true, busy: false, retryT: 0, pinged: false, booted: false, role: (location.search.match(/[?&]pubrole=(\w+)/) || [])[1] || '' };
+if (/[?&]owner=1/.test(location.search)) STORE.set('wfy.owner', '1');
+async function pubJoin(delay) {
+  if (!PUB.on || PUB.solo || !PUB.wanted || MP.on || PUB.busy) return;
+  PUB.busy = true;
+  try {
+    if (delay) await new Promise(r => setTimeout(r, delay));
+    if (MP.on || !PUB.wanted) return;
+    let ok = false;
+    if (!(MP.local && PUB.role === 'host')) ok = await mpStart(false, PUB.code, false, true);          // somebody's already in the yard
+    if (!ok && PUB.wanted && !MP.on) ok = await mpStart(true, PUB.code, true, true);                    // nobody is: open it
+    if (ok) pubPing(); else if (PUB.wanted) PUB.retryT = 4 + Math.random() * 6;
+  } finally { PUB.busy = false; }
+}
+function pubPing() {
+  try {
+    if (PUB.pinged || STORE.get('wfy.owner', '') === '1' || !PUB.topic) return; PUB.pinged = true;
+    const last = +STORE.get('wfy.pubping', 0) || 0; if (Date.now() - last < 20 * 60e3) return; STORE.set('wfy.pubping', Date.now());
+    const who = (MP.name || 'Someone').replace(/[^\w .'-]/g, '').slice(0, 14) || 'Someone';
+    fetch('https://ntfy.sh/' + PUB.topic + '?title=' + encodeURIComponent('Donga Drifta') + '&tags=tractor', { method: 'POST', body: who + ' is in the yard' }).catch(() => {});
+  } catch (_) {}
+}
+function pubAskName() {
+  return new Promise(res => {
+    const el = $('nameAsk'), inp = $('nameIn'); if (!el) { res('Player'); return; }
+    el.classList.add('show'); setTimeout(() => { try { inp.focus(); } catch (_) {} }, 50);
+    ['keydown', 'keyup', 'keypress'].forEach(ev => inp.addEventListener(ev, e => { e.stopPropagation(); if (ev === 'keydown' && e.key === 'Enter') $('nameGo').click(); }));
+    $('nameGo').onclick = () => { const v = (inp.value || '').replace(/[<>&"]/g, '').trim().slice(0, 12); if (!v) { inp.focus(); return; } el.classList.remove('show'); res(v); };
+    $('nameSolo').onclick = () => { el.classList.remove('show'); res(null); };
+  });
+}
+async function pubBoot() {
+  if (!PUB.on || PUB.solo || PUB.booted) return; PUB.booted = true;
+  let nm = STORE.get('wfy.mpname', '') || '';
+  if (!nm) { const r = await pubAskName(); if (r === null) { PUB.wanted = false; mpSheet(); return; } nm = r; STORE.set('wfy.mpname', nm); }
+  MP.name = nm; pubJoin();
+}
+setInterval(() => { if (PUB.retryT > 0 && !MP.on && !PUB.busy) { PUB.retryT -= 0.5; if (PUB.retryT <= 0) pubJoin(); } if (!PUB.booted && window.__game && window.__game.ready) pubBoot(); }, 500);
+window.__pub = PUB;
 
 /*MP-END*/
 /* ---------- compact HUD: the menu ---------- */
