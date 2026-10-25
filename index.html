@@ -2316,7 +2316,7 @@ SPECS.x5.drift = Object.assign({}, DRIFT, { m: 2200, Iz: 3600, a: 1.5, Cf: 74000
 SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 7.8, Cf: 76000, Cr: 70000, mu: 0.97 });
 SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 70000, Cr: 64000, mu: 0.9, drive: 8.6, top: 165 / 3.6, rev: 25 / 3.6, steer: 0.58, steerFast: 0.3, kick: 2.8 });
 function driftMotion(dt, throttle, steerIn, braking, handbrake) {
-  const D = V.drift || DRIFT, b = V.wb - D.a, g = 9.8, MU = D.mu * WX.grip * slideGm();
+  const D = driftTune(V.drift || DRIFT), b = V.wb - D.a, g = 9.8, MU = D.mu * WX.grip * slideGm();
   const Nf = D.m * g * b / V.wb, Nr = D.m * g * D.a / V.wb;
   const n = 4, h = dt / n;
   let yaw = S.yaw, vx = S.vx, vz = S.vz, r = S.r, x = S.pos.x, z = S.pos.z, vF = 0, vL = 0, ax = 0;
@@ -10968,6 +10968,16 @@ if (!RAD.timer) RAD.timer = setInterval(radioTick, 30);
    ================================================================ */
 const SLD = { v: 0.5 };
 try { const s = localStorage.getItem('wfy.slide'); if (s !== null && !isNaN(+s)) SLD.v = Math.min(1, Math.max(0, +s)); } catch (_) {}
+var DRIFTM = false;
+try { DRIFTM = localStorage.getItem('wfy.driftmode') === '1'; } catch (_) {}
+// grip mode (default, GTA-like): planted tyres, a car that settles itself, but the handbrake still hangs the tail out.
+// drift mode: the original loose, slidey handling.
+function driftTune(D) { return DRIFTM ? D : Object.assign({}, D, { mu: D.mu * 1.9, slide: 0.95, assist: D.assist * 1.7, catch: D.catch * 1.7, circle: 0.7, limit: D.limit * 0.8, limitK: D.limitK * 1.5 }); }
+function driftModeSet(on, quiet) {
+  DRIFTM = !!on; try { localStorage.setItem('wfy.driftmode', DRIFTM ? '1' : '0'); } catch (_) {}
+  for (const id of ['drfT', 'drfM']) { const b = document.getElementById(id); if (b) { b.classList.toggle('on', DRIFTM); b.textContent = id === 'drfT' ? (DRIFTM ? 'DRIFT' : 'GRIP') : (DRIFTM ? 'Drift mode: on' : 'Drift mode: off'); } }
+  if (!quiet) toast(DRIFTM ? 'Drift mode on: loose and slidey' : 'Grip mode: planted, handbrake still slides', 2);
+}
 const slideGm = () => Math.pow(2, (0.5 - SLD.v) * 1.6);        // tyre grip multiplier: 1.7x planted ... 0.57x icy
 var slideSet = function (v, quiet) {
   SLD.v = Math.min(1, Math.max(0, v)); try { localStorage.setItem('wfy.slide', String(SLD.v)); } catch (_) {}
@@ -10980,22 +10990,25 @@ var slideSet = function (v, quiet) {
   document.head.appendChild(st);
   const panel = $('menuPanel'), row = document.createElement('div'); row.id = 'sldRow';
   row.innerHTML = '<div class="t"><span>Car slide</span><span id="sldL"></span></div><input id="sldR" type="range" min="0" max="100" step="5" aria-label="Car slide"><div class="m"><span>Planted</span><span>Sideways</span></div>';
+  const dm = document.createElement('button'); dm.type = 'button'; dm.id = 'drfM'; dm.style.cssText = 'margin:2px 12px 6px;padding:8px 10px;border-radius:10px;border:1.5px solid var(--inset);background:var(--card-2);color:var(--ink);font:700 12px var(--font);cursor:pointer';
+  dm.addEventListener('click', () => driftModeSet(!DRIFTM)); row.appendChild(dm);
   const help = $('helpbtn'); help ? panel.insertBefore(row, help) : panel.appendChild(row);
   // on-screen control while driving a car: - / + with the current level
   const st2 = document.createElement('style');
-  st2.textContent = '#sldHud{position:fixed;z-index:12;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom,0px));display:none;align-items:center;gap:2px;background:var(--glass);box-shadow:var(--shadow);border-radius:999px;padding:4px;font:700 13px var(--font);color:var(--ink);touch-action:manipulation;user-select:none}#sldHud.show{display:flex}#sldHud button{width:38px;height:38px;border-radius:50%;border:0;background:var(--inset);color:var(--accent);font:800 20px var(--font);cursor:pointer;line-height:1}#sldHud button:active{background:var(--accent);color:#fff}#sldHud .v{min-width:104px;text-align:center;padding:0 4px;line-height:1.15}#sldHud .v small{display:block;font:600 10px var(--font);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}';
+  st2.textContent = '#sldHud{position:fixed;z-index:12;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom,0px));display:none;align-items:center;gap:2px;background:var(--glass);box-shadow:var(--shadow);border-radius:999px;padding:4px;font:700 13px var(--font);color:var(--ink);touch-action:manipulation;user-select:none}#sldHud.show{display:flex}#sldHud button{width:38px;height:38px;border-radius:50%;border:0;background:var(--inset);color:var(--accent);font:800 20px var(--font);cursor:pointer;line-height:1}#sldHud button.mode{width:auto;border-radius:999px;padding:0 12px;font:800 12px var(--font);letter-spacing:.06em;margin-right:4px;color:var(--ink)}#sldHud button.mode.on{background:var(--accent);color:#fff}#sldHud button:active{background:var(--accent);color:#fff}#sldHud .v{min-width:104px;text-align:center;padding:0 4px;line-height:1.15}#sldHud .v small{display:block;font:600 10px var(--font);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}';
   document.head.appendChild(st2);
   const hud = document.createElement('div'); hud.id = 'sldHud'; hud.className = 'ui';
-  hud.innerHTML = '<button type="button" id="sldM" aria-label="Less slide">\u2212</button><div class="v"><small>Car slide</small><span id="sldH"></span></div><button type="button" id="sldP" aria-label="More slide">+</button>';
+  hud.innerHTML = '<button type="button" id="drfT" class="mode" aria-label="Toggle drift mode">GRIP</button><button type="button" id="sldM" aria-label="Less slide">\u2212</button><div class="v"><small>Car slide</small><span id="sldH"></span></div><button type="button" id="sldP" aria-label="More slide">+</button>';
   document.body.appendChild(hud);
   const upd = () => { const e = document.getElementById('sldH'); if (e) e.textContent = Math.round(SLD.v * 100) + '% ' + (SLD.v < 0.25 ? 'planted' : SLD.v > 0.75 ? 'sideways' : SLD.v === 0.5 ? 'stock' : 'mixed'); };
   const prev = slideSet; slideSet = function (v, q) { prev(v, true); upd(); if (!q) toast('Car slide ' + Math.round(SLD.v * 100) + '%', 1.2); };
+  hud.querySelector('#drfT').addEventListener('click', () => driftModeSet(!DRIFTM));
   hud.querySelector('#sldM').addEventListener('click', () => slideSet(Math.round(SLD.v * 20 - 1) / 20));
   hud.querySelector('#sldP').addEventListener('click', () => slideSet(Math.round(SLD.v * 20 + 1) / 20));
   let told = false;
   setInterval(() => { const car = ['suv', 'x5', 'bmw', 'trophy', 'truck'].includes(activeName); hud.classList.toggle('show', car);
-    if (car && !told) { told = true; toast('Car slide setting is at the bottom: tap \u2212 or + (also in the menu)', 3.5); } }, 300);
-  const r = row.querySelector('input'); r.addEventListener('input', () => slideSet(r.value / 100, true)); slideSet(SLD.v, true);
+    if (car && !told) { told = true; toast('Cars now handle grip-first. GRIP/DRIFT and the slide \u2212/+ are at the bottom', 3.5); } }, 300);
+  const r = row.querySelector('input'); r.addEventListener('input', () => slideSet(r.value / 100, true)); slideSet(SLD.v, true); driftModeSet(DRIFTM, true);
   addEventListener('keydown', e => { if (e.repeat) return; if (e.key === '[') slideSet(SLD.v - 0.1); else if (e.key === ']') slideSet(SLD.v + 0.1); });
 })();
 
@@ -11274,7 +11287,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
