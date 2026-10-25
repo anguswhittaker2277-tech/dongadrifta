@@ -5446,7 +5446,7 @@ function makeTyreVoice() {
     ramp(slideG.gain, sl * 0.55, 0.04); ramp(slide.playbackRate, 0.8 + sl * 0.5, 0.05); ramp(slideF.frequency, 900 + sl * 1400, 0.05);
     ramp(lugG.gain, kind === 'tractor' ? Math.min(1, s / 9) * 0.3 : 0, 0.05); ramp(lug.playbackRate, Math.max(0.05, s / 0.27 / 40), 0.03);
     ramp(hum.frequency, Math.max(20, s / 0.034), 0.05); ramp(humF.frequency, Math.max(40, s / 0.034), 0.05); ramp(humG.gain, kind === 'suv' ? Math.pow(Math.min(1, s / 22), 2) * 0.06 : 0, 0.1);
-    if (sl > 0.1) { V.pingT -= dt * sl * 14; if (V.pingT <= 0) { V.pingT = 0.3 + Math.random(); playAt(AU.buf.ping[Math.floor(Math.random() * 3)], pos, 0.25 + Math.random() * 0.3, 0.85 + Math.random() * 0.3); } }
+    if (false) { V.pingT -= dt * sl * 14; if (V.pingT <= 0) { V.pingT = 0.3 + Math.random(); playAt(AU.buf.ping[Math.floor(Math.random() * 3)], pos, 0.25 + Math.random() * 0.3, 0.85 + Math.random() * 0.3); } }
     if (pos) sp.place(pos, 8);
   };
   return V;
@@ -9107,7 +9107,7 @@ function vehCentre(v, out) { const o = vehicleOBB(v); if (o) return out.set(o.cx
 function wpnVehDamage(v, dmg, dir, how, net) {
   if (!v || dmg <= 0) return; const D = vd(v.name); if (D.wrecked) return;
   if (v.kind === 'air' && v.st.crashed) return;
-  D.hp -= dmg; if (how === 'fire') D.burn = Math.max(D.burn, 1);
+  const hp0 = D.hp, burn0 = D.burn || 0; D.hp -= dmg; if (how === 'fire') D.burn = Math.max(D.burn, 1); if (activeVeh() === v) dmgHpMsg(D, hp0, burn0);
   if (!net && MP.on && how !== 'blast') mpSend({ k: 'vdmg', f: MP.me, veh: v.name, dmg: Math.round(dmg), how });
   if (D.hp > 0) { if (D.hp < D.max * 0.15) D.burn = Math.max(D.burn, 1); return; }
   // it's done
@@ -9254,7 +9254,7 @@ function dmgPop(name, i, why) {
   dmgHiss(P);
   for (let k = 0; k < 8; k++) wpnPart(WPN.spark, P, 0.25, _dA.set((Math.random() - 0.5) * 3, Math.random() * 2, (Math.random() - 0.5) * 3));
   dustBurst(P, 4, 0.5);
-  if (v === activeVeh()) { toast(st.nPop === ty.length ? 'All tyres are gone' : st.nPop > 1 ? st.nPop + ' flat tyres' : 'Tyre blown!', 1.6); camShake = Math.max(camShake, 0.3); }
+  if (v === activeVeh()) { dmgAlert(dmgTyreMsg(st, ty, t)); camShake = Math.max(camShake, 0.3); }
   return true;
 }
 // the closest still-inflated tyre to a world point, if it is within maxD
@@ -9277,7 +9277,7 @@ function dmgCrash(name, hitN, impact, soft) {
   const hy = (sp.rayH && sp.rayH.length ? sp.rayH[Math.min(1, sp.rayH.length - 1)] : 0.7) * 0.85;
   T.root.updateMatrixWorld(true);
   const wp = T.root.localToWorld(new THREE.Vector3(l * t, hy, f * t + zc)), inward = new THREE.Vector3(hitN.x, 0, hitN.y).normalize();
-  if (!DMG_NODENT.has(name) && !light) dmgDent(name, wp, inward, E);
+  if (!DMG_NODENT.has(name) && !light) { dmgDent(name, wp, inward, E); if (v === activeVeh()) dmgDentMsg(f, l, E); }
   // a crash costs hit points, so a wreck-up is possible
   const dm = light ? Math.max(0, impact - 5) * 6 : Math.max(0, E - 12) * 0.15; if (dm > 0) wpnVehDamage(v, dm, inward, 'crash', true);
   metalSound(wp, Math.min(1, (light ? impact * 4 : E) / 80), 0.75);
@@ -11190,6 +11190,27 @@ function bmwLoopsLoad() {
     const done = b => { AU.bmwL[key] = b; if (AU.bmwL.on && AU.bmwL.off && AU.eng && AU.eng.bmw) bmwApply(AU.eng.bmw); };
     const p = AU.ctx.decodeAudioData(u.buffer, done, () => {}); if (p && p.catch) p.catch(() => {}); } catch (_) {} };
   dec(BMW_LOOP_ON_B64, 'on'); dec(BMW_LOOP_OFF_B64, 'off');
+}
+
+/* Driver alerts: say what just broke (which tyre, which panel, how bad), not just that something did. */
+const DMGA = { txt: '', at: 0 };
+function dmgAlert(msg) { const n = performance.now(); DMGA.txt = n - DMGA.at < 800 ? DMGA.txt + ' · ' + msg : msg; DMGA.at = n; toast(DMGA.txt, 3.4); }
+function dmgTyreMsg(st, ty, t) {
+  if (st.nPop === ty.length) return 'All tyres gone';
+  const front = t.lz > st.zmid, side = ty.length > 2 && Math.abs(t.lx) > 0.15 ? (t.lx > 0 ? ' left' : ' right') : '';
+  const w = (front ? 'Front' : 'Rear') + side;
+  return w + ' tyre blown' + (st.nPop > 1 ? ' · ' + st.nPop + ' of ' + ty.length + ' flat' : ' · pulls to that side, less grip');
+}
+function dmgDentMsg(f, l, E) {
+  const fr = Math.abs(f) > 0.4 ? (f > 0 ? 'front' : 'rear') : '', sd = Math.abs(l) > 0.4 ? (l > 0 ? 'left' : 'right') : '';
+  const where = (fr + (fr && sd ? ' ' : '') + sd) || 'side', sev = E < 20 ? 'Scuffed' : E < 70 ? 'Dented' : 'Crunched';
+  dmgAlert(sev + ': ' + where);
+}
+function dmgHpMsg(D, hp0, burn0) {
+  if (D.hp <= 0) return;
+  if (hp0 >= D.max * 0.4 && D.hp < D.max * 0.4) dmgAlert('Heavy damage · smoking');
+  if (hp0 >= D.max * 0.15 && D.hp < D.max * 0.15) dmgAlert('Critical · about to burn, bail out!');
+  else if (burn0 < 1 && D.burn >= 1 && D.hp >= D.max * 0.15) dmgAlert('On fire!');
 }
 
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
