@@ -10990,7 +10990,7 @@ function slideSet(v, quiet) {
    groundAt reads, so bikes, cars and Dazza on foot all ride them.
    ================================================================ */
 var FMX_ON = false;
-const FMXZ = 47, FMXZ2 = 61;
+const FMXZ = 78, FMXZ2 = 91;
 const FMX_RAMPS = [
   { id: 'bigK', k: 'k', x0: -28, z: FMXZ, W: 9, L: 10, H: 2.6, e: 1.4 },
   { id: 'bigL', k: 'l', x0: 0, z: FMXZ, W: 13, Lr: 14, H: 3.0, Ld: 27 },
@@ -11002,7 +11002,7 @@ function fmxRampH(R, x, z) {
   let h = 0;
   if (R.k === 'k') { if (u <= R.L) h = R.H * Math.pow(u / R.L, R.e); else if (u <= R.L + 0.8) h = R.H * (1 - (u - R.L) / 0.8); else return -Infinity; }
   else { if (u <= R.Lr) { const t = u / R.Lr; h = R.H * t * t * (3 - 2 * t); } else if (u <= R.Lr + R.Ld) h = R.H * Math.pow(1 - (u - R.Lr) / R.Ld, 1.6); else return -Infinity; }
-  const t = Math.min(1, (edge - dz) / 2.2); return h * t * t * (3 - 2 * t);
+  const t = Math.min(1, (edge - dz) / 1.0); return h * t * t * (3 - 2 * t);
 }
 function fmxHeight(x, z) {
   if (!FMX_ON || z < FMXZ - 8 || z > FMXZ2 + 8 || x < -30 || x > 45) return -Infinity;
@@ -11010,16 +11010,19 @@ function fmxHeight(x, z) {
 }
 function fmxIn(x, z) { return FMX_ON && z > FMXZ - 9 && z < FMXZ2 + 9 && x > -32 && x < 46; }
 (() => {
-  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.fillStyle = '#a07650'; g.fillRect(0, 0, 128, 128);
-  let sd = 7; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
-  for (let i = 0; i < 700; i++) { const v = 110 + Math.floor(rnd() * 70); g.fillStyle = `rgb(${v},${Math.floor(v * 0.74)},${Math.floor(v * 0.5)})`; g.beginPath(); g.arc(rnd() * 128, rnd() * 128, 0.8 + rnd() * 2.6, 0, 6.3); g.fill(); }
-  const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.MeshLambertMaterial({ map: tex });
+  // galvanised steel decking: diamond-plate sheets with seams and rivets
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  g.fillStyle = '#a9afb5'; g.fillRect(0, 0, 256, 256);
+  for (let y = 8; y < 256; y += 16) for (let x = 8; x < 256; x += 16) { const o = ((x + y) / 16) % 2 ? 0 : 1; g.save(); g.translate(x + 4, y + 4); g.rotate(o ? 0.8 : -0.8); g.fillStyle = '#d4d9de'; g.fillRect(-5, -1.6, 10, 3.2); g.fillStyle = '#7d848b'; g.fillRect(-5, 1.2, 10, 1); g.restore(); }
+  g.strokeStyle = '#5d646b'; g.lineWidth = 4; g.strokeRect(2, 2, 252, 252); g.fillStyle = '#4b5157';
+  for (const q of [10, 128, 246]) for (const r of [10, 246]) { g.beginPath(); g.arc(q, r, 3, 0, 6.3); g.fill(); g.beginPath(); g.arc(r, q, 3, 0, 6.3); g.fill(); }
+  const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const mat = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.45, roughness: 0.42, color: 0xffffff });
   for (const R of FMX_RAMPS) {
     const len = R.k === 'k' ? R.L + 0.8 : R.Lr + R.Ld, st = 0.5, nx = Math.ceil(len / st), nz = Math.ceil(R.W / st), pos = [], uv = [], idx = [];
     for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
       const x = R.x0 + Math.min(len, i * st), z = R.z - R.W / 2 + j * (R.W / nz), h = fmxRampH(R, x, z);
-      pos.push(x, h === -Infinity ? 0 : h + 0.01, z); uv.push(x * 0.35, z * 0.35);
+      pos.push(x, h === -Infinity ? 0 : h + 0.01, z); uv.push(x / 2.4, z / 2.4);
     }
     for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) { const a = i * (nz + 1) + j, b = a + 1, d = a + nz + 1, e = d + 1; idx.push(a, b, d, b, e, d); }
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
