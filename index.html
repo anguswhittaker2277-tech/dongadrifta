@@ -2180,7 +2180,8 @@ function groundAt(x, z, fromY, fallback) {
   if (sf !== null && sf <= fromY + 0.05 && (!h || y < sf)) { y = sf; h = h || true; }
   if (!h && PAD.grid && insideWorld(x, z)) { const p = padHeight(x, z); if (p <= fromY) y = p; if (MX.ready) { const t = mxHeight(x, z); if (t !== null && t <= fromY + 0.05) y = t; } }   // out in the paddocks
   if (PILES.length && !PILE_OFF) { const ph = pileHeightAt(x, z); if (ph > y && ph <= fromY + 0.05) y = ph; }   // dirt piles are solid ground
-  if (LAD_ON) { const ry = siloRoofY(x, z, fromY); if (ry > y && ry <= fromY + 0.05) y = ry; }   // silo roofs are walkable from above
+  if (LAD_ON) { const ry = siloRoofY(x, z, fromY); if (ry > y && ry <= fromY + 0.05) y = ry; }
+  if (FMX_ON) { const fh = fmxHeight(x, z); if (fh > y && fh <= fromY + 0.05) y = fh; }   // FMX ramps   // silo roofs are walkable from above
   return y;
 }
 function castHit(origin, dir, far) {
@@ -2315,7 +2316,7 @@ SPECS.x5.drift = Object.assign({}, DRIFT, { m: 2200, Iz: 3600, a: 1.5, Cf: 74000
 SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 7.8, Cf: 76000, Cr: 70000, mu: 0.97 });
 SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 70000, Cr: 64000, mu: 0.9, drive: 8.6, top: 165 / 3.6, rev: 25 / 3.6, steer: 0.58, steerFast: 0.3, kick: 2.8 });
 function driftMotion(dt, throttle, steerIn, braking, handbrake) {
-  const D = V.drift || DRIFT, b = V.wb - D.a, g = 9.8, MU = D.mu * WX.grip;
+  const D = V.drift || DRIFT, b = V.wb - D.a, g = 9.8, MU = D.mu * WX.grip * slideGm();
   const Nf = D.m * g * b / V.wb, Nr = D.m * g * D.a / V.wb;
   const n = 4, h = dt / n;
   let yaw = S.yaw, vx = S.vx, vz = S.vz, r = S.r, x = S.pos.x, z = S.pos.z, vF = 0, vL = 0, ax = 0;
@@ -2443,7 +2444,7 @@ function step(dt) {
     const maxSteer = THREE.MathUtils.lerp(V.steer, V.steerFast, speedK);
     const targetSteer = -steerIn * maxSteer;
     S.steer += THREE.MathUtils.clamp(targetSteer - S.steer, -V.steerRate * dt, V.steerRate * dt);
-    const yawLimit = V.grip * WX.grip / Math.max(1.5, Math.abs(S.v));      // tyres can only hold so much cornering
+    const yawLimit = V.grip * WX.grip * slideGm() / Math.max(1.5, Math.abs(S.v));      // tyres can only hold so much cornering
     yawRate = THREE.MathUtils.clamp(S.v / V.wb * Math.tan(S.steer), -yawLimit, yawLimit);
     if (V.skid) yawRate = -steerIn * V.skid * (1 - 0.25 * speedK);      // tracks: spin on the spot, same way whichever way you're going
     newYaw = S.yaw + yawRate * dt;
@@ -2532,7 +2533,7 @@ function step(dt) {
   const from = S.pos.y + 2.2;
   const [rlx, rlz] = pt(V.trackR, 0), [rrx, rrz] = pt(-V.trackR, 0), [flx, flz] = pt(V.trackF, V.wb), [frx, frz] = pt(-V.trackF, V.wb);
   const hRL = groundAt(rlx, rlz, from, S.pos.y), hRR = groundAt(rrx, rrz, from, S.pos.y);
-  const hFL = groundAt(flx, flz, from + Math.max(0, -S.pitch) * 3, S.pos.y), hFR = groundAt(frx, frz, from + Math.max(0, -S.pitch) * 3, S.pos.y);
+  const hFL = groundAt(flx, flz, from + Math.max(0, Math.min(1.8, -S.pitch)) * 3, S.pos.y), hFR = groundAt(frx, frz, from + Math.max(0, Math.min(1.8, -S.pitch)) * 3, S.pos.y);
   const rearH = (hRL + hRR) / 2, frontH = (hFL + hFR) / 2;
   const targetPitch = -Math.atan2(frontH - rearH, V.wb);
   const targetRoll = Math.atan2(((hRL + hFL) - (hRR + hFR)) / 2, V.trackR * 2);
@@ -5037,7 +5038,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
+  hudStep(dt); npcStep(dt); fmxStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) drawMinimap();
@@ -8178,16 +8179,16 @@ function motoUI(dt) {
   if (activeName === 'dirtbike' && !S.air && MOTO.lean > 0.6 && !input.gas && Math.abs(S.v) < 0.5) { MOTO.nudgeT = (MOTO.nudgeT || 0) + dt; if (MOTO.nudgeT > 1 && !MOTO.nudged) { MOTO.nudged = 1; toast('Hold GAS on the right to go — the stick shifts your weight', 2.8); } } else MOTO.nudgeT = 0; if (MOTO.popT > 0) { MOTO.popT -= dt; if (MOTO.popT <= 0) $('airpop').classList.remove('show'); } }
 // vertical motion for every ground machine: follow the ground, or fly off a lip
 function airStep(dt, gH, tPitch, tRoll, prevY) {
-  const moto = !!V.moto, lean = moto ? MOTO.lean : 0, onMX = MX.ready && mxIn(S.pos.x, S.pos.z);
+  const moto = !!V.moto, lean = moto ? MOTO.lean : 0, onMX = (MX.ready && mxIn(S.pos.x, S.pos.z)) || fmxIn(S.pos.x, S.pos.z);
   if (S.air) {
     S.airT += dt; S.vy -= 9.8 * dt; S.pos.y += S.vy * dt;
     S.launch.peak = Math.max(S.launch.peak, S.pos.y);
     const traj = -Math.atan2(S.vy, Math.max(3, Math.abs(S.v)));
-    if (moto) { const assist = Math.abs(lean) < 0.15 ? 1 : 0.25;
+    if (moto && fmxAir(dt, traj)) { } else if (moto) { const assist = Math.abs(lean) < 0.15 ? 1 : 0.25;
       S.pitchV += (((traj * 0.8 - S.pitch) * 7 - S.pitchV * 3) * assist + lean * 5.5) * dt;
       S.pitch = THREE.MathUtils.clamp(S.pitch + S.pitchV * dt, -1.8, 1.8); }
     else S.pitch = damp(S.pitch, THREE.MathUtils.clamp(traj * 0.6, -0.45, 0.45), 2.2, dt);
-    S.roll = damp(S.roll, 0, 3, dt);
+    S.roll = FMX.rollOn ? FMX.roll : damp(S.roll, 0, 3, dt);
     if (S.pos.y <= gH && S.vy < 0) airLand(gH, tPitch);
     return;
   }
@@ -8205,13 +8206,14 @@ function airStep(dt, gH, tPitch, tRoll, prevY) {
   } else { S.pos.y = yNew; S.vy = vyG; }
 }
 function airLand(gH, tPitch) {
+  S.pitch = fmxWrap(S.pitch); const rollErr = fmxRollErr();
   const slope = THREE.MathUtils.clamp(tPitch, -0.7, 0.7), v = Math.abs(S.v), moto = !!V.moto;
   const vn = -S.vy * Math.cos(slope) - v * Math.sin(slope);     // speed into the ground (a matched downslope soaks it up)
   const err = Math.abs(S.pitch - slope), airT = S.airT, L = S.launch, dist = Math.hypot(S.pos.x - L.x, S.pos.z - L.z), high = Math.max(0, L.peak - gH);
   S.air = false; S.pos.y = gH; S.vy = 0; S.pitchV = 0;
   S.susV -= THREE.MathUtils.clamp(vn, 0, 6) * 0.45;
   let verdict = 'Clean', k = 1;
-  if (moto && (err > 0.85 || vn > 10.5)) verdict = 'Crash';
+  if (moto && (err > 0.85 || vn > 10.5 || rollErr > 0.8)) verdict = 'Crash';
   else if (err > (moto ? 0.4 : 0.5) || vn > 6.5) { verdict = err > 0.4 ? 'Hard' : 'Heavy'; k = moto ? 0.62 : 0.8; S.shake = Math.min(1, S.shake + 0.45); prevShake = S.shake; camShake = Math.max(camShake, 0.45); sfx('thud', S.pos, 0.9, 0.7); }
   else { k = vn > 4 ? 0.94 : 0.99; sfx('thud', S.pos, Math.min(0.7, 0.2 + Math.max(0, vn) * 0.07), 1.15); camShake = Math.max(camShake, Math.min(0.25, Math.max(0, vn) * 0.04)); }
   if (activeName !== 'foot') { if (verdict === 'Crash') dmgLanding(activeName, vn, true); else if (vn > 6.5) dmgLanding(activeName, vn, vn > 9); }
@@ -8222,6 +8224,7 @@ function airLand(gH, tPitch) {
     if (best) { MOTO.bestAir = airT; try { STORE.set('wfy.bestair', airT); } catch (_) {} }
     motoPop(`<b>${airT.toFixed(1)} s</b> air &middot; ${Math.round(dist)} m &middot; ${high.toFixed(1)} m high &middot; <span class="v">${verdict}</span>${best && airT > 1 ? ' &middot; best' : ''}`, 2.6, verdict === 'Clean' ? 'ok' : verdict === 'Crash' ? 'bad' : 'meh');
   }
+  if (moto) fmxLanded(verdict, airT);
   if (verdict === 'Crash') { S.shake = 0; prevShake = 0; MOTO.crash = activeVeh(); }
 }
 // wheelies: lean back on the gas (the old auto-wheelie is gone)
@@ -9092,7 +9095,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset();
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -10957,11 +10960,214 @@ function radioCycle() {
 }
 if (!RAD.timer) RAD.timer = setInterval(radioTick, 30);
 
+/* ================================================================
+   CAR SLIDE: how much the cars slide, from planted (0) to tail-out (100). 50 is how they always were.
+   Menu slider, or [ and ] on the keyboard. Saved on this device.
+   ================================================================ */
+const SLD = { v: 0.5 };
+try { const s = localStorage.getItem('wfy.slide'); if (s !== null && !isNaN(+s)) SLD.v = Math.min(1, Math.max(0, +s)); } catch (_) {}
+const slideGm = () => Math.pow(2, (0.5 - SLD.v) * 1.6);        // tyre grip multiplier: 1.7x planted ... 0.57x icy
+function slideSet(v, quiet) {
+  SLD.v = Math.min(1, Math.max(0, v)); try { localStorage.setItem('wfy.slide', String(SLD.v)); } catch (_) {}
+  const r = document.getElementById('sldR'), l = document.getElementById('sldL'); if (r) r.value = Math.round(SLD.v * 100); if (l) l.textContent = Math.round(SLD.v * 100) + '%';
+  if (!quiet) toast('Car slide ' + Math.round(SLD.v * 100) + '%' + (SLD.v < 0.2 ? ' (planted)' : SLD.v > 0.8 ? ' (tail-happy)' : ''), 1.4);
+}
+(() => {
+  const st = document.createElement('style');
+  st.textContent = '#sldRow{display:flex;flex-direction:column;gap:2px;padding:6px 12px 8px;font:600 13px var(--font);color:var(--ink)}#sldRow .t{display:flex;justify-content:space-between}#sldRow input{width:100%;accent-color:var(--accent)}#sldRow .m{display:flex;justify-content:space-between;font:600 11px var(--font);color:var(--ink-3)}';
+  document.head.appendChild(st);
+  const panel = $('menuPanel'), row = document.createElement('div'); row.id = 'sldRow';
+  row.innerHTML = '<div class="t"><span>Car slide</span><span id="sldL"></span></div><input id="sldR" type="range" min="0" max="100" step="5" aria-label="Car slide"><div class="m"><span>Planted</span><span>Sideways</span></div>';
+  const help = $('helpbtn'); help ? panel.insertBefore(row, help) : panel.appendChild(row);
+  const r = row.querySelector('input'); r.addEventListener('input', () => slideSet(r.value / 100, true)); slideSet(SLD.v, true);
+  addEventListener('keydown', e => { if (e.repeat) return; if (e.key === '[') slideSet(SLD.v - 0.1); else if (e.key === ']') slideSet(SLD.v + 0.1); });
+})();
+
+/* ================================================================
+   FMX PARK: kickers, a 18 m gap and a long landing, out in the yard south of the machinery shed.
+   Console-style trick controls (the same scheme MX vs ATV and Tony Hawk use): in the air, hold TRICK and flick the
+   stick. Land straight to bank the points; chain tricks in one jump for a combo. The ramps are a height function that
+   groundAt reads, so bikes, cars and Dazza on foot all ride them.
+   ================================================================ */
+var FMX_ON = false;
+const FMXZ = 47, FMXZ2 = 61;
+const FMX_RAMPS = [
+  { id: 'bigK', k: 'k', x0: -28, z: FMXZ, W: 9, L: 10, H: 2.6, e: 1.4 },
+  { id: 'bigL', k: 'l', x0: 0, z: FMXZ, W: 13, Lr: 14, H: 3.0, Ld: 27 },
+  { id: 'smK', k: 'k', x0: -28, z: FMXZ2, W: 7, L: 6, H: 1.3, e: 1.3 },
+  { id: 'smL', k: 'l', x0: -14, z: FMXZ2, W: 9, Lr: 8, H: 1.2, Ld: 15 },
+];
+function fmxRampH(R, x, z) {
+  const u = x - R.x0, dz = Math.abs(z - R.z), edge = R.W / 2; if (u < 0 || dz >= edge) return -Infinity;
+  let h = 0;
+  if (R.k === 'k') { if (u <= R.L) h = R.H * Math.pow(u / R.L, R.e); else if (u <= R.L + 0.8) h = R.H * (1 - (u - R.L) / 0.8); else return -Infinity; }
+  else { if (u <= R.Lr) { const t = u / R.Lr; h = R.H * t * t * (3 - 2 * t); } else if (u <= R.Lr + R.Ld) h = R.H * Math.pow(1 - (u - R.Lr) / R.Ld, 1.6); else return -Infinity; }
+  const t = Math.min(1, (edge - dz) / 2.2); return h * t * t * (3 - 2 * t);
+}
+function fmxHeight(x, z) {
+  if (!FMX_ON || z < FMXZ - 8 || z > FMXZ2 + 8 || x < -30 || x > 45) return -Infinity;
+  let b = -Infinity; for (const R of FMX_RAMPS) { const h = fmxRampH(R, x, z); if (h > b) b = h; } return b;
+}
+function fmxIn(x, z) { return FMX_ON && z > FMXZ - 9 && z < FMXZ2 + 9 && x > -32 && x < 46; }
+(() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.fillStyle = '#a07650'; g.fillRect(0, 0, 128, 128);
+  let sd = 7; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 700; i++) { const v = 110 + Math.floor(rnd() * 70); g.fillStyle = `rgb(${v},${Math.floor(v * 0.74)},${Math.floor(v * 0.5)})`; g.beginPath(); g.arc(rnd() * 128, rnd() * 128, 0.8 + rnd() * 2.6, 0, 6.3); g.fill(); }
+  const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshLambertMaterial({ map: tex });
+  for (const R of FMX_RAMPS) {
+    const len = R.k === 'k' ? R.L + 0.8 : R.Lr + R.Ld, st = 0.5, nx = Math.ceil(len / st), nz = Math.ceil(R.W / st), pos = [], uv = [], idx = [];
+    for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
+      const x = R.x0 + Math.min(len, i * st), z = R.z - R.W / 2 + j * (R.W / nz), h = fmxRampH(R, x, z);
+      pos.push(x, h === -Infinity ? 0 : h + 0.01, z); uv.push(x * 0.35, z * 0.35);
+    }
+    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) { const a = i * (nz + 1) + j, b = a + 1, d = a + nz + 1, e = d + 1; idx.push(a, b, d, b, e, d); }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.castShadow = true; scene.add(m);
+  }
+  // signs and lip flags
+  const sign = (txt, x, z, ry) => {
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128; const q = cv.getContext('2d');
+    q.fillStyle = '#f2b705'; q.fillRect(0, 0, 512, 128); q.fillStyle = '#1b1b1b'; q.fillRect(0, 0, 512, 10); q.fillRect(0, 118, 512, 10);
+    q.font = '800 70px sans-serif'; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText(txt, 256, 66);
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+    const grp = new THREE.Group(), pl = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.8), new THREE.MeshBasicMaterial({ map: t })); pl.position.y = 2.2;
+    const pm = new THREE.MeshLambertMaterial({ color: 0x555555 });
+    for (const dx of [-1.4, 1.4]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 6), pm); p.position.set(dx, 1.3, -0.02); grp.add(p); }
+    grp.add(pl); grp.position.set(x, 0, z); grp.rotation.y = ry; scene.add(grp);
+  };
+  sign('FMX PARK', -36, FMXZ - 9, Math.PI); sign('BIG AIR', -38, FMXZ + 5.2, Math.PI / 2 * 0 + Math.PI);
+  const fm = new THREE.MeshLambertMaterial({ color: 0xff6a00 });
+  for (const R of [FMX_RAMPS[0], FMX_RAMPS[2]]) for (const sgn of [-1, 1]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, R.H + 1.3, 5), new THREE.MeshLambertMaterial({ color: 0xdddddd }));
+    pole.position.set(R.x0 + R.L, (R.H + 1.3) / 2, R.z + sgn * (R.W / 2 - 0.5)); scene.add(pole);
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.35), new THREE.MeshLambertMaterial({ color: 0xff6a00, side: THREE.DoubleSide })); fl.position.set(R.x0 + R.L, R.H + 1.0, R.z + sgn * (R.W / 2 - 0.5) + 0.22); fl.rotation.y = Math.PI / 2; scene.add(fl);
+  }
+})();
+FMX_ON = true;
+
+/* ---------- tricks ---------- */
+const FMX = { held: false, cur: null, q: null, done: [], armed: true, flip: 0, rollOn: false, roll: 0, bp: 0, bpV: 0, told: false, hinted: false, best: 0, last: 0 };
+try { FMX.best = STORE.get('wfy.fmxbest', 0) || 0; } catch (_) {}
+const FMX_TRICKS = {
+  back:  { name: 'Backflip', T: 0.95, pts: 500, flip: -1 },
+  up:    { name: 'Superman', T: 0.75, pts: 300 },
+  left:  { name: 'Nac-Nac', T: 0.65, pts: 300 },
+  right: { name: 'Heel-clicker', T: 0.6, pts: 250 },
+  bl:    { name: 'Cordova', T: 0.75, pts: 350, roll: 0.45 },
+  br:    { name: 'Tsunami', T: 0.85, pts: 400, roll: -1.25 },
+};
+const fmxWrap = a => { const t = Math.PI * 2; return ((a + Math.PI) % t + t) % t - Math.PI; };
+const fmxRollErr = () => Math.abs(fmxWrap(S.roll));
+function fmxPick(sx, sy) {
+  const a = Math.atan2(sx, sy);                      // 0 = stick up, +pi/2 = right, pi = down
+  const d = Math.abs(a) * 180 / Math.PI;
+  if (d < 55) return 'up';
+  if (d > 155) return 'back';
+  if (d > 115) return a < 0 ? 'bl' : 'br';
+  return a < 0 ? 'left' : 'right';
+}
+function fmxAirLeft() {                              // seconds until the wheels meet the ground, from here
+  let t = 0.6; for (let i = 0; i < 3; i++) { const g = groundAt(S.pos.x + S.vx * t, S.pos.z + S.vz * t, S.pos.y + 3, 0); t = (S.vy + Math.sqrt(Math.max(0, S.vy * S.vy + 19.6 * (S.pos.y - g)))) / 9.8; }
+  return t;
+}
+function fmxStart(sx, sy, qid) {
+  const id = qid || fmxPick(sx, sy), tk = FMX_TRICKS[id], left = fmxAirLeft();
+  if (left < tk.T * (tk.flip || tk.roll ? 0.95 : 0.7) + 0.05) { toast('Not enough air for a ' + tk.name, 1.2); FMX.armed = false; return; }
+  FMX.cur = { id, tk, t: 0 }; FMX.bp = S.pitch; FMX.bpV = S.pitchV; FMX.armed = false;
+  const n = FMX.done.length + 1;
+  motoPop('<b>' + tk.name + '</b>' + (n > 1 ? ' &middot; combo x' + (1 + 0.5 * (n - 1)).toFixed(1) : ''), 1.1, 'pre');
+  if (typeof sfx === 'function') sfx('thud', S.pos, 0.12, 2.2);
+}
+const fmxEase = t => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, t)));
+const fmxEnv = (t, T) => { const k = Math.min(Math.min(1, t / 0.25), Math.min(1, (T - t) / 0.25)); return k * k * (3 - 2 * k); };
+// called every airborne frame for a bike; returns true when it has taken over the pitch
+function fmxAir(dt, traj) {
+  if (!FMX.held && !FMX.cur) { FMX.armed = true; return false; }
+  const sx = THREE.MathUtils.clamp(input.x + input.kx, -1, 1), sy = THREE.MathUtils.clamp(input.y + input.kUD, -1, 1), mag = Math.hypot(sx, sy);
+  if (mag < 0.3) FMX.armed = true;
+  if (!FMX.cur && FMX.held && FMX.armed && mag > 0.55) fmxStart(sx, sy);
+  const dyn = (p, pv) => { pv += ((traj * 0.8 - p) * 7 - pv * 3) * dt; return [THREE.MathUtils.clamp(p + pv * dt, -1.8, 1.8), pv]; };
+  const c = FMX.cur;
+  if (!c) { [S.pitch, S.pitchV] = dyn(S.pitch, S.pitchV); FMX.flip = 0; FMX.rollOn = false; return true; }
+  [FMX.bp, FMX.bpV] = dyn(FMX.bp, FMX.bpV);
+  if (FMX.held && FMX.armed && mag > 0.55 && !FMX.q) { FMX.q = fmxPick(sx, sy); FMX.armed = false; }
+  c.t += dt; const tk = c.tk;
+  FMX.flip = tk.flip ? tk.flip * Math.PI * 2 * fmxEase(c.t / tk.T) : 0;
+  FMX.rollOn = !!tk.roll; FMX.roll = tk.roll ? tk.roll * fmxEnv(c.t, tk.T) : 0;
+  S.pitch = FMX.bp + FMX.flip; S.pitchV = FMX.bpV;
+  if (c.t >= tk.T) {
+    FMX.done.push(tk.name); FMX.cur = null; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; S.pitch = FMX.bp; S.pitchV = FMX.bpV; FMX.armed = false;
+    const n = FMX.done.length; motoPop('<b>' + tk.name + '</b> +' + tk.pts + (n > 1 ? ' &middot; x' + (1 + 0.5 * (n - 1)).toFixed(1) : ''), 1.0, 'ok');
+    if (FMX.q) { const q = FMX.q; FMX.q = null; if (FMX.held) fmxStart(0, 0, q); }
+  }
+  return true;
+}
+function fmxLanded(verdict, airT) {
+  const cur = FMX.cur, list = FMX.done; FMX.q = null; FMX.cur = null; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; FMX.done = [];
+  if (cur && !cur.tk.flip && !cur.tk.roll && cur.t / cur.tk.T > 0.7) list.push(cur.tk.name);
+  if (!list.length) { if (cur) motoPop('<b>' + cur.tk.name + '</b> &middot; not finished', 1.8, 'meh'); return; }
+  let sum = 0; const seen = {};
+  list.forEach((nm, i) => { const tk = Object.values(FMX_TRICKS).find(t => t.name === nm); const rep = seen[nm] = (seen[nm] || 0) + 1; sum += tk.pts * (1 + 0.5 * i) * (rep > 1 ? 0.5 : 1); });
+  sum += Math.round(Math.max(0, airT - 0.6) * 100);
+  const k = verdict === 'Clean' ? 1 : verdict === 'Crash' ? 0 : 0.5, total = Math.round(sum * k / 10) * 10, best = total > FMX.best && total > 0;
+  if (best) { FMX.best = total; try { STORE.set('wfy.fmxbest', total); } catch (_) {} }
+  const names = [...new Set(list)].map(n => n + (list.filter(x => x === n).length > 1 ? ' x' + list.filter(x => x === n).length : '')).join(' + ');
+  motoPop(verdict === 'Crash' ? '<b>Bailed</b> &middot; ' + names + ' &middot; <span class="v">0 pts</span>' : '<b>' + total.toLocaleString() + ' pts</b> &middot; ' + names + ' &middot; <span class="v">' + verdict + '</span>' + (best ? ' &middot; best!' : ''), 3.4, verdict === 'Clean' ? 'ok' : verdict === 'Crash' ? 'bad' : 'meh');
+  FMX.last = total;
+}
+function fmxReset() { FMX.cur = null; FMX.q = null; FMX.done = []; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; FMX.held = false; fmxRiderRestore(); }
+
+/* ---------- the rider's pose ---------- */
+let fmxPosed = false;
+function fmxRiderRestore() {
+  if (!fmxPosed) return; fmxPosed = false;
+  const R = DAZZA.root, v = VEH.dirtbike;
+  if (R.parent && v && v.seat && F.mode === 'seated') { R.position.set(v.seat.x, v.seat.hip - 0.702 * v.seat.k, v.seat.z); R.quaternion.identity(); }
+}
+function fmxRider() {
+  const c = FMX.cur, P = DAZZA;
+  if (!c || !S.air || F.mode !== 'seated' || !V.moto || !VEH.dirtbike || DAZZA.root.parent !== VEH.dirtbike.model.body) { fmxRiderRestore(); return; }
+  const e = fmxEnv(c.t, c.tk.T), s = VEH.dirtbike.seat, R = DAZZA.root, id = c.id, k = s.k || 1, w = Math.sin(c.t * 22) * 0.12;
+  fmxPosed = true;
+  let dy = 0, dz = 0, dx = 0, rx = 0, rz = 0, ry = 0;
+  const J = {}; const set = (o, ax, val) => { const b = o.rotation[ax]; o.rotation[ax] = b + (val - b) * e; };
+  if (id === 'up') { dy = 0.35; dz = -0.85; rx = 1.3; set(P.hipL, 'x', 0.15); set(P.hipR, 'x', 0.15); set(P.kneeL, 'x', 0.1); set(P.kneeR, 'x', 0.1); set(P.shL, 'x', -2.7); set(P.shR, 'x', -2.7); set(P.elL, 'x', -0.1); set(P.elR, 'x', -0.1); set(P.torso, 'x', -0.2); set(P.head, 'x', -0.5); }
+  else if (id === 'right') { dy = 0.1; rx = 0.2; set(P.hipL, 'x', 0.9); set(P.hipR, 'x', 0.9); set(P.kneeL, 'x', 1.9 + w * 2); set(P.kneeR, 'x', 1.9 - w * 2); set(P.shL, 'x', -1.3); set(P.shR, 'x', -1.3); }
+  else if (id === 'left') { dy = 0.1; rz = 0.18; set(P.hipR, 'x', 0.9); set(P.hipR, 'z', -1.05); set(P.kneeR, 'x', 0.5); set(P.hipL, 'x', -0.6); set(P.shL, 'x', -1.3); set(P.shR, 'x', -1.3); }
+  else if (id === 'bl') { dy = 0.25; dx = 0.15; rz = -0.7; rx = 0.2; set(P.hipL, 'x', 0.4); set(P.hipR, 'x', 0.4); set(P.hipL, 'z', 0.9); set(P.hipR, 'z', 0.9); set(P.kneeL, 'x', 0.9); set(P.kneeR, 'x', 0.9); set(P.shL, 'x', -1.6); set(P.shR, 'x', -1.6); }
+  else if (id === 'br') { dy = 0.1; rz = 0.45; set(P.hipL, 'x', 0.3); set(P.hipR, 'x', 0.3); set(P.kneeL, 'x', 1.2); set(P.kneeR, 'x', 1.2); set(P.shL, 'x', -1.2); set(P.shR, 'x', -1.2); }
+  else if (id === 'back') { rx = -0.15; set(P.hipL, 'x', -1.2); set(P.hipR, 'x', -1.2); set(P.kneeL, 'x', 1.4); set(P.kneeR, 'x', 1.4); }
+  R.position.set(s.x + dx * e, s.hip - 0.702 * k + dy * e, s.z + dz * e); R.rotation.set(rx * e, ry * e, rz * e);
+}
+
+/* ---------- per frame: button, hint, rider ---------- */
+function fmxStep(dt) {
+  const b = document.getElementById('trick');
+  if (b) { b.classList.toggle('on', FMX.held); b.classList.toggle('air', !!S.air && !!V.moto); }
+  if (!(V.moto && activeName !== 'foot')) FMX.held = false;
+  if (!S.air && FMX.cur) fmxReset();
+  fmxRider();
+  if (V.moto && fmxIn(S.pos.x, S.pos.z) && !FMX.told) { FMX.told = true; toast('FMX park: hit a kicker, then hold TRICK in the air and flick the stick', 4); }
+}
+(() => {
+  const st = document.createElement('style');
+  st.textContent = '#trick{display:none;right:calc(max(16px,env(safe-area-inset-right,0px)) + 218px);bottom:calc(34px + env(safe-area-inset-bottom,0px));width:84px;height:84px;border-radius:50%;border:0;background:var(--glass);box-shadow:var(--shadow);font:800 12px var(--font);letter-spacing:.08em;color:var(--accent);touch-action:none;cursor:pointer;place-items:center}body.moto #trick{display:grid}#trick .ring{width:60px;height:60px;border-radius:50%;border:3px solid var(--accent);display:grid;place-items:center}#trick.on{background:var(--accent);color:#fff}#trick.on .ring{border-color:#fff}#trick.air:not(.on){box-shadow:0 0 0 4px var(--accent),var(--shadow)}';
+  document.head.appendChild(st);
+  const b = document.createElement('button'); b.id = 'trick'; b.type = 'button'; b.className = 'ui'; b.setAttribute('aria-label', 'Trick'); b.innerHTML = '<span class="ring">TRICK</span>';
+  document.body.appendChild(b);
+  b.addEventListener('pointerdown', e => { e.preventDefault(); FMX.held = true; try { b.setPointerCapture(e.pointerId); } catch (_) {} });
+  const off = () => { FMX.held = false; }; b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('contextmenu', e => e.preventDefault());
+  addEventListener('keydown', e => { if (e.key === 'Shift' || e.key === 'v' || e.key === 'V') FMX.held = true; });
+  addEventListener('keyup', e => { if (e.key === 'Shift' || e.key === 'v' || e.key === 'V') FMX.held = false; });
+  addEventListener('blur', off);
+})();
+
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
