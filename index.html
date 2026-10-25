@@ -7404,7 +7404,8 @@ function frame() {
   const raw = clock.getDelta();
   let dt = Math.min(raw, 1 / 30);
   if (STRUCTS.slowT > 0) { STRUCTS.slowT -= raw; dt *= 0.35; }      // a moment of slow motion when something big goes up
-  if (MEL.slowT > 0) { MEL.slowT -= raw; dt *= 0.18; }               // hit-stop on a clean punch, kick or headbutt
+  if (MEL.slowT > 0) { MEL.slowT -= raw; dt *= 0.18; }
+  dt *= fmxTimeScale(raw);               // hit-stop on a clean punch, kick or headbutt
   if (collider && raw > 0) {
     updateWorld(dt);
     if (drift.flashT > 0) { drift.flashT -= dt; if (drift.flashT <= 0) $('dflash').className = ''; }
@@ -8202,13 +8203,14 @@ function airStep(dt, gH, tPitch, tRoll, prevY) {
     if (moto && MOTO.pre > 0.3) { if (lean > 0.15) { boost = 1 + 0.32 * MOTO.pre; pop = 'Preload!'; } else boost = 1 + 0.1 * MOTO.pre; }
     S.air = true; S.airT = 0; S.vy = Math.min(pv, Math.abs(S.v) * 0.62) * boost;       // a face steeper than ~32 degrees doesn't fling you any harder S.pos.y = prevY + S.vy * dt; S.pitchV = moto && boost > 1 && lean <= 0.15 ? -0.5 : 0;
     S.launch = { x: S.pos.x, z: S.pos.z, peak: S.pos.y, y: prevY }; MOTO.pre = 0;
+    if (V.moto) fmxLaunch();
     if (pop) motoPop('<b>Preload!</b>', 0.9, 'pre');
   } else { S.pos.y = yNew; S.vy = vyG; }
 }
 function airLand(gH, tPitch) {
   S.pitch = fmxWrap(S.pitch); const rollErr = fmxRollErr();
   const slope = THREE.MathUtils.clamp(tPitch, -0.7, 0.7), v = Math.abs(S.v), moto = !!V.moto;
-  const vn = -S.vy * Math.cos(slope) - v * Math.sin(slope);     // speed into the ground (a matched downslope soaks it up)
+  const vn = fmxVn(-S.vy * Math.cos(slope) - v * Math.sin(slope));     // speed into the ground (a matched downslope soaks it up)
   const err = Math.abs(S.pitch - slope), airT = S.airT, L = S.launch, dist = Math.hypot(S.pos.x - L.x, S.pos.z - L.z), high = Math.max(0, L.peak - gH);
   S.air = false; S.pos.y = gH; S.vy = 0; S.pitchV = 0;
   S.susV -= THREE.MathUtils.clamp(vn, 0, 6) * 0.45;
@@ -11032,15 +11034,20 @@ function fmxIn(x, z) { return FMX_ON && z > FMXZ - 9 && z < FMXZ2 + 9 && x > -32
   for (const q of [10, 128, 246]) for (const r of [10, 246]) { g.beginPath(); g.arc(q, r, 3, 0, 6.3); g.fill(); g.beginPath(); g.arc(r, q, 3, 0, 6.3); g.fill(); }
   const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   const mat = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.45, roughness: 0.42, color: 0xffffff });
+  const dc = document.createElement('canvas'); dc.width = dc.height = 128; const dg = dc.getContext('2d'); dg.fillStyle = '#a07650'; dg.fillRect(0, 0, 128, 128);
+  let sd = 7; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 700; i++) { const v = 110 + Math.floor(rnd() * 70); dg.fillStyle = `rgb(${v},${Math.floor(v * 0.74)},${Math.floor(v * 0.5)})`; dg.beginPath(); dg.arc(rnd() * 128, rnd() * 128, 0.8 + rnd() * 2.6, 0, 6.3); dg.fill(); }
+  const dtex = new THREE.CanvasTexture(dc); dtex.wrapS = dtex.wrapT = THREE.RepeatWrapping; dtex.colorSpace = THREE.SRGBColorSpace;
+  const dirtMat = new THREE.MeshLambertMaterial({ map: dtex });
   for (const R of FMX_RAMPS) {
     const len = R.k === 'k' ? R.L + 0.8 : R.Lr + R.Ld, st = 0.5, nx = Math.ceil(len / st), nz = Math.ceil(R.W / st), pos = [], uv = [], idx = [];
     for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
       const x = R.x0 + Math.min(len, i * st), z = R.z - R.W / 2 + j * (R.W / nz), h = fmxRampH(R, x, z);
-      pos.push(x, h === -Infinity ? 0 : h + 0.01, z); uv.push(x / 2.4, z / 2.4);
+      pos.push(x, h === -Infinity ? 0 : h + 0.01, z); uv.push(R.k === 'k' ? x / 2.4 : x * 0.35, R.k === 'k' ? z / 2.4 : z * 0.35);
     }
     for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) { const a = i * (nz + 1) + j, b = a + 1, d = a + nz + 1, e = d + 1; idx.push(a, b, d, b, e, d); }
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
-    const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.castShadow = true; scene.add(m);
+    const m = new THREE.Mesh(geo, R.k === 'k' ? mat : dirtMat); m.receiveShadow = true; m.castShadow = true; scene.add(m);
   }
   // signs and lip flags
   const sign = (txt, x, z, ry) => {
@@ -11064,8 +11071,8 @@ function fmxIn(x, z) { return FMX_ON && z > FMXZ - 9 && z < FMXZ2 + 9 && x > -32
 FMX_ON = true;
 
 /* ---------- tricks ---------- */
-const FMX = { held: false, cur: null, q: null, done: [], armed: true, flip: 0, rollOn: false, roll: 0, bp: 0, bpV: 0, told: false, hinted: false, best: 0, last: 0 };
-try { FMX.best = STORE.get('wfy.fmxbest', 0) || 0; } catch (_) {}
+const FMX = { mode: 2, slowOn: false, lx: 0, lz: 0, held: false, cur: null, q: null, done: [], armed: true, flip: 0, rollOn: false, roll: 0, bp: 0, bpV: 0, told: false, hinted: false, best: 0, last: 0 };
+try { FMX.best = STORE.get('wfy.fmxbest', 0) || 0; const m = localStorage.getItem('wfy.fmxassist'); if (m !== null && !isNaN(+m)) FMX.mode = Math.min(2, Math.max(0, +m)); } catch (_) {}
 const FMX_TRICKS = {
   back:  { name: 'Backflip', T: 0.95, pts: 500, flip: -1 },
   up:    { name: 'Superman', T: 0.75, pts: 300 },
@@ -11086,8 +11093,24 @@ function fmxPick(sx, sy) {
 }
 function fmxAirLeft() {                              // seconds until the wheels meet the ground, from here
   let t = 0.6; for (let i = 0; i < 3; i++) { const g = groundAt(S.pos.x + S.vx * t, S.pos.z + S.vz * t, S.pos.y + 3, 0); t = (S.vy + Math.sqrt(Math.max(0, S.vy * S.vy + 19.6 * (S.pos.y - g)))) / 9.8; }
+  FMX.lx = S.pos.x + S.vx * t; FMX.lz = S.pos.z + S.vz * t;
   return t;
 }
+const FMX_LAND = { bigK: 'bigL', smK: 'smL' };
+// jump assist: hit a kicker at nearly any speed and the flight is laid out to land on the dirt downslope, with plenty of air
+function fmxLaunch() {
+  if (!FMX.mode) return;
+  const R = FMX_RAMPS.find(r => r.k === 'k' && Math.abs(S.pos.x - (r.x0 + r.L)) < 2.8 && Math.abs(S.pos.z - r.z) < r.W / 2 + 1); if (!R) return;
+  const Ld = FMX_RAMPS.find(r => r.id === FMX_LAND[R.id]), sp = Math.hypot(S.vx, S.vz); if (S.vx < sp * 0.35 || sp < 3) return;
+  const xt = Ld.x0 + Ld.Lr + (R.id === 'bigK' ? 4 : 3), zt = Ld.z, yt = fmxRampH(Ld, xt, zt);
+  const dx = xt - S.pos.x, dz = (zt - S.pos.z) * 0.7, dist = Math.hypot(dx, dz);
+  const T = Math.max(R.id === 'bigK' ? 2.3 : 1.7, dist / THREE.MathUtils.clamp(sp, 9, 22)), vh = dist / T;
+  S.yaw = Math.atan2(dx, dz); S.r = 0; S.v = vh; S.vx = dx / dist * vh; S.vz = dz / dist * vh;
+  S.vy = (yt - S.pos.y + 4.9 * T * T) / T; S.fmxA = true; FMX.slowOn = FMX.mode === 2;
+}
+let fmxTS = 1;
+function fmxTimeScale(raw) { fmxTS += ((FMX.slowOn && S.air ? 0.5 : 1) - fmxTS) * Math.min(1, raw * 5); if (fmxTS > 0.995) fmxTS = 1; return fmxTS; }
+const fmxVn = x => S.fmxA ? Math.min(x, 4.5) : x;
 function fmxStart(sx, sy, qid) {
   const id = qid || fmxPick(sx, sy), tk = FMX_TRICKS[id], left = fmxAirLeft();
   if (left < tk.T * (tk.flip || tk.roll ? 0.95 : 0.7) + 0.05) { toast('Not enough air for a ' + tk.name, 1.2); FMX.armed = false; return; }
@@ -11099,14 +11122,20 @@ function fmxStart(sx, sy, qid) {
 const fmxEase = t => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, t)));
 const fmxEnv = (t, T) => { const k = Math.min(Math.min(1, t / 0.25), Math.min(1, (T - t) / 0.25)); return k * k * (3 - 2 * k); };
 // called every airborne frame for a bike; returns true when it has taken over the pitch
+function fmxLandTarget() {                           // nose angle that matches the ground where we are going to land
+  const x = FMX.lx, z = FMX.lz, a = groundAt(x - 1.5, z, S.pos.y + 4, 0), b = groundAt(x + 1.5, z, S.pos.y + 4, 0);
+  return THREE.MathUtils.clamp(Math.atan2(a - b, 3), -0.7, 0.7);
+}
 function fmxAir(dt, traj) {
-  if (!FMX.held && !FMX.cur) { FMX.armed = true; return false; }
+  const assisting = S.fmxA && !FMX.cur && fmxAirLeft() < 0.8;
+  if (assisting) traj = fmxLandTarget() / 0.8;
+  if (!FMX.held && !FMX.cur) { FMX.armed = true; if (!assisting) return false; const dy = (p, pv) => { pv += ((traj * 0.8 - p) * 12 - pv * 4.5) * dt; return [THREE.MathUtils.clamp(p + pv * dt, -1.8, 1.8), pv]; }; [S.pitch, S.pitchV] = dy(S.pitch, S.pitchV); return true; }
   const sx = THREE.MathUtils.clamp(input.x + input.kx, -1, 1), sy = THREE.MathUtils.clamp(input.y + input.kUD, -1, 1), mag = Math.hypot(sx, sy);
   if (mag < 0.3) FMX.armed = true;
   if (!FMX.cur && FMX.held && FMX.armed && mag > 0.55) fmxStart(sx, sy);
   const dyn = (p, pv) => { pv += ((traj * 0.8 - p) * 7 - pv * 3) * dt; return [THREE.MathUtils.clamp(p + pv * dt, -1.8, 1.8), pv]; };
   const c = FMX.cur;
-  if (!c) { [S.pitch, S.pitchV] = dyn(S.pitch, S.pitchV); FMX.flip = 0; FMX.rollOn = false; return true; }
+  if (!c) { if (assisting) { const p0 = traj * 0.8; S.pitchV += ((p0 - S.pitch) * 12 - S.pitchV * 4.5) * dt; S.pitch = THREE.MathUtils.clamp(S.pitch + S.pitchV * dt, -1.8, 1.8); } else [S.pitch, S.pitchV] = dyn(S.pitch, S.pitchV); FMX.flip = 0; FMX.rollOn = false; return true; }
   [FMX.bp, FMX.bpV] = dyn(FMX.bp, FMX.bpV);
   if (FMX.held && FMX.armed && mag > 0.55 && !FMX.q) { FMX.q = fmxPick(sx, sy); FMX.armed = false; }
   c.t += dt; const tk = c.tk;
@@ -11121,6 +11150,7 @@ function fmxAir(dt, traj) {
   return true;
 }
 function fmxLanded(verdict, airT) {
+  S.fmxA = false; FMX.slowOn = false;
   const cur = FMX.cur, list = FMX.done; FMX.q = null; FMX.cur = null; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; FMX.done = [];
   if (cur && !cur.tk.flip && !cur.tk.roll && cur.t / cur.tk.T > 0.7) list.push(cur.tk.name);
   if (!list.length) { if (cur) motoPop('<b>' + cur.tk.name + '</b> &middot; not finished', 1.8, 'meh'); return; }
@@ -11133,7 +11163,7 @@ function fmxLanded(verdict, airT) {
   motoPop(verdict === 'Crash' ? '<b>Bailed</b> &middot; ' + names + ' &middot; <span class="v">0 pts</span>' : '<b>' + total.toLocaleString() + ' pts</b> &middot; ' + names + ' &middot; <span class="v">' + verdict + '</span>' + (best ? ' &middot; best!' : ''), 3.4, verdict === 'Clean' ? 'ok' : verdict === 'Crash' ? 'bad' : 'meh');
   FMX.last = total;
 }
-function fmxReset() { FMX.cur = null; FMX.q = null; FMX.done = []; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; FMX.held = false; fmxRiderRestore(); }
+function fmxReset() { S.fmxA = false; FMX.slowOn = false; fmxTS = 1; FMX.cur = null; FMX.q = null; FMX.done = []; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; FMX.held = false; fmxRiderRestore(); }
 
 /* ---------- the rider's pose ---------- */
 let fmxPosed = false;
@@ -11165,6 +11195,7 @@ function fmxStep(dt) {
   if (!(V.moto && activeName !== 'foot')) FMX.held = false;
   if (!S.air && FMX.cur) fmxReset();
   fmxRider();
+  if (FMX.mode && V.moto && !S.air && input.gas && S.v > 0.8 && S.v < 8.5) for (const r of FMX_RAMPS) if (r.k === 'k' && S.pos.x > r.x0 + 0.5 && S.pos.x < r.x0 + r.L && Math.abs(S.pos.z - r.z) < r.W / 2) { S.v += (9 - S.v) * Math.min(1, 3 * dt); break; }
   if (V.moto && fmxIn(S.pos.x, S.pos.z) && !FMX.told) { FMX.told = true; toast('FMX park: hit a kicker, then hold TRICK in the air and flick the stick', 4); }
 }
 (() => {
@@ -11178,6 +11209,18 @@ function fmxStep(dt) {
   addEventListener('keydown', e => { if (e.key === 'Shift' || e.key === 'v' || e.key === 'V') FMX.held = true; });
   addEventListener('keyup', e => { if (e.key === 'Shift' || e.key === 'v' || e.key === 'V') FMX.held = false; });
   addEventListener('blur', off);
+})();
+
+(() => {
+  const st = document.createElement('style');
+  st.textContent = '#fmxRow{padding:6px 12px 8px;font:600 13px var(--font);color:var(--ink)}#fmxRow .t{margin-bottom:5px}#fmxRow .b{display:flex;gap:4px}#fmxRow button{flex:1;border:1.5px solid var(--inset);background:var(--card-2);color:var(--ink);border-radius:10px;padding:7px 2px;font:700 12px var(--font);cursor:pointer}#fmxRow button.on{background:var(--accent);border-color:var(--accent);color:#fff}';
+  document.head.appendChild(st);
+  const panel = $('menuPanel'), row = document.createElement('div'); row.id = 'fmxRow';
+  row.innerHTML = '<div class="t">Bike jump assist</div><div class="b"><button type="button" data-m="0">Off</button><button type="button" data-m="1">Easy</button><button type="button" data-m="2">Easy + slow-mo</button></div>';
+  const help = $('helpbtn'); help ? panel.insertBefore(row, help) : panel.appendChild(row);
+  const fill = () => row.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.m === FMX.mode));
+  row.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { FMX.mode = +b.dataset.m; try { localStorage.setItem('wfy.fmxassist', String(FMX.mode)); } catch (_) {} fill(); toast(['Jump assist off', 'Jump assist: easy', 'Jump assist: easy + slow-mo'][FMX.mode], 1.6); }));
+  fill();
 })();
 
 /* BMW start-up: the straight-piped M57 clip Angus supplied plays in place of the synthesised starter. */
