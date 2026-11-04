@@ -11406,7 +11406,7 @@ function dasK() { return DAS_K[DAS.lvl]; }
 function stbStep(dt) {
   const was = STB.act;
   STB.act = STB.on && STB_TOUCH && typeof drift !== 'undefined' && drift.on && !!activeVeh() && activeVeh().kind !== 'air';
-  document.body.classList.toggle('stbtn', STB.act); document.body.classList.toggle('dmode', !!DRIFTM);
+  document.body.classList.toggle('stbtn', STB.act); document.body.classList.toggle('dmode', !!DRIFTM); if (window.__ptChk) __ptChk();
   if (!STB.act) { if (was) { STB.L = STB.R = false; STB.x = 0; input.x = 0; } return; }
   const want = (STB.R ? 1 : 0) - (STB.L ? 1 : 0), spd = Math.abs(S.v);
   let rate;
@@ -11424,16 +11424,36 @@ function stbUI() {
     '#stL svg,#stR svg{width:40px;height:40px;fill:var(--accent)}#stL.on,#stR.on{background:var(--accent)}#stL.on svg,#stR.on svg{fill:#fff}' +
     'body.stbtn #stL,body.stbtn #stR{display:grid}body.stbtn #stickZone,body.stbtn #stick{display:none!important}' +
     '@media (max-height:400px){#stL,#stR{width:80px;height:80px;bottom:calc(18px + env(safe-area-inset-bottom,0px))}#stR{left:calc(max(18px,env(safe-area-inset-left,0px)) + 94px)}}' +
-    // drift mode: big handbrake under the right thumb; grip mode: no drift score card
-    'body.drift.dmode #hbrake{width:118px;height:118px;right:calc(max(16px,env(safe-area-inset-right,0px)) + 112px);bottom:calc(20px + env(safe-area-inset-bottom,0px))}' +
-    'body.drift.dmode #hbrake .ring{width:92px;height:92px;font-size:14px}' +
-    '@media (max-height:400px){body.drift.dmode #hbrake{width:100px;height:100px}body.drift.dmode #hbrake .ring{width:78px;height:78px;font-size:12px}}' +
+    // ---- the right-hand pedal cluster for the cars, one consistent set per screen height (GAS | HANDBRAKE | BRAKE, right to left) ----
+    // (R = right edge inset). Tall: GAS 86, HB 96 (drift 110), BRAKE 72.  <=400 px: GAS 74, HB 80 (drift 92), BRAKE 60.
+    'body.drift #gas{right:var(--R)!important;bottom:calc(22px + var(--B))!important}' +
+    'body.drift #hbrake{right:calc(var(--R) + 98px)!important;bottom:calc(24px + var(--B))!important;width:96px!important;height:96px!important}body.drift #hbrake .ring{width:74px!important;height:74px!important;font-size:12px!important}' +
+    'body.drift #brake{right:calc(var(--R) + 204px)!important;bottom:calc(36px + var(--B))!important;width:72px!important;height:72px!important;font-size:10px!important}body.drift #brake .ring{width:54px!important;height:54px!important}' +
+    'body.drift.dmode #hbrake{width:110px!important;height:110px!important;bottom:calc(18px + var(--B))!important}body.drift.dmode #hbrake .ring{width:86px!important;height:86px!important;font-size:13px!important}' +
+    'body.drift.dmode #brake{right:calc(var(--R) + 218px)!important}' +
+    ':root{--R:max(16px,env(safe-area-inset-right,0px));--B:env(safe-area-inset-bottom,0px);--L:max(18px,env(safe-area-inset-left,0px))}' +
+    '@media (max-height:400px){' +
+      'body.drift #gas{width:74px!important;height:100px!important;bottom:calc(16px + var(--B))!important}body.drift #gas .ped{width:54px!important;height:80px!important}' +
+      'body.drift #hbrake{right:calc(var(--R) + 84px)!important;bottom:calc(18px + var(--B))!important;width:80px!important;height:80px!important}body.drift #hbrake .ring{width:62px!important;height:62px!important;font-size:10.5px!important}' +
+      'body.drift #brake{right:calc(var(--R) + 172px)!important;bottom:calc(26px + var(--B))!important;width:60px!important;height:60px!important;font-size:9.5px!important}body.drift #brake .ring{width:46px!important;height:46px!important}' +
+      'body.drift.dmode #hbrake{width:92px!important;height:92px!important;bottom:calc(14px + var(--B))!important}body.drift.dmode #hbrake .ring{width:72px!important;height:72px!important;font-size:11px!important}' +
+      'body.drift.dmode #brake{right:calc(var(--R) + 184px)!important}' +
+    '}' +
+    // the Car slide pill: compact, in the gap between the steering buttons and BRAKE
+    'body.stbtn #sldHud{left:calc(var(--L) + 220px)!important;transform:none!important;bottom:calc(18px + var(--B))!important}' +
+    'body.stbtn #hint{left:calc(var(--L) + 220px)!important;transform:none!important;max-width:calc(100vw - 560px)!important}' +
+    '@media (max-height:400px){body.stbtn #sldHud{left:calc(var(--L) + 194px)!important;bottom:calc(12px + var(--B))!important;padding:3px!important}body.stbtn #sldHud button:not(.mode){width:34px!important;height:34px!important;font-size:18px!important}body.stbtn #sldHud button.mode{height:34px!important;padding:0 10px!important}body.stbtn #sldHud .v{min-width:72px!important;font-size:12px!important}body.stbtn #hint{left:calc(var(--L) + 194px)!important;max-width:calc(100vw - 500px)!important;bottom:calc(60px + var(--B))!important}}' +
+    '@media (max-width:820px){body.stbtn #sldHud .v small{display:none}body.stbtn #sldHud .v{min-width:56px!important}}' +
+    '@media (max-width:720px){body.stbtn #sldHud .v{display:none}}' +
+    // drift score card only in drift mode
     'body.drift:not(.dmode) #dcard{display:none!important}' +
-    // BRAKE used to sit above GAS, under the action buttons on short screens: put it in the bottom row, left of the handbrake
-    'body.drift #brake{width:72px!important;height:72px!important;bottom:calc(34px + env(safe-area-inset-bottom,0px))!important;right:calc(max(16px,env(safe-area-inset-right,0px)) + 222px)!important}body.drift #brake .ring{width:54px;height:54px}' +
-    // with the steering buttons out, the Car slide pill sits between them and the pedals
-    'body.stbtn #sldHud{left:calc(max(18px,env(safe-area-inset-left,0px)) + 226px)!important;transform:none!important}body.stbtn #hint{left:calc(max(18px,env(safe-area-inset-left,0px)) + 226px)!important;transform:none!important;max-width:calc(100vw - 600px)!important}' +
-    'body.drift.dmode #brake{right:calc(max(16px,env(safe-area-inset-right,0px)) + 242px)!important}' +
+    // short landscape: the lap timer went under Radio / Get out; put it top-left, right of the minimap
+    '@media (max-height:360px){#trial{left:calc(var(--L) + 82px)!important;transform:none!important;top:calc(8px + env(safe-area-inset-top,0px))!important;max-width:calc(100vw - 420px)}#trial.show{transform:none!important}}' +
+    // portrait: driving needs both thumbs and the whole width, as in every phone racer; cover the game with a proper "turn sideways" card
+    '#rotFull{position:fixed;inset:0;z-index:60;display:none;place-items:center;background:rgba(17,32,29,.82);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:#fff;text-align:center;font:600 16px var(--font);touch-action:none}' +
+    '#rotFull .c{display:grid;gap:14px;justify-items:center;padding:0 32px}#rotFull svg{width:84px;height:84px;stroke:#fff;fill:none;stroke-width:2;animation:rotph 2.2s ease-in-out infinite}#rotFull b{font-size:20px}' +
+    '@keyframes rotph{0%,20%{transform:rotate(0)}50%,70%{transform:rotate(-90deg)}100%{transform:rotate(0)}}' +
+    'body.ready.pt #rotFull{display:grid}body.pt #rotate{display:none!important}' +
     '#stbRow{padding:6px 12px 8px;font:600 13px var(--font);color:var(--ink)}#stbRow .t{margin:4px 0 5px}#stbRow .b{display:flex;gap:4px}#stbRow button{flex:1;border:1.5px solid var(--inset);background:var(--card-2);color:var(--ink);border-radius:10px;padding:7px 2px;font:700 12px var(--font);cursor:pointer}#stbRow button.on{background:var(--accent);border-color:var(--accent);color:#fff}';
   document.head.appendChild(st);
   const arrow = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
@@ -11443,6 +11463,12 @@ function stbUI() {
     b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off); b.addEventListener('contextmenu', e => e.preventDefault());
     document.body.appendChild(b); };
   mk('stL', 'M16 4 6 12l10 8z', 'L'); mk('stR', 'M8 4l10 8-10 8z', 'R');
+  const rf = document.createElement('div'); rf.id = 'rotFull'; rf.innerHTML = '<div class="c"><svg viewBox="0 0 48 48"><rect x="14" y="4" width="20" height="40" rx="4"/><path d="M21 39h6"/></svg><b>Turn your phone sideways</b><span>Donga Drifta plays in landscape, like the big phone racing games. Rotate the phone and you are straight back in.</span></div>';
+  rf.addEventListener('pointerdown', e => e.preventDefault()); document.body.appendChild(rf);
+  // (the game rewrites body.className when you change vehicle, so these are re-applied on a timer and every frame)
+  const ptChk = () => { const B = document.body.classList; B.toggle('pt', STB_TOUCH && innerHeight > innerWidth * 1.05); B.toggle('ready', !!(window.__game && __game.ready)); };
+  ptChk(); setInterval(ptChk, 300); addEventListener('resize', ptChk); addEventListener('orientationchange', () => setTimeout(ptChk, 250));
+  window.__ptChk = ptChk;
   // menu: steering style + drift assist
   const panel = $('menuPanel'); if (!panel) return;
   const row = document.createElement('div'); row.id = 'stbRow';
