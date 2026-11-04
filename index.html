@@ -2401,7 +2401,7 @@ try { drift.best = +localStorage.getItem('wingfield-drift-best') || 0; } catch (
 
 function step(dt) {
   dt = Math.max(dt, 1e-4);            // Safari's coarse timer can report two frames at the same instant
-  readKeys();
+  readKeys(); stbStep(dt);           // the steering buttons wind the wheel on and off
   let throttle, steerIn, braking;
   const handbrake = drift.on && (input.hb || input.kb);
   if (drift.on) {
@@ -10995,7 +10995,7 @@ var DRIFTM = false;
 try { DRIFTM = localStorage.getItem('wfy.driftmode') === '1'; } catch (_) {}
 // grip mode (default, GTA-like): planted tyres, a car that settles itself, but the handbrake still hangs the tail out.
 // drift mode: the original loose, slidey handling.
-function driftTune(D) { return DRIFTM ? D : Object.assign({}, D, { mu: D.mu * 1.9, slide: 0.95, assist: D.assist * 1.7, catch: D.catch * 1.7, circle: 0.7, limit: D.limit * 0.8, limitK: D.limitK * 1.5 }); }
+function driftTune(D) { return DRIFTM ? (typeof DAS === 'undefined' || DAS.lvl === 2 ? D : Object.assign({}, D, { assist: D.assist * dasK(), catch: D.catch * dasK() })) : Object.assign({}, D, { mu: D.mu * 1.9, slide: 0.95, assist: D.assist * 1.7, catch: D.catch * 1.7, circle: 0.7, limit: D.limit * 0.8, limitK: D.limitK * 1.5 }); }
 function driftModeSet(on, quiet) {
   DRIFTM = !!on; try { localStorage.setItem('wfy.driftmode', DRIFTM ? '1' : '0'); } catch (_) {}
   for (const id of ['drfT', 'drfM']) { const b = document.getElementById(id); if (b) { b.classList.toggle('on', DRIFTM); b.textContent = id === 'drfT' ? (DRIFTM ? 'DRIFT' : 'GRIP') : (DRIFTM ? 'Drift mode: on' : 'Drift mode: off'); } }
@@ -11379,6 +11379,86 @@ function andUI() {
   });
 }
 andUI();
+
+/* ================================================================
+   CAR CONTROLS: GTA-style steering buttons, drift assist, drift-mode layout
+   What the best phone driving games do (researched Nov 2026):
+     - GTA mobile ports: ◀ ▶ steering buttons under the left thumb, gas and brake/reverse pedals under the right,
+       a handbrake button. Holding a button winds the wheel on; letting go lets it self-centre.
+     - CarX Drift Racing 2 / FR Legends: gas is a pedal you press partly (drifts are held on the throttle), a
+       short handbrake tap kicks the tail out, and counter-steer assist is ON by default and adjustable: players
+       say switching it off makes cars twitchy, so beginners keep it on and turn it down as they improve.
+   Here:
+     - steering: ◀ ▶ buttons by default on touch screens for the cars (the thumb stick is still in the menu).
+       The wheel winds on quicker at low speed and slower at speed, and springs back fast when you let go;
+       in a drift, letting go hands the slide to the counter-steer assist, as CarX's buttons do.
+     - Drift assist: Off / Low / Medium / High (Medium = how drift mode has always felt). Grip mode keeps its own.
+     - drift mode: a bigger handbrake right under the right thumb, and the drift angle + score card;
+       grip (GTA) mode hides the score card to keep the screen clear.
+   ================================================================ */
+var STB = { on: true, L: false, R: false, x: 0, act: false };
+var DAS = { lvl: 2 };                     // 0 off, 1 low, 2 medium, 3 high
+const DAS_K = [0, 0.55, 1, 1.6], DAS_N = ['Off', 'Low', 'Medium', 'High'];
+try { const v = localStorage.getItem('wfy.steerbtn'); if (v !== null) STB.on = v === '1'; const a = localStorage.getItem('wfy.dassist'); if (a !== null && !isNaN(+a)) DAS.lvl = Math.min(3, Math.max(0, +a)); } catch (_) {}
+const STB_TOUCH = (navigator.maxTouchPoints || 0) > 0 && matchMedia('(pointer: coarse)').matches;
+function dasK() { return DAS_K[DAS.lvl]; }
+// called every frame before the car is stepped: turn the two buttons into a smooth steering value
+function stbStep(dt) {
+  const was = STB.act;
+  STB.act = STB.on && STB_TOUCH && typeof drift !== 'undefined' && drift.on && !!activeVeh() && activeVeh().kind !== 'air';
+  document.body.classList.toggle('stbtn', STB.act); document.body.classList.toggle('dmode', !!DRIFTM);
+  if (!STB.act) { if (was) { STB.L = STB.R = false; STB.x = 0; input.x = 0; } return; }
+  const want = (STB.R ? 1 : 0) - (STB.L ? 1 : 0), spd = Math.abs(S.v);
+  let rate;
+  if (want === 0) rate = 7;                                                     // self-centre
+  else if (Math.sign(want) !== Math.sign(STB.x) && Math.abs(STB.x) > 0.05) rate = 9;   // flick the other way: fast, for catching slides
+  else rate = THREE.MathUtils.lerp(DRIFTM ? 6 : 4.5, DRIFTM ? 3.6 : 2.2, THREE.MathUtils.clamp(spd / 28, 0, 1));
+  STB.x += THREE.MathUtils.clamp(want - STB.x, -rate * dt, rate * dt);
+  input.x = STB.x;
+}
+function stbUI() {
+  const st = document.createElement('style');
+  st.textContent =
+    '#stL,#stR{position:fixed;z-index:6;display:none;bottom:calc(26px + env(safe-area-inset-bottom,0px));width:92px;height:92px;border-radius:24px;border:0;background:var(--glass);box-shadow:var(--shadow);touch-action:none;cursor:pointer;place-items:center;-webkit-user-select:none;user-select:none}' +
+    '#stL{left:max(18px,env(safe-area-inset-left,0px))}#stR{left:calc(max(18px,env(safe-area-inset-left,0px)) + 108px)}' +
+    '#stL svg,#stR svg{width:40px;height:40px;fill:var(--accent)}#stL.on,#stR.on{background:var(--accent)}#stL.on svg,#stR.on svg{fill:#fff}' +
+    'body.stbtn #stL,body.stbtn #stR{display:grid}body.stbtn #stickZone,body.stbtn #stick{display:none!important}' +
+    '@media (max-height:400px){#stL,#stR{width:80px;height:80px;bottom:calc(18px + env(safe-area-inset-bottom,0px))}#stR{left:calc(max(18px,env(safe-area-inset-left,0px)) + 94px)}}' +
+    // drift mode: big handbrake under the right thumb; grip mode: no drift score card
+    'body.drift.dmode #hbrake{width:118px;height:118px;right:calc(max(16px,env(safe-area-inset-right,0px)) + 112px);bottom:calc(20px + env(safe-area-inset-bottom,0px))}' +
+    'body.drift.dmode #hbrake .ring{width:92px;height:92px;font-size:14px}' +
+    '@media (max-height:400px){body.drift.dmode #hbrake{width:100px;height:100px}body.drift.dmode #hbrake .ring{width:78px;height:78px;font-size:12px}}' +
+    'body.drift:not(.dmode) #dcard{display:none!important}' +
+    // BRAKE used to sit above GAS, under the action buttons on short screens: put it in the bottom row, left of the handbrake
+    'body.drift #brake{width:72px!important;height:72px!important;bottom:calc(34px + env(safe-area-inset-bottom,0px))!important;right:calc(max(16px,env(safe-area-inset-right,0px)) + 222px)!important}body.drift #brake .ring{width:54px;height:54px}' +
+    // with the steering buttons out, the Car slide pill sits between them and the pedals
+    'body.stbtn #sldHud{left:calc(max(18px,env(safe-area-inset-left,0px)) + 226px)!important;transform:none!important}body.stbtn #hint{left:calc(max(18px,env(safe-area-inset-left,0px)) + 226px)!important;transform:none!important;max-width:calc(100vw - 600px)!important}' +
+    'body.drift.dmode #brake{right:calc(max(16px,env(safe-area-inset-right,0px)) + 242px)!important}' +
+    '#stbRow{padding:6px 12px 8px;font:600 13px var(--font);color:var(--ink)}#stbRow .t{margin:4px 0 5px}#stbRow .b{display:flex;gap:4px}#stbRow button{flex:1;border:1.5px solid var(--inset);background:var(--card-2);color:var(--ink);border-radius:10px;padding:7px 2px;font:700 12px var(--font);cursor:pointer}#stbRow button.on{background:var(--accent);border-color:var(--accent);color:#fff}';
+  document.head.appendChild(st);
+  const arrow = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  const mk = (id, d, side) => { const b = document.createElement('button'); b.type = 'button'; b.id = id; b.className = 'ui'; b.setAttribute('aria-label', side === 'L' ? 'Steer left' : 'Steer right'); b.innerHTML = arrow(d);
+    const on = e => { e.preventDefault(); STB[side] = true; b.classList.add('on'); try { b.setPointerCapture(e.pointerId); } catch (_) {} if (typeof dismissHint === 'function') dismissHint(); };
+    const off = () => { STB[side] = false; b.classList.remove('on'); };
+    b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off); b.addEventListener('contextmenu', e => e.preventDefault());
+    document.body.appendChild(b); };
+  mk('stL', 'M16 4 6 12l10 8z', 'L'); mk('stR', 'M8 4l10 8-10 8z', 'R');
+  // menu: steering style + drift assist
+  const panel = $('menuPanel'); if (!panel) return;
+  const row = document.createElement('div'); row.id = 'stbRow';
+  row.innerHTML = '<div class="t">Car steering</div><div class="b" id="stbS"></div><div class="t">Drift assist (drift mode)</div><div class="b" id="stbA"></div>';
+  const help = $('helpbtn'); help ? panel.insertBefore(row, help) : panel.appendChild(row);
+  const paint = () => {
+    const s = $('stbS'); s.innerHTML = ''; for (const [lbl, v] of [['◀ ▶ buttons', true], ['Thumb stick', false]]) { const b = document.createElement('button'); b.type = 'button'; b.textContent = lbl; b.classList.toggle('on', STB.on === v);
+      b.addEventListener('click', () => { STB.on = v; try { localStorage.setItem('wfy.steerbtn', v ? '1' : '0'); } catch (_) {} paint(); toast(v ? 'Steering: ◀ ▶ buttons' : 'Steering: thumb stick', 1.4); }); s.appendChild(b); }
+    const a = $('stbA'); a.innerHTML = ''; DAS_N.forEach((n, i) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; b.classList.toggle('on', DAS.lvl === i);
+      b.addEventListener('click', () => { DAS.lvl = i; try { localStorage.setItem('wfy.dassist', String(i)); } catch (_) {} paint(); toast('Drift assist: ' + n + (i === 0 ? ' (you catch every slide)' : i === 3 ? ' (the car catches it for you)' : ''), 1.8); }); a.appendChild(b); });
+  };
+  paint();
+  // body class for drift mode, kept in step with the GRIP/DRIFT toggle
+  setInterval(() => document.body.classList.toggle('dmode', !!DRIFTM), 250);
+}
+stbUI();
 
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
