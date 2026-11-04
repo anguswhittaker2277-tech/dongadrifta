@@ -11728,7 +11728,8 @@ function fa2Apply() {
   if (typeof AU === 'undefined' || !AU.ctx) return;
   const B = fa2Bank(AU.sr);
   for (const [k, d] of Object.entries(B)) { fa2Rms(d, /^fa_(grunt|snort|yelp|squeal|scream)/.test(k) ? 0.22 : 0.12); const b = AU.ctx.createBuffer(1, d.length, AU.sr); b.getChannelData(0).set(d); AU.buf[k] = b; }
-  AU.buf.fa_eagle = null;
+  // only chirps and oinks: no wing flaps, thumps, or beak clacks (Angus: unnecessary)
+  for (const k of ['fa_eagle', 'fa_flap', 'fa_thump', 'fa_clack']) AU.buf[k] = null;
 }
 if (typeof module !== 'undefined') module.exports = { fa2Bank };
 
