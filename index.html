@@ -4808,7 +4808,7 @@ const ACT = { more: false, for: '' };
 function updateActions() {
   let items = [];
   if (activeName === 'foot') {
-    ladderActions(items); npcActions(items); mmActions(items);
+    ladderActions(items); npcActions(items); mmActions(items); mhActions(items);
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: 'Open the gun locker', cls: 'warn' });
@@ -4858,7 +4858,7 @@ function updateActions() {
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
-  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm):|^radio$/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
+  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh):|^radio$/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
   if (items.length > 3) { const keep = items.filter(pri), rest = items.filter(it => !pri(it));
     if (rest.length) items = ACT.more ? [...keep, { id: 'more', label: '\u2715', cls: 'more' }, ...rest] : [...keep, { id: 'more', label: '\u22ef', cls: 'more' }]; }
   const key = JSON.stringify(items); if (key === actKey) return; actKey = key;
@@ -4879,6 +4879,7 @@ function doAction(id) {
   else if (id.startsWith('lad:')) ladAct(id);
   else if (id === 'npc:kick') npcKick();
   else if (id.startsWith('mm:')) mmAct(id);
+  else if (id.startsWith('mh:')) mhAct(id);
   else if (id === 'radio') radioCycle();
   else if (id === 'locker') wpnOpenLocker();
   else if (id === 'mxgo') mxGo(true);
@@ -4907,7 +4908,7 @@ const hornUp = () => { TB.extIn = 0; if (AU.hornOn) hornStop(); document.querySe
 addEventListener('keydown', e => { if (e.key && e.key.toLowerCase() === 'h' && !e.repeat) { const v = activeVeh(); if (v && v.kind === 'ground') hornStart(activeName); } });
 addEventListener('keyup', e => { if (e.key && e.key.toLowerCase() === 'h') hornUp(); });
 
-function primaryAction() { if (seqBusy()) return; if (activeName === 'foot') { if (mmTalkable()) { mmMenuOpen(); return; } const v = nearestVehicle(); if (v) enterVehicle(v.name); } else exitVehicle(); }
+function primaryAction() { if (seqBusy()) return; if (activeName === 'foot') { if (MH.pax) return; if (mmTalkable()) { mmMenuOpen(); return; } const v = nearestVehicle(); if (v) enterVehicle(v.name); } else exitVehicle(); }
 
 /* ---------- touch: right stick (flying), look-drag (on foot), jump ---------- */
 const zoneR = $('stickZoneR'), stickR = $('stickR'), knobR = $('knobR');
@@ -5150,7 +5151,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
+  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) drawMinimap();
@@ -7886,6 +7887,7 @@ function pigStep(a, dt) {
   a.t += dt; const G = a.G;
   if (a.st === 'tumble') return pigTumble(a, dt);
   if (a.st === 'down') { a.downT += dt; return; }
+  if (a.bailT > 0) { a.bailT -= dt; a.sp *= 0.85; if (a.bailBy) a.yaw += faAng(Math.atan2(a.bailBy.x - a.pos.x, a.bailBy.z - a.pos.z) - a.yaw) * Math.min(1, dt * 5); a.gruntT -= dt; if (a.gruntT <= 0) { a.gruntT = 0.8 + Math.random(); faSay(a.pos, Math.random() < 0.5 ? 'fa_squeal' : 'fa_grunt2', 1, 1, 22); } return; }   // bailed up by the dogs: stands its ground
   const veh = FA.threats.find(t => t.kind === 'veh'), foot = FA.threats.find(t => t.kind === 'foot');
   // hit by the machine?
   if (veh && veh.sp > 2.2) { const dx = a.pos.x - veh.x, dz = a.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx, R = 0.32 * a.s;
@@ -9210,7 +9212,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mmReset(); phReset();
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); phReset();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -9486,7 +9488,7 @@ function wpnHurt(dmg, vel, how) {
   if (F.dead > 0 || dmg <= 0) return;
   F.hp = Math.max(0, (F.hp || 100) - dmg); WPN.hurtT = 0.6; WPN.calmT = 0;
   wpnBloodSpray(_w4.set(F.pos.x, F.pos.y + 1.1, F.pos.z), vel ? _w3.copy(vel).normalize() : _w3.set(0, 0.5, 0), Math.min(30, 6 + dmg * 0.4));
-  if (F.hp <= 0) { F.dead = 4.5; WPN.fire = false; if (activeName === 'foot' && F.mode !== 'tumble') startTumble(vel ? _w3.copy(vel).setY(Math.max(3, vel.y || 0)) : new THREE.Vector3(0, 3, 0)); $('wasted').classList.add('show'); sfx('thud', F.pos, 0.9, 0.6);
+  if (F.hp <= 0) { F.dead = 4.5; WPN.fire = false; if (activeName === 'foot' && F.mode !== 'tumble' && !MH.pax) startTumble(vel ? _w3.copy(vel).setY(Math.max(3, vel.y || 0)) : new THREE.Vector3(0, 3, 0)); $('wasted').classList.add('show'); sfx('thud', F.pos, 0.9, 0.6);
     wpnSplat(F.pos.x, F.pos.y, F.pos.z, 1.1); }
 }
 function wpnPigShot(a, dir, dmg, point) {
@@ -9515,7 +9517,7 @@ function wpnTrace(o, d, far) {
   let best = { t: far, kind: 'none' };
   const h = castHit(o, d, far);
   if (h && h.distance < best.t) { best = { t: h.distance, kind: h.struct ? 'struct' : 'world', part: h.struct || null, n: h.face ? (h.struct ? _w1.copy(h.face.normal) : _w1.copy(h.face.normal).transformDirection(collider.matrixWorld)).clone() : new THREE.Vector3(0, 1, 0) }; }
-  for (const v of Object.values(VEH)) { if (v === activeVeh() && v.kind === 'ground') continue; if (v.kind === 'air' && v.st.crashed) continue;
+  for (const v of Object.values(VEH)) { if ((v === activeVeh() && v.kind === 'ground') || (MH.pax && v.name === 'ute')) continue; if (v.kind === 'air' && v.st.crashed) continue;
     let b = vehicleOBB(v); if (!b && v.name === 'drone') { const p = v.st.pos; b = { cx: p.x, cz: p.z, fx: 1, fz: 0, lx: 0, lz: 1, hl: 0.25, hw: 0.25, bottom: p.y, top: p.y + 0.15 }; } if (!b) continue;
     const t = rayOBB(o, d, b, best.t); if (t !== null && t < best.t && t > 0.3) best = { t, kind: 'veh', v }; }
   for (const a of FA.pigs) { const s = a.s || 1, c = _w2.set(a.pos.x, a.pos.y + (a.st === 'down' ? 0.25 : 0.45) * s, a.pos.z);
@@ -9562,6 +9564,7 @@ function wpnApplyHit(hit, d, dmg, W) {
     mpSend({ k: 'dmg', f: MP.me, to: p.id, dmg: dm, v: [d.x * (3 + dm * 0.05), 1 + dm * 0.03, d.z * (3 + dm * 0.05)] }); return; }
 }
 function wpnMuzzle(out) {
+  if (MH.pax) return mhMuzzle(out);
   const h = WPN.cache && WPN.cache.g; if (h) { h.updateWorldMatrix(true, true); return h.localToWorld(out.set(0, 0, 0.55)); }
   return out.set(F.pos.x, F.pos.y + 1.35, F.pos.z);
 }
@@ -9725,6 +9728,7 @@ function wpnBoomStep(dt) {
 /* ---------- input, aiming camera, HUD ---------- */
 function wpnArmed() { return !!WPN.cur && activeName === 'foot' && F.dead <= 0; }
 function wpnSelect(id) {
+  if (MH.pax && (!id || WEAPONS[id].kind !== 'gun')) { toast(id ? 'Guns only out the window' : 'Keep it out, mate. We\u2019re huntin\u2019', 1.6); return; }
   if (id && !WPN.owned[id]) return; if (id) WPN.last = id; WPN.cur = id; WPN.reloadT = 0; WPN.spin = 0; WPN.scope = false; WPN.fire = false;
   if (id && WEAPONS[id].kind === 'gun' && WPN.mag[id] == null) WPN.mag[id] = 0;
   if (id && WEAPONS[id].kind === 'gun' && !WPN.mag[id]) wpnReload(true);
@@ -9757,6 +9761,7 @@ function wpnHud(force) {
     if (key !== WPN.hudKey) { WPN.hudKey = key; $('wName').textContent = W.label; $('wAmmo').textContent = WPN.reloadT > 0 ? 'reloading' : am; $('wAlt').style.display = alt ? 'grid' : 'none'; $('wAlt').textContent = alt; $('wFire').querySelector('span').textContent = fl; } }
 }
 function wpnCam(dt) {
+  if (MH.pax) { mhCam(dt); return; }
   if (!wpnArmed()) { if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; } if (DAZZA.root.visible === false && activeName === 'foot' && WPN.hidFarmer) { DAZZA.root.visible = true; WPN.hidFarmer = false; } return; }
   const yaw = camYawF, pit = camPitchF, cp = Math.cos(pit), sp = Math.sin(pit);
   const f = _w1.set(Math.sin(yaw) * cp, -sp, Math.cos(yaw) * cp), right = _w2.set(-Math.cos(yaw), 0, Math.sin(yaw));
@@ -9805,7 +9810,7 @@ function wpnStep(dt) {
   const armed = wpnArmed(); wpnHud(false);
   if (!armed) { WPN.fire = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
   if (WPN.cache.id !== WPN.cur) wpnHold(DAZZA, WPN.cur, WPN.cache);
-  const id = WPN.cur, W = WEAPONS[id], fire = (WPN.fire || keys.has('f')) && (F.mode === 'walk' || F.mode === 'air');
+  const id = WPN.cur, W = WEAPONS[id], fire = (WPN.fire || keys.has('f')) && (F.mode === 'walk' || F.mode === 'air' || MH.pax);
   WPN.cd -= dt; WPN.throwT = Math.max(0, (WPN.throwT || 0) - dt);
   if (WPN.pend) { WPN.pend.t -= dt; if (WPN.pend.t <= 0) { const p = WPN.pend; WPN.pend = null; wpnThrow(p.id); } }
   if (WPN.reloadT > 0) { WPN.reloadT -= dt; if (WPN.reloadT <= 0) wpnReload(true); }
@@ -11000,7 +11005,7 @@ function npcBlast(P, R) {
     const dx = n.pos.x - P.x, dz = n.pos.z - P.z, l = Math.hypot(dx, dz) || 1; npcLaunch(n, dx / l * 10 * k, dz / l * 10 * k, 90 * k); }
 }
 function npcTrace(o, d, best) {
-  for (const n of NPC.list) { const R = n.root.getWorldPosition(_w3), lying = n.tilt < -1;
+  for (const n of NPC.list) { if (n.mm && MH.pax) continue; const R = n.root.getWorldPosition(_w3), lying = n.tilt < -1;
     for (const [hy, r] of (lying ? [[0.3, 0.7]] : [[0.35, 0.3], [0.8, 0.32], [1.2, 0.3], [1.6, 0.2]])) { const t = raySphere(o, d, _w2.set(R.x, R.y + hy * (n.s / 0.9), R.z), r, best.t); if (t !== null && t < best.t) { best.t = t; best.kind = 'npc'; best.n = n; best.head = hy > 1.5; } } }
 }
 
@@ -11931,7 +11936,8 @@ function mmThink(n, dt) {
   const veh = FA.threats.find(t => t.kind === 'veh');
   if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
-  if (n.st === 'drive') { mmDriveThink(n, dt); return; }
+  if (MH.mode && mhMadman(n, dt)) return;
+  if (n.st === 'drive') { if (MH.mode) mhDriveThink(n, dt); else mmDriveThink(n, dt); return; }
   // you're in his ute: march over and drag you out
   if (activeName === 'ute' && n.st !== 'toDoor' && n.st !== 'yank') { n.st = 'toDoor'; n.t = 0; }
   if (n.st === 'toDoor') {
@@ -12017,7 +12023,7 @@ function mmDriveThink(n, dt) {
   if (MM.parkPh === 'go') {
     // drive at the spot, forwards or backwards (whichever points the ute at it better), then shuffle it in
     const e = faAng(Math.atan2(dx, dz) - st.yaw), back = Math.abs(e) > 1.7 && d < 18;
-    let thr = back ? -0.4 : 0.45, str = THREE.MathUtils.clamp((back ? -faAng(e - Math.PI) : e) * 1.8, -1, 1);
+    let thr = back ? -0.4 : 0.45, str = THREE.MathUtils.clamp((back ? faAng(e - Math.PI) : -e) * 1.8, -1, 1);
     if (Math.abs(st.v) > (d < 6 ? 2 : 4.5)) thr = 0;
     if (Math.abs(st.v) < 0.15) MM.stuckT = (MM.stuckT || 0) + dt; else MM.stuckT = 0;
     if (d < 2.2 || MM.parkT > 30 || MM.stuckT > 3) { MM.parkPh = 'settle'; MM.parkT = 0; MM.stuckT = 0; }
@@ -12062,7 +12068,7 @@ function mmStep(dt) {
     if (!MM.rest) MM.rest = { x: p.x, z: p.z }; const mv = Math.hypot(p.x - MM.rest.x, p.z - MM.rest.z);
     if (!v.npc && !v.mp && activeName !== 'ute' && mv > 0.25) { MM.rest.x = p.x; MM.rest.z = p.z; if (!(MM.ramT > MM.t)) { MM.ramT = MM.t + 4; mmSay('ram', 2.4, true); mmOffend('ram', 25, true); for (const d of MM.dogs) d.alert = 3; } }
     if (v.npc || v.mp || activeName === 'ute') { MM.rest.x = p.x; MM.rest.z = p.z; }
-    const D = WPN.VD.ute; if (D) { if (MM.uteHp === undefined) MM.uteHp = D.hp; if (D.hp < MM.uteHp - 0.5 && !D.wrecked) { if (!(MM.shotSaidT > MM.t) && !(MM.ramT > MM.t)) { MM.shotSaidT = MM.t + 4; mmSay('shotUte', 2.6, true); mmOffend('shot', 20, true); } } MM.uteHp = D.hp; } else MM.uteHp = undefined;
+    const D = WPN.VD.ute; if (D) { if (MM.uteHp === undefined) MM.uteHp = D.hp; if (D.hp < MM.uteHp - 0.5 && !D.wrecked && !v.npc && !MH.mode) { if (!(MM.shotSaidT > MM.t) && !(MM.ramT > MM.t)) { MM.shotSaidT = MM.t + 4; mmSay('shotUte', 2.6, true); mmOffend('shot', 20, true); } } MM.uteHp = D.hp; } else MM.uteHp = undefined;
   }
   // wrecked: furious, and a mate tows it back once you've looked away
   if (v.wrecked) {
@@ -12071,13 +12077,15 @@ function mmStep(dt) {
     const far = faCamD(mmUteSt().pos) > 90 || MM.wreckT > 150;
     if (MM.wreckT > 60 && far && activeName !== 'ute') mmFixUte();
   } else MM.wreckT = 0;
-  for (const d of MM.dogs) mmDogStep(d, dt);
+  for (const d of MM.dogs) if (d.mode === 'tray') mmDogStep(d, dt);
   mmMenuStep();
 }
 // a mate brings the ute back, patched up
 function mmFixUte() {
   const v = mmUte(); wpnUnwreck('ute'); delete WPN.VD.ute; WPN.hops = WPN.hops.filter(h => h.v !== v); MM.wreckT = 0;
-  mmParkHome(); for (const d of MM.dogs) mmDogTray(d); mmSay('fixed', 4, true);
+  mmParkHome(); for (const d of MM.dogs) mmDogTray(d);
+  const n = MM.n; if (!n.veh && Math.hypot(n.pos.x - HOME.ute.x, n.pos.z - HOME.ute.z) > 30 && faCamD(n.pos) > 50) mmPlace();
+  mmSay('fixed', 4, true);
 }
 // settle the ute on its home spot, the way Reset parks every machine
 function mmParkHome() {
@@ -12140,8 +12148,9 @@ function mmMenuOpen() {
   if (!mmTalkable()) return; const sh = MM.sheet;
   const busy = false, cross = MM.anger >= 30 || MM.refuseT > 0;
   $('mmMood').textContent = cross ? 'He’s still filthy with you.' : MM.anger > 8 ? 'He’s a bit narky.' : 'Leaning on the ute, tinnie in hand.';
-  for (const b of sh.querySelectorAll('[data-mm="solo"],[data-mm="hunt"]')) { b.setAttribute('aria-disabled', 'true'); const sp = b.querySelector('span');
-    sp.textContent = MP.on ? 'Not in multiplayer yet' : busy ? 'He’s out hunting' : 'Coming in the next update'; }
+  const ms = mhMenuState(), sub = { solo: 'He takes the ute and the dogs', hunt: 'Ride shotgun, shoot out the window \u00b7 5 pigs' };
+  for (const k of ['solo', 'hunt']) { const b = sh.querySelector('[data-mm="' + k + '"]'); b.setAttribute('aria-disabled', ms[k] ? 'true' : 'false'); b.querySelector('span').textContent = ms[k] || sub[k]; }
+  const S_ = MH.stats; if (S_.g || S_.s) $('mmMood').textContent += ' Hunts: ' + (S_.g + S_.s) + ' \u00b7 pigs: ' + S_.k + (S_.best ? ' \u00b7 best ' + fmtT(S_.best) : '');
   sh.classList.add('show'); MM.n.lookH = 0; mmSay(cross ? 'annoyed' : 'greet', 2.2, true);
 }
 function mmMenuClose() { if (MM.sheet) MM.sheet.classList.remove('show'); }
@@ -12150,7 +12159,7 @@ function mmChoose(k) {
   const cross = MM.anger >= 30 || MM.refuseT > 0;
   if (k === 'talk') { mmSay(cross ? 'annoyed' : 'talk', 0, true); for (const d of MM.dogs) d.wag = 3; mmMenuClose(); }
   else if (k === 'leave') { mmSay('bye', 2.2, true); mmMenuClose(); }
-  else if (k === 'solo' || k === 'hunt') { mmSay(MP.on ? 'multi' : cross ? 'annoyed' : 'soon', 0, true); }
+  else if (k === 'solo' || k === 'hunt') { const ms = mhMenuState()[k]; if (ms) { mmSay(MP.on ? 'multi' : cross ? 'annoyed' : ms.startsWith('Dogs') ? mhPick('cooldown') : 'annoyed', 0, true); return; } if (k === 'hunt') mhStartGuided(); else mhStartSolo(); }
 }
 
 /* ================================================================
@@ -12416,11 +12425,445 @@ function phReset() {
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') phSave(); });
 addEventListener('pagehide', () => phSave());
 
+const DRV = {"X0": -210, "Z0": -270, "C": 4, "NX": 125, "NZ": 115, "b": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////////4XJgAAAAAAD/////////80PBAAAAAAAH////////+5jwCAAAAAAAP////////5/xh8AAAAAAAf//////z/n/j/4AAAAAAA///////x/b///wAAAAAAB///////D+f///gAAAAAAD/////////////AAAAAAAH////////////+AAAAAAAP////////////8AAAAAAAf///////8n///4AAAAAAA////////7f///wAAAAAAB////////yAf//gAAAAAAD///////4AA///AAAAAAAH///////wAH//+AAAAAAAP///////4AJ//8AAAAAAAf///////gAD//4AAAAAAA////////AAH//wAAAAAAB////8///gAj//gAAAAAAD////B//+ABX//AAAAAAAH///+P//8AD//+AAAAAAAP///8f//yACf/8AAAAAAAf///4///4AE//4AAAAAAA////w///gBp//wAAAAAAB////n///Z27//gAAAAAAD///////9sFz//AAAAAAAH/////+Pn4PH/+AAAAAAAP/////wHJ/+8/8AAAAAAAf///5HzDz/55/4AAAAAAA////iP3jPxn//wAAAAAAB////Fw+GfjB5/gAAAAAAD///8DgdOT/n//AAAAAAAH///6/AH8n/n+eAAAAAAAP///gAGP+DzP88AAAAAAAf///EDn/8Xn/84AAAAAAA///8f/OcmP/+RwAAAAAAB///7//85D//grgAAAAAAD///if/P/3/5PHAAAAAAAH///U/+Pn5/Cf+AAAAAAAP//+f/+fIDJ858AAAAAAAf//9n//7wET/z4AAAAAAA////P/k3+K9//wAAAAAAB///w//N8iQYTHgAAAAAAD///J///5H8imvAAAAAAAH//4D/0w//5P+eAAAAAAAP//AH/pj/98P88AAAAAAAf//P/8n///5//4AAAAAAA//57/5v//////wAAAAf/////L/8+//wAAAAAAAA/////+H/g///gAAAAAAAB//////P/n///AAAAAAAAD/////9g////+AAAAAAAAH////z72///98AAAAAAAAP////33t///34AAAAAAAAf////Pv7///vwwAAAAAAA//////d3/////gAAAAAAB/////97v/////wAAAAAAD/////72/////734AAAAAH////nxt///////CAAAAAP////P+D/////v/+AAAAAf///+P53////+N/+AAAAA////8f//////89/xYAAAB////x8f//7/////f2AAAD////j4P//5//////kAAAH////n/5//x///z//AAAAP////L/wD/z/f/0/2AAAAf////n/AB/x/v/x/8AAAA////4f+AD/j/P/j/5AAAB////wf98H/j/n///oMAAD////w/4Df/H/v///YYAAH//////wA///////6QgAAP//////gB///////lBAAAf//////+D/+/////ICAAA//////////9////+QAAAB//////////////8BgAAAD//////////////53AQAAH//////////9///7uggAAP////+/////j///jPBAAAf//////////n//zg8EAAAAAAAH/////////j/4MAAAAAAAH///////5/j/wYAAAAAAAP//////8b///AwAAAAAAAf//+B//4///8BgAAAAAAA//59///////0CAAAAAAAA//z7///////oAAAAAAAAB///wP9/n/9/AQAAAAAAAD/+///7/P///AgAAAAAAAD/////77////BAAAAAAAACX//+f3yf/vyCAAAAAAAAHk3///v8//fUAAAAAAAAAHv3+4Af///9gAAAAAAAAAD3/947////zAAAAAAAAAAAAf7w3////sAAAAAAAAAAAAAfBP///+UAAAAAAAAAAAAAAAD9//doAAAAAAAAAAAAAAAH97/2AAAAAAAAAAAAAAAAH/3/IAAAAAAAAAAAAAAAAP//+gAAAAAAAAAAAAAAAAP//9QAAAAAAAAAAAAAAAAf//6AAAAAAAAAAAAAAAAAf//kAAAAAAAAAAAAAAAAAf//QAAAAAAAAAAAAAAAAA//6AAAAAAAAAAAAAAAAAB//gBAAAAAAAAAAAAAAAAD//AEAAAAAAAAAAAAAAAAH+9AAAAAAAAAAAAAAAAAAH+0AAAAAAAAAAAAAAAAAAP+QAAAAAAAAAAAAAAAAAAf/gAAAAAAAAAAAAAAAAAAf+gAAAAAAAAAAAAAAAAAA//AAAAAAAAAAAAAAAAAAA/eAAAAAA"};   // 4 m cells the ute can drive (insidePoly, flat, nothing at bonnet height, not the channel)
+
+/* ================================================================
+   PIG HUNTING WITH MADMAN (stage 2, Nov 2026)
+   Two hunts from the "Talk to Madman" menu:
+   - Ride along: Madman drives, you sit in the passenger seat and shoot out the window. Goal: 5 pigs in 4 minutes.
+     He drives to a mob (planned over a drivable grid of the property, not wandering), parks side-on so the pigs
+     are out your window, and the dogs bail out and chase; a bailed pig stands its ground for your shot.
+     Then the next mob, and home to the dongas, where you get ammo and the tally goes up.
+   - Send him: he takes the ute and dogs on his own, hunts a mob a long way from you, comes back and tells you
+     how it went. A few pigs down (never the breeding core), a bit of ammo for you.
+   Everything recovers: getting out, dying, the ute getting wrecked, Madman getting hit, reset or reload.
+   The view in the passenger seat is first person from the passenger's head, limited to the left side
+   (forward-left round to the tray), and it turns with the ute; bullets can't hit the ute, Madman or the dogs.
+   ================================================================ */
+const MH = { mode: '', ph: '', t: 0, pax: false, kills: 0, goal: 5, limit: 240, left: 240, mob: null, visited: [], nav: null, cdG: 0, cdS: 0, sayT: 0, stopT: 0, shotT: 0,
+  camYaw0: undefined, chip: null, fade: null, fadeT: 0, gave: '', soloKills: 0, told: {}, stats: STORE.get('wfy.hunt', { g: 0, s: 0, k: 0, best: 0 }), seen: new Set() };
+const MH_L = {
+  start: ['Righto, hop in! Grab ya gun, shoot out the window.', 'In ya get. Five pigs and we’re home for a beer.', 'Let’s go get some pork, mate!'],
+  gun: ['Here, have me spare rifle. Don’t point it at the dogs.'],
+  drive: ['Hang on to somethin’!', 'Mob down this way. Fair dinkum, saw ’em this mornin’.', 'Keep ya eyes peeled.', 'Strewth, mind ya head.'],
+  near: ['There they are! Dogs, GO!', 'Pigs! Out ya get, boys!', 'Fuck me dead, look at the size of that one! Go on dogs!'],
+  bailed: ['Dogs have got one bailed! Take the shot!', 'He’s held up! Shoot!', 'Now, mate! Now!'],
+  kill: ['Good shot!', 'Got him!', 'Fuck me dead, what a shot!', 'Ripper!', 'That’s one less!', 'Beauty!'],
+  miss: ['Ya missed! Again!', 'Strewth, aim at the pig, not the dirt!'],
+  gone: ['They’ve bolted. Dogs, in! Next mob.', 'Yeah nah, gone into the scrub. We’ll find more.'],
+  win: ['That’s five! Beers on me. Home we go.', 'Ripper hunt, mate. Back to the dongas.', 'Fair dinkum, you can shoot. Home time.'],
+  timeout: ['Yeah nah, they’ve gone to ground. Home time.', 'Light’s goin’. We’ll call it there.'],
+  quit: ['Suit yourself. I’ll take her home.', 'Fine, walk then!'],
+  soloGo: ['Righto. Back in a bit. Don’t touch anything.', 'Dogs! In the back! See ya in a few, mate.'],
+  soloBack: ['Got {n} of the buggers. Dogs did all the work.', 'Bagged {n}. There’s some ammo for ya on the tray.', '{n} pigs, mate. Tank got a bit chewed up but she’ll be right.'],
+  soloNone: ['Not a bloody one. They heard us comin’.'],
+  cooldown: ['Dogs are knackered. Give ’em a minute.', 'Yeah nah, let the dogs get their breath back.'],
+  hit: ['Oi! Watch it!'],
+};
+const mhPick = k => { const L = MH_L[k]; return L ? L[Math.floor(Math.random() * L.length)] : k; };
+function mhSay(k, force, n) { const line = (MH_L[k] ? mhPick(k) : k).replace('{n}', n == null ? '' : n); if (force || MH.sayT <= 0) { MH.sayT = 4; mmSay(line, 0, true); } }
+
+/* ================= the drivable grid and the route planner ================= */
+let DRVA = null;
+function drvInit() { if (DRVA) return; const raw = atob(DRV.b); DRVA = new Uint8Array(DRV.NX * DRV.NZ); for (let k = 0; k < DRVA.length; k++) DRVA[k] = (raw.charCodeAt(k >> 3) >> (7 - (k & 7))) & 1; }
+const drvOk = (i, j) => i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ && DRVA[j * DRV.NX + i] === 1;
+const drvIJ = (x, z) => [Math.floor((x - DRV.X0) / DRV.C), Math.floor((z - DRV.Z0) / DRV.C)];
+const drvXZ = (i, j) => [DRV.X0 + (i + 0.5) * DRV.C, DRV.Z0 + (j + 0.5) * DRV.C];
+const drvOkXZ = (x, z) => { const [i, j] = drvIJ(x, z); return drvOk(i, j); };
+function drvNear(x, z, maxR = 8) { drvInit(); const [i0, j0] = drvIJ(x, z); if (drvOk(i0, j0)) return [i0, j0];
+  for (let r = 1; r <= maxR; r++) { let best = null, bd = 1e9; for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue; if (drvOk(i0 + di, j0 + dj)) { const d = di * di + dj * dj; if (d < bd) { bd = d; best = [i0 + di, j0 + dj]; } } } if (best) return best; }
+  return null; }
+function drvClear(i, j) { let n = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) if (!drvOk(i + di, j + dj)) n++; return n; }
+function drvLOS(ax, az, bx, bz) { const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 1.5), px = -(bz - az) / (L || 1), pz = (bx - ax) / (L || 1);
+  for (let k = 0; k <= n; k++) { const u = k / Math.max(1, n), x = ax + (bx - ax) * u, z = az + (bz - az) * u; if (!drvOkXZ(x, z) || !drvOkXZ(x + px * 1.3, z + pz * 1.3) || !drvOkXZ(x - px * 1.3, z - pz * 1.3)) return false; } return true; }
+// A* over 4 m cells, 8-connected, a little extra cost next to obstacles so it keeps off fences and sheds
+function drvPath(x0, z0, x1, z1) {
+  drvInit(); const s = drvNear(x0, z0), g = drvNear(x1, z1); if (!s || !g) return null;
+  const NX = DRV.NX, N = NX * DRV.NZ, G = new Float32Array(N).fill(1e9), from = new Int32Array(N).fill(-1), shut = new Uint8Array(N);
+  const si = s[1] * NX + s[0], gi = g[1] * NX + g[0], H = []; const hpush = (k, f) => { H.push([f, k]); let c = H.length - 1; while (c > 0) { const p = (c - 1) >> 1; if (H[p][0] <= H[c][0]) break; [H[p], H[c]] = [H[c], H[p]]; c = p; } };
+  const hpop = () => { const top = H[0], last = H.pop(); if (H.length) { H[0] = last; let c = 0; for (;;) { const l = c * 2 + 1, r = l + 1; let m = c; if (l < H.length && H[l][0] < H[m][0]) m = l; if (r < H.length && H[r][0] < H[m][0]) m = r; if (m === c) break; [H[m], H[c]] = [H[c], H[m]]; c = m; } } return top; };
+  G[si] = 0; hpush(si, 0); let n = 0;
+  while (H.length && n++ < 30000) { const [, k] = hpop(); if (shut[k]) continue; shut[k] = 1; if (k === gi) break; const i = k % NX, j = (k - i) / NX;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { if (!di && !dj) continue; const ni = i + di, nj = j + dj; if (!drvOk(ni, nj)) continue; if (di && dj && (!drvOk(i + di, j) || !drvOk(i, j + dj))) continue;
+      const nk = nj * NX + ni, c = G[k] + (di && dj ? 1.414 : 1) + drvClear(ni, nj) * 0.45; if (c < G[nk]) { G[nk] = c; from[nk] = k; hpush(nk, c + Math.hypot(ni - g[0], nj - g[1])); } } }
+  if (from[gi] < 0 && gi !== si) return null;
+  const cells = []; for (let k = gi; k >= 0; k = from[k]) { cells.push(k); if (k === si) break; } cells.reverse();
+  const pts = cells.map(k => drvXZ(k % NX, Math.floor(k / NX))); pts[0] = [x0, z0]; pts.push([x1, z1]);
+  // pull the string: skip corners the ute can see past
+  const out = [pts[0]]; let a = 0; while (a < pts.length - 1) { let b = pts.length - 1; while (b > a + 1 && !drvLOS(pts[a][0], pts[a][1], pts[b][0], pts[b][1])) b--; out.push(pts[b]); a = b; }
+  return out;
+}
+// a good spot to park within shooting range of a point (drivable, not too close)
+function drvSpotNear(x, z, rMin, rMax, fromX, fromZ, noLos) {
+  drvInit(); let best = null, bs = 1e9;
+  for (let a = 0; a < 32; a++) for (const r of [rMin, (rMin + rMax) / 2, rMax]) { const ang = a / 32 * Math.PI * 2, px = x + Math.sin(ang) * r, pz = z + Math.cos(ang) * r;
+    const [i, j] = drvIJ(px, pz); if (!drvOk(i, j) || drvClear(i, j) > 2) continue; const sc = Math.hypot(px - fromX, pz - fromZ) + drvClear(i, j) * 6; if (sc >= bs) continue;
+    // you have to be able to see the pigs from the passenger window
+    const gy = groundAt(px, pz, 30, 0), ty = groundAt(x, z, 30, 0) + 0.5, o = _w1.set(px, gy + 1.9, pz), dv = _w2.set(x - px, ty - gy - 1.9, z - pz), L = dv.length(); dv.normalize();
+    if (!noLos && castHit(o, dv, L - 2)) continue; bs = sc; best = [px, pz]; }
+  return best;
+}
+
+/* ================= Madman at the wheel: follow a route ================= */
+function mhNavTo(x, z, opt = {}) {
+  const st = VEH.ute.state; const pts = drvPath(st.pos.x, st.pos.z, x, z);
+  MH.nav = pts ? { pts, i: 1, goal: [x, z], nudges: 0, turnSign: 0, cruise: opt.cruise || 7, stuckT: 0, recT: 0, rec: 0, best: 1e9, progT: 0, lastStr: 0, done: false, fail: false, replans: 0 } : { fail: true };
+  return !!pts;
+}
+function mhNavStep(dt) {
+  const N = MH.nav, v = VEH.ute, st = v.state; if (!N || N.fail) return 'fail'; if (N.done) { mmDrive(dt, Math.abs(st.v) > 0.3 ? -0.6 : 0, 0); return 'done'; }
+  const x = st.pos.x, z = st.pos.z, dGoal = Math.hypot(N.goal[0] - x, N.goal[1] - z);
+  if (dGoal < N.best - 2) { N.best = dGoal; N.progT = 0; } else N.progT += dt;
+  if (N.progT > 9) { N.progT = 0; N.best = dGoal; if (++N.nudges > 4) { N.fail = true; return 'fail'; } mhNudge(N); return 'go'; }
+  if (dGoal < 3.2) { N.done = true; mmDrive(dt, -0.6, 0); return 'done'; }
+  while (N.i < N.pts.length - 1 && Math.hypot(N.pts[N.i][0] - x, N.pts[N.i][1] - z) < 5.5) N.i++;
+  const [tx, tz] = N.pts[N.i];
+  const e = faAng(Math.atan2(tx - x, tz - z) - st.yaw), sp = st.v;
+  N.turnCD = (N.turnCD || 0) - dt;
+  // swinging round: back up with the wheel the other way (a three-point turn), or backing out of a corner
+  if (N.recT > 0) { N.recT -= dt; mmDrive(dt, -0.6, N.turnSign); if (N.recT <= 0) N.turnCD = 1.2; return 'go'; }
+  const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
+  const blocked = Math.abs(sp) < 2.5 && !!castHit(_w1.set(x + fx * (UTE_RIG.size.front - 0.6), st.pos.y + 0.8, z + fz * (UTE_RIG.size.front - 0.6)), _w2.set(fx, 0, fz), 2.6);
+  if ((Math.abs(e) > 1.35 && Math.abs(sp) < 3 && N.turnCD <= 0) || blocked) { N.recT = blocked ? 1.8 : 2.2; N.rec++; N.turnSign = Math.abs(e) > 2.6 && N.turnSign ? N.turnSign : (Math.sign(e) || 1); return 'go'; }
+  let str = THREE.MathUtils.clamp(-e * 2.0, -1, 1);       // (the sim's steering: + turns the heading clockwise)
+  let vt = N.cruise * (1 - Math.min(0.75, Math.abs(e) / 1.2)); if (dGoal < 14) vt = Math.min(vt, 1.8 + dGoal * 0.32);
+  let thr = sp < vt ? THREE.MathUtils.clamp(0.3 + (vt - sp) * 0.35, 0, 1) : sp > vt + 1.2 ? -0.5 : 0.05;
+  if (thr > 0.2 && Math.abs(sp) < 0.45) N.stuckT += dt; else N.stuckT = Math.max(0, N.stuckT - dt);
+  if (N.stuckT > 1.4) { N.stuckT = 0; N.recT = 1.8; N.rec++; N.turnSign = Math.sign(e) || 1; if (N.rec % 5 === 0 && N.replans++ < 3) { mhNavTo(N.goal[0], N.goal[1], { cruise: N.cruise }); MH.nav.replans = N.replans; MH.nav.rec = N.rec; } }
+  mmDrive(dt, thr, str);
+  return 'go';
+}
+// wedged: fade out, pop the ute onto the route a few cells on, fade back in
+function mhNudge(N) {
+  const st = VEH.ute.state; let k = Math.min(N.pts.length - 1, N.i + 1), p = N.pts[k];
+  const tx = st.pos.x + (p[0] - st.pos.x) * Math.min(1, 8 / Math.max(1, Math.hypot(p[0] - st.pos.x, p[1] - st.pos.z))), tz = st.pos.z + (p[1] - st.pos.z) * Math.min(1, 8 / Math.max(1, Math.hypot(p[0] - st.pos.x, p[1] - st.pos.z)));
+  const c = drvNear(tx, tz, 4); if (!c) return; const [cx, cz] = drvXZ(c[0], c[1]);
+  if (MH.pax || faCamD(st.pos) < 80) { MH.fadeT = 0.6; if (MH.fade) MH.fade.style.opacity = '1'; }
+  st.pos.x = cx; st.pos.z = cz; st.pos.y = groundAt(cx, cz, st.pos.y + 3, st.pos.y) + 0.05; st.yaw = Math.atan2(p[0] - cx, p[1] - cz); st.v = st.vx = st.vz = 0; N.recT = 0; N.stuckT = 0;
+  if (MH.mode === 'guided' && MH.pax) mhSay('Strewth, hang on...', true);
+}
+// turn on the spot-ish (small shuffles) until a bearing sits out the passenger window
+function mhSideOn(dt, bx, bz) {
+  const st = VEH.ute.state, rel = faAng(Math.atan2(bx - st.pos.x, bz - st.pos.z) - st.yaw);
+  const want = Math.PI / 2, err = faAng(rel - want);
+  if (Math.abs(err) < 0.45) { mmDrive(dt, Math.abs(st.v) > 0.3 ? -0.6 : 0, 0); return true; }
+  mmDrive(dt, Math.abs(st.v) < 1.6 ? 0.35 : 0, err > 0 ? -1 : 1); return false;
+}
+
+/* ================= the passenger seat ================= */
+function mhSeatPlayer() {
+  const v = VEH.ute; cancelSeq(); if (typeof MEL !== 'undefined') { MEL.cur = null; MEL.queued = false; }
+  if (activeName !== 'foot') setActive('foot');
+  seatFarmer(v.model.body, UTE_RIG.passenger); F.mode = 'seated'; F.seatPose = v.pose; F.vel.set(0, 0, 0); F.speedH = 0; setFarmerProps('seated');
+  MH.pax = true; MH.camYaw0 = undefined; camYawF = v.state.yaw + Math.PI / 2; camPitchF = 0.12; DAZZA.root.visible = false;
+  // a gun in hand: his spare rifle if you've got none, and enough rounds
+  const guns = ['rifle', 'shotgun', 'sniper', 'pistol', 'minigun'], have = guns.find(i => WPN.owned[i]);
+  if (!have) { wpnTake('rifle'); mhSay('gun', true); }
+  else if ((WPN.ammo[have] || 0) + (WPN.mag[have] || 0) < 40 && have === 'rifle') WPN.ammo.rifle = Math.max(WPN.ammo.rifle || 0, 120);
+  const pick = WPN.cur && WEAPONS[WPN.cur].kind === 'gun' ? WPN.cur : (have || 'rifle'); wpnSelect(pick);
+}
+function mhUnseat(bail) {
+  if (!MH.pax) return; const v = VEH.ute, st = v.state;
+  MH.pax = false; DAZZA.root.visible = true; WPN.scope = false; camera.fov = 58; camera.updateProjectionMatrix();
+  const p = mmUteW(UTE_RIG.passenger.x > 0 ? 1.6 : -1.6, UTE_RIG.door.z, new THREE.Vector3()), y = groundAt(p.x, p.z, st.pos.y + 2.5, st.pos.y);
+  const side = UTE_RIG.passenger.x > 0 ? 1 : -1, fx = Math.sin(st.yaw), fz = Math.cos(st.yaw), ox = fz * side, oz = -fx * side;
+  standFarmerAt({ x: p.x, y: y + (bail ? 0.4 : 0), z: p.z }, Math.atan2(ox, oz), !!bail);
+  if (bail) startTumble(new THREE.Vector3(st.vx * 0.6 + ox * 3, 2.4, st.vz * 0.6 + oz * 3));
+  camYawF = Math.atan2(ox, oz) + Math.PI; camInit = false; document.body.classList.remove('pax');
+}
+function mhCam(dt) {
+  const v = VEH.ute, st = v.state, body = v.model.body; body.updateMatrixWorld(true);
+  if (MH.camYaw0 !== undefined) camYawF += faAng(st.yaw - MH.camYaw0); MH.camYaw0 = st.yaw;
+  const rel = THREE.MathUtils.clamp(faAng(camYawF - st.yaw), -0.3, 2.85); camYawF = st.yaw + rel; camPitchF = THREE.MathUtils.clamp(camPitchF, -0.55, 0.7);
+  const yaw = camYawF, pit = camPitchF, cp = Math.cos(pit), sp = Math.sin(pit), f = _w1.set(Math.sin(yaw) * cp, -sp, Math.cos(yaw) * cp);
+  const R = UTE_RIG.passenger, head = body.localToWorld(_w3.set(R.x + 0.16, R.hip + 0.66, R.z - 0.05));
+  const want = WPN.scope ? 14 : 62; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
+  camera.position.copy(head).addScaledVector(f, -0.12); camPos.copy(camera.position);
+  if (camShake > 0) camera.position.addScaledVector(_w2.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), 0.12 * camShake);
+  lookAt.copy(camera.position).addScaledVector(f, 30); camera.lookAt(lookAt);
+  DAZZA.root.visible = false; F.yaw = yaw;
+}
+// where your shots appear to leave from: the passenger window, along your aim
+function mhMuzzle(out) { const v = VEH.ute, body = v.model.body; body.updateMatrixWorld(true); const W = UTE_RIG.window; body.localToWorld(out.set(W.x, W.y, W.z)); return out.addScaledVector(camera.getWorldDirection(_w4), 0.35); }
+
+/* ================= the dogs off the ute ================= */
+function mhDogOut(d, k) {
+  if (d.mode !== 'tray') return; const M = d.M; M.root.updateMatrixWorld(true); const from = M.root.getWorldPosition(new THREE.Vector3());
+  scene.attach(M.root); const side = d.i ? -1 : 1, to = mmUteW(side * (1.3 + k * 0.4), UTE_RIG.tailgate - 0.9, new THREE.Vector3()); to.y = groundAt(to.x, to.z, from.y + 1, 0);
+  d.mode = 'jump'; d.jump = { t: 0, dur: 0.55, from, to, into: false }; d.pos.copy(to); d.task = 'chase'; d.tgt = null; d.st = 'stand';
+}
+function mhDogIn(d) { if (d.mode === 'tray') return; d.task = 'return'; }
+function mhDogStep(d, dt) {
+  const M = d.M; d.t += dt; d.alert = Math.max(0, d.alert - dt); d.wag = Math.max(0, d.wag - dt); d.barkPh = Math.max(0, d.barkPh - dt);
+  const bark = (loud) => { d.barkPh = 0.2; if (typeof sfx === 'function' && AU.buf['mm_bark' + d.i]) sfx('mm_bark' + (Math.random() < 0.7 ? d.i : 2), _w4.copy(d.pos).setY(d.pos.y + 0.6), loud ? 1.15 : 0.9, 0.94 + Math.random() * 0.12, 16); };
+  if (d.mode === 'jump') {
+    const J = d.jump; J.t += dt; const u = Math.min(1, J.t / J.dur), to = J.into ? mmTrayW(d) : J.to;
+    M.root.position.lerpVectors(J.from, to, u); M.root.position.y += Math.sin(u * Math.PI) * 0.9; d.st = 'stand';
+    if (u >= 1) { if (J.into) { mmDogTray(d); d.task = null; return; } d.mode = 'ground'; d.pos.copy(J.to); }
+    mmDogPose(d, dt); return;
+  }
+  // on the ground
+  const st = VEH.ute.state, uteP = st.pos; let goal = null, sp = 0, tgtPig = null;
+  if (d.task === 'return' || !MH.mode) {
+    const tray = mmTrayW(d), dd = Math.hypot(tray.x - d.pos.x, tray.z - d.pos.z);
+    if (VEH.ute.wrecked) { d.st = 'sit'; mmDogPose(d, dt); return; }
+    if (dd < 2.6 && Math.abs(st.v) < 0.8) { d.mode = 'jump'; d.jump = { t: 0, dur: 0.5, from: M.root.position.clone(), to: tray, into: true }; return; }
+    goal = tray; sp = dd > 6 ? 7 : 3.5;
+    if (dd > 90 && faCamD(d.pos) > 60) { mmDogTray(d); d.task = null; return; }     // a long way off and out of sight: he whistles them in
+  } else if (d.task === 'chase') {
+    // pick the nearest live pig of the hunted mob (or any pig near the ute)
+    if (!d.tgt || d.tgt.st === 'down' || d.tgt.st === 'tumble' || !FA.pigs.includes(d.tgt)) { d.tgt = null; let bd = 70;
+      for (const a of FA.pigs) { if (a.st === 'down' || a.st === 'tumble') continue; const da = Math.hypot(a.pos.x - d.pos.x, a.pos.z - d.pos.z), du = Math.hypot(a.pos.x - uteP.x, a.pos.z - uteP.z); if (du < 80 && da < bd) { bd = da; d.tgt = a; } } }
+    tgtPig = d.tgt;
+    if (!tgtPig || Math.hypot(d.pos.x - uteP.x, d.pos.z - uteP.z) > 85) { d.task = 'return'; }
+    else { const dp = Math.hypot(tgtPig.pos.x - d.pos.x, tgtPig.pos.z - d.pos.z);
+      if (dp < 1.7) { // bailed up: circle and bark, the pig stands its ground
+        tgtPig.bailT = 0.6; tgtPig.bailBy = d.pos; d.circ = (d.circ || 0) + dt * 2.2 * (d.i ? -1 : 1);
+        goal = _w2.set(tgtPig.pos.x + Math.sin(d.circ) * 1.3, 0, tgtPig.pos.z + Math.cos(d.circ) * 1.3); sp = 2.6; d.alert = 3;
+        if (d.barkPh <= 0 && Math.random() < dt * 4) bark(true);
+        if (!d.bailSaid) { d.bailSaid = 1; MH.bailed = tgtPig; }
+      } else { goal = tgtPig.pos; sp = 7.6; d.bailSaid = 0; if (Math.random() < dt * 1.5) bark(false); }
+      d.scareT = (d.scareT || 0) - dt; if (d.scareT <= 0) { d.scareT = 0.25; _mmScare0(d.pos, dp < 1.7 ? 0 : 9); } }
+  }
+  if (goal) { const dx = goal.x - d.pos.x, dz = goal.z - d.pos.z, L = Math.hypot(dx, dz);
+    if (L > 0.3) { let h = Math.atan2(dx, dz); const step = Math.min(L, sp * dt);
+      for (const o of [0, 0.6, -0.6, 1.2, -1.2]) { const hh = h + o, nx = d.pos.x + Math.sin(hh) * step, nz = d.pos.z + Math.cos(hh) * step; if (faWalk(nx, nz) || insidePoly(nx, nz)) { d.pos.x = nx; d.pos.z = nz; h = hh; break; } }
+      d.yaw += faAng(h - d.yaw) * Math.min(1, dt * 10); d.spd = step / dt; } else d.spd = 0; }
+  else d.spd = 0;
+  d.gT = (d.gT || 0) - dt; if (d.gT <= 0) { d.gT = 0.12; d.gy = groundAt(d.pos.x, d.pos.z, d.pos.y + 1.5, d.pos.y); } d.pos.y += ((d.gy || d.pos.y) - d.pos.y) * Math.min(1, dt * 12);
+  M.root.position.copy(d.pos); M.root.rotation.set(0, d.yaw, 0);
+  d.st = d.spd > 0.5 ? 'stand' : (tgtPig ? 'stand' : 'sit'); d.look = 0;
+  mmDogPose(d, dt);
+  // legs gallop when running
+  if (d.spd > 0.5) { d.gal = (d.gal || 0) + dt * (4 + d.spd * 1.6); const A = Math.min(0.9, 0.3 + d.spd * 0.08); M.legs.forEach((Lg, k) => { Lg.rotation.x = Math.sin(d.gal + (Lg.front ? 0 : Math.PI) + (k % 2) * 0.5) * A; Lg.lower.rotation.x = Math.max(0, Math.sin(d.gal + (Lg.front ? 0 : Math.PI) - 1)) * A; }); M.body.position.y = 0.47 + Math.abs(Math.sin(d.gal)) * 0.04; }
+}
+function mmTrayW(d) { const R = UTE_RIG.dogs[d.i], v = VEH.ute; v.model.body.updateMatrixWorld(true); return v.model.body.localToWorld(new THREE.Vector3(R.x, UTE_RIG.deck, R.z)); }
+const mhDogsHome = () => MM.dogs.every(d => d.mode === 'tray');
+
+/* ================= starting a hunt ================= */
+function mhMenuState() {
+  const cross = MM.anger >= 30 || MM.refuseT > 0, ute = VEH.ute;
+  const why = MP.on ? 'Not in multiplayer yet' : MH.mode ? 'He’s busy' : cross ? 'He’s not in the mood' : ute.wrecked ? 'The ute’s cooked' : !mmUteHome() ? 'The ute’s not parked' : '';
+  const cd = (t) => t > 0 ? 'Dogs need a rest (' + Math.floor(t / 60) + ':' + String(Math.ceil(t % 60)).padStart(2, '0') + ')' : '';
+  return { hunt: why || cd(MH.cdG), solo: why || cd(MH.cdS) };
+}
+function mhStartGuided() {
+  const st = mhMenuState(); if (st.hunt) { mhSay(st.hunt.startsWith('Dogs') ? 'cooldown' : 'annoyed', true); return false; }
+  Object.assign(MH, { mode: 'guided', ph: 'board', t: 0, tt: 0, kills: 0, left: MH.limit, mob: null, visited: [], nav: null, stopT: 0, bailed: null, said: {}, missT: 0 });
+  MH.seen = new Set(FA.pigs.filter(a => a.st === 'down'));
+  mmMenuClose(); mhSeatPlayer(); mhSay('start', true); MM.n.st = 'mhBoard'; MM.n.t = 0; MM.idleT = 60;
+  document.body.classList.add('pax'); mhChip(true);
+  if (!MH.told.how) { MH.told.how = 1; toast('Drag to aim out the window · hold FIRE · 5 pigs before time runs out', 3.4); }
+  return true;
+}
+function mhStartSolo() {
+  const st = mhMenuState(); if (st.solo) { mhSay(st.solo.startsWith('Dogs') ? 'cooldown' : 'annoyed', true); return false; }
+  Object.assign(MH, { mode: 'solo', ph: 'board', t: 0, tt: 0, kills: 0, soloKills: 0, mob: null, visited: [], nav: null, stopT: 0, shotT: 6 + Math.random() * 6 });
+  MH.seen = new Set(FA.pigs.filter(a => a.st === 'down'));
+  mmMenuClose(); mhSay('soloGo', true); MM.n.st = 'mhBoard'; MM.n.t = 0;
+  return true;
+}
+// choose the next mob to go after: nearest with pigs in it that we haven't done this trip; for the solo hunt, one well away from you
+function mhPickMob() {
+  const st = VEH.ute.state; let best = null, bs = 1e9;
+  for (const m of PH.mobs) { if (!m.members.length || MH.visited.includes(m)) continue; const Z = PH_ZONES[m.zi], c = m.G ? m.G.center : [Z[0], Z[1]];
+    const spot = drvSpotNear(c[0], c[1], 14, 40, st.pos.x, st.pos.z) || drvSpotNear(c[0], c[1], 12, 45, st.pos.x, st.pos.z, true); if (!spot) continue;
+    let sc = Math.hypot(c[0] - st.pos.x, c[1] - st.pos.z) - m.members.length * 6;
+    if (MH.mode === 'solo') sc = -Math.hypot(c[0] - F.pos.x, c[1] - F.pos.z) + Math.hypot(c[0] - st.pos.x, c[1] - st.pos.z) * 0.3;
+    if (sc < bs) { bs = sc; best = { mob: m, spot, c }; } }
+  if (!best && MH.visited.length && PH.mobs.some(m => m.members.length)) { MH.visited = MH.visited.slice(-1); return mhPickMob(); }   // been everywhere: go round again
+  return best;
+}
+
+/* ================= Madman's side of it ================= */
+function mhMadman(n, dt) {
+  if (n.st === 'mhBoard') {
+    const door = mmUteW(UTE_RIG.driver.x < 0 ? -1.75 : 1.75, UTE_RIG.door.z, _w1), d = Math.hypot(door.x - n.pos.x, door.z - n.pos.z);
+    if (d < 0.8 || n.t > 8) { mmEnterUte(n); MM.parkPh = ''; MH.ph = 'pick'; MH.t = 0; return true; }
+    npcWalk(n, faSteer(n, Math.atan2(door.x - n.pos.x, door.z - n.pos.z), 2), 2.4, dt); return true;
+  }
+  return false;
+}
+function mhDriveThink(n, dt) {
+  const v = VEH.ute, st = v.state; MH.t += dt;
+  if (!st || v.wrecked) { mmLeaveUte(false); mhFail('wreck'); return; }
+  const home = HOME.ute, fx = Math.sin(home.yaw), fz = Math.cos(home.yaw);
+  switch (MH.ph) {
+    case 'pick': {
+      if (MH.mode === 'guided' && MH.kills >= MH.goal) { mhHome('win'); return; }
+      if (MH.mode === 'guided' && MH.left <= 0) { mhHome('timeout'); return; }
+      if (MH.mode === 'solo' && MH.visited.length >= 1 && (MH.soloKills + MH.kills >= 2 || MH.tt > 150 || MH.visited.length >= 2)) { mhHome('solo'); return; }
+      const P = mhPickMob(); if (!P) { mhHome(MH.mode === 'solo' ? 'solo' : 'timeout'); return; }
+      MH.mob = P.mob; MH.target = P.c; MH.visited.push(P.mob);
+      if (!mhNavTo(P.spot[0], P.spot[1], { cruise: 7.5 })) { mmDrive(dt, 0, 0); return; }
+      MH.ph = 'drive'; MH.t = 0; if (MH.mode === 'guided') mhSay('drive'); return;
+    }
+    case 'drive': {
+      if (MH.mode === 'guided' && (MH.left <= 0 || MH.kills >= MH.goal)) { mhHome(MH.kills >= MH.goal ? 'win' : 'timeout'); return; }
+      if (MH.mode === 'solo' && MH.tt > 200) { mhHome('solo'); return; }
+      const r = mhNavStep(dt);
+      if (r === 'done') { MH.ph = 'side'; MH.t = 0; }
+      else if (r === 'fail') { MH.ph = 'pick'; }
+      return;
+    }
+    case 'side': {
+      const c = MH.mob && MH.mob.G ? MH.mob.G.center : MH.target;
+      if (mhSideOn(dt, c[0], c[1]) || MH.t > 6) { MH.ph = 'stop'; MH.t = 0; MH.stopT = 0;
+        const live = FA.pigs.some(a => a.st !== 'down' && Math.hypot(a.pos.x - st.pos.x, a.pos.z - st.pos.z) < 70);
+        if (live) { MM.dogs.forEach((d, k) => mhDogOut(d, k)); if (MH.mode === 'guided') mhSay('near', true); } }
+      return;
+    }
+    case 'stop': {
+      mmDrive(dt, Math.abs(st.v) > 0.3 ? -0.6 : 0, 0); MH.stopT += dt;
+      const near = FA.pigs.filter(a => a.st !== 'down' && a.st !== 'tumble' && Math.hypot(a.pos.x - st.pos.x, a.pos.z - st.pos.z) < 75);
+      if (MH.bailed && MH.mode === 'guided' && !(MH.bailSaidT > MH.t)) { MH.bailSaidT = MH.t + 10; mhSay('bailed', true); MH.bailed = null; }
+      // solo: Madman takes the shots himself (a bailed pig, every so often)
+      if (MH.mode === 'solo') { MH.shotT -= dt; if (MH.shotT <= 0) { MH.shotT = 5 + Math.random() * 5; const a = near.find(p => p.bailT > 0) || (near.length && Math.random() < 0.5 ? near[0] : null);
+        const mp = mmUteW(UTE_RIG.window.x * (UTE_RIG.driver.x < 0 ? -1 : 1), UTE_RIG.window.z, new THREE.Vector3()); mp.y += 1.5;
+        if (typeof sfx === 'function') sfx('g_rifle', mp, 1, 0.97, 40); _mmScare0(mp, 50);
+        if (a) { wpnPigShot(a, _w1.set(a.pos.x - mp.x, 0, a.pos.z - mp.z).normalize(), 200, _w2.copy(a.pos).setY(a.pos.y + 0.4)); }
+        else if (!MH.mob.G && phCull(MH.mob)) { MH.soloKills++; } } }
+      const dogsIdle = MM.dogs.every(d => d.mode === 'tray' || d.task === 'return');
+      const done = MH.mode === 'solo' ? (MH.stopT > 32 || (MH.mob.G && !near.length && MH.stopT > 6)) : (!near.length || MH.stopT > 40 || (dogsIdle && MH.stopT > 8) || MH.kills >= MH.goal || MH.left <= 0);
+      if (done) { if (near.length && MH.mode === 'guided' && MH.kills < MH.goal && MH.left > 0) mhSay('gone'); MM.dogs.forEach(mhDogIn); MH.ph = 'load'; MH.t = 0; }
+      return;
+    }
+    case 'load': {
+      mmDrive(dt, Math.abs(st.v) > 0.3 ? -0.6 : 0, 0);
+      if (mhDogsHome() || MH.t > 14) { if (!mhDogsHome()) MM.dogs.forEach(d => { if (d.mode !== 'tray') mmDogTray(d); }); MH.ph = 'pick'; MH.t = 0; }
+      return;
+    }
+    case 'loadHome': {
+      mmDrive(dt, Math.abs(st.v) > 0.3 ? -0.6 : 0, 0);
+      if (mhDogsHome() || MH.t > 14) { MM.dogs.forEach(d => { if (d.mode !== 'tray') mmDogTray(d); }); mhGoHome(); }
+      return;
+    }
+    case 'home': {
+      const r = mhNavStep(dt);
+      if (r === 'done' || r === 'fail' || MH.t > 100) { MH.ph = 'park'; MH.t = 0; MM.parkPh = 'settle'; MM.parkT = 0;
+        // couldn't get there: a quick fade and he's home (better than a ute sliding across the paddock)
+        if (Math.hypot(home.x - st.pos.x, home.z - st.pos.z) > 14) { if (MH.pax || faCamD(st.pos) < 120) { MH.fadeT = 0.7; if (MH.fade) MH.fade.style.opacity = '1'; } st.pos.x = home.x - fx * 4; st.pos.z = home.z - fz * 4; st.yaw = home.yaw; st.v = st.vx = st.vz = 0; } }
+      return;
+    }
+    case 'park': {
+      // the same shuffle-in as the re-park, then out he gets
+      mmDrive(dt, 0, 0); const S2 = v.state, k = Math.min(1, dt * 1.4);
+      S2.pos.x += (home.x - S2.pos.x) * k; S2.pos.z += (home.z - S2.pos.z) * k; S2.yaw += faAng(home.yaw - S2.yaw) * k; S2.v *= 0.8; S2.vx *= 0.8; S2.vz *= 0.8;
+      if (MH.t > 2.4) { S2.pos.x = home.x; S2.pos.z = home.z; S2.yaw = home.yaw; S2.v = S2.vx = S2.vz = 0; engineOff(v); mhFinish(); }
+      return;
+    }
+  }
+}
+// head for home; in the passenger seat the trip home is part of it
+function mhHome(why) {
+  MH.endWhy = why; MM.dogs.forEach(mhDogIn);
+  if (why === 'win') mhSay('win', true); else if (why === 'timeout') mhSay('timeout', true);
+  MH.ph = 'loadHome'; MH.t = 0; mhChip(MH.mode === 'guided' && MH.pax);
+}
+function mhGoHome() { const h = HOME.ute, fx = Math.sin(h.yaw), fz = Math.cos(h.yaw); if (!mhNavTo(h.x - fx * 9, h.z - fz * 9, { cruise: 8 })) MH.nav = { fail: true }; MH.ph = 'home'; MH.t = 0; }
+function mhFinish() {
+  const why = MH.endWhy, mode = MH.mode, n = MM.n;
+  MM.dogs.forEach(d => { if (d.mode !== 'tray') mmDogTray(d); });
+  if (MH.pax) mhUnseat(false);
+  mmLeaveUte(false); n.st = 'home';
+  const S_ = MH.stats;
+  if (mode === 'guided') {
+    if (why === 'win') { S_.g++; S_.k += MH.kills; const secs = Math.round(MH.limit - MH.left); if (!S_.best || secs < S_.best) S_.best = secs;
+      const got = mhReward(150); toast('Hunt done: ' + MH.kills + ' pigs in ' + fmtT(secs) + (got ? ' · ' + got : ''), 3.4); }
+    else { S_.k += MH.kills; if (MH.kills) { const got = mhReward(40 * MH.kills); toast('Hunt over: ' + MH.kills + ' of ' + MH.goal + ' pigs' + (got ? ' · ' + got : ''), 3); } }
+    MH.cdG = 60;
+  } else if (mode === 'solo') {
+    const k = MH.soloKills + MH.kills; S_.s++; S_.k += k; mhSay(k ? 'soloBack' : 'soloNone', true, k);
+    const got = k ? mhReward(30 * k) : ''; toast('Madman’s back: ' + k + ' pig' + (k === 1 ? '' : 's') + (got ? ' · ' + got : ''), 3);
+    MH.cdS = 180;
+  }
+  STORE.set('wfy.hunt', S_); mhEnd();
+}
+function mhReward(n) {
+  // ammo for the guns you've got (his spare rifle if you've got none)
+  const guns = ['rifle', 'shotgun', 'sniper', 'pistol'].filter(i => WPN.owned[i]); if (!guns.length) { wpnTake('rifle'); guns.push('rifle'); }
+  const parts = []; for (const g of guns.slice(0, 2)) { const W = WEAPONS[g], add = Math.max(4, Math.round(n * (W.give / 330))); WPN.ammo[g] = (WPN.ammo[g] || 0) + add; parts.push('+' + add + ' ' + W.label.toLowerCase() + ' rounds'); }
+  wpnHud(true); return parts.join(', ');
+}
+// a hunt ended badly: whatever happened, put everyone back where they belong
+function mhFail(why) {
+  if (!MH.mode) return;
+  if (MH.pax) mhUnseat(why === 'wreck' || Math.abs((VEH.ute.state || { v: 0 }).v) > 2);
+  MM.dogs.forEach(d => { if (d.mode === 'jump') mmDogTray(d); else if (d.mode !== 'tray') d.task = 'return'; });
+  const n = MM.n; if (n.veh && why !== 'wreck') { /* he drives home on his own */ MH.mode = 'return'; mhHome('fail'); mhChip(false); return; }
+  mhEnd();
+}
+function mhEnd() { MH.mode = ''; MH.ph = ''; MH.nav = null; MH.mob = null; MH.bailed = null; mhChip(false); document.body.classList.remove('pax'); for (const a of FA.pigs) a.bailT = 0; }
+function mhAbort() {     // you got out
+  if (!MH.pax) return; const v = VEH.ute, st = v.state, moving = Math.abs(st.v) > 2;
+  mhUnseat(moving); mhSay('quit', true);
+  if (MH.kills) { MH.stats.k += MH.kills; STORE.set('wfy.hunt', MH.stats); }
+  MH.cdG = 45; MH.mode = 'return'; mhHome('quit'); mhChip(false);
+}
+// the solo hunt kills some pigs that never got bodies: never a mob's only boar or its last grown sow
+function phCull(mob) {
+  const M = mob.members, sows = M.filter(m => m.sex === 'f' && phAdult(m) && !m.boar);
+  const pick = M.find(m => !m.boar && !phAdult(m)) || (sows.length > 1 ? sows[sows.length - 1] : null) || M.find(m => !m.boar && m.sex === 'm');
+  if (!pick || pick.a) return false; M.splice(M.indexOf(pick), 1); PH.kills++; PH.tally++; return true;
+}
+
+/* ================= per frame ================= */
+function mhStep(dt) {
+  if (!MM.ready) return; dt = Math.min(dt, 0.05);
+  MH.sayT -= dt; MH.tt = (MH.tt || 0) + dt; if (MH.cdG > 0) MH.cdG -= dt; if (MH.cdS > 0) MH.cdS -= dt;
+  const v = VEH.ute, n = MM.n;
+  if (MH.mode) {
+    // anything that should end it
+    if (MP.on && MH.mode !== 'return') mhFail('mp');
+    if (MH.pax && F.dead > 0) { mhFail('dead'); }
+    if (MH.mode && v.wrecked) { if (n.veh) mmLeaveUte(false); mhFail('wreck'); }
+    if (MH.mode && n.st !== 'drive' && n.st !== 'mhBoard') { mhFail('madman'); if (MH.mode === 'return') mhEnd(); }
+    if (MH.mode === 'guided' && MH.ph !== 'board' && MH.ph !== 'home' && MH.ph !== 'park' && MH.ph !== 'loadHome') { MH.left -= dt; }
+    // kills: any pig dropped near the ute during the hunt
+    for (const a of FA.pigs) if (a.st === 'down' && !MH.seen.has(a)) { MH.seen.add(a); if (v.state && Math.hypot(a.pos.x - v.state.pos.x, a.pos.z - v.state.pos.z) < 160) { MH.kills++; if (MH.mode === 'guided') mhSay(MH.kills >= MH.goal ? 'win' : 'kill', true); } }
+    if (MH.mode === 'guided' && MH.kills >= MH.goal && (MH.ph === 'stop' || MH.ph === 'drive' || MH.ph === 'side')) { MM.dogs.forEach(mhDogIn); MH.ph = 'load'; MH.t = 0; }
+    // the ute scatters pigs as it rolls up on them
+    if (v.state && Math.abs(v.state.v) > 2 && (MH.scT = (MH.scT || 0) - dt) <= 0) { MH.scT = 0.3; _mmScare0(v.state.pos, 14); }
+    if (MH.pax) { F.speedH = 0; const body = v.model.body; body.updateMatrixWorld(true); body.localToWorld(F.pos.set(UTE_RIG.passenger.x, UTE_RIG.passenger.hip - 0.6, UTE_RIG.passenger.z)); document.body.classList.add('pax'); }
+    mhChipStep();
+  }
+  for (const d of MM.dogs) if (d.mode !== 'tray') mhDogStep(d, dt);
+  // fade-to-home: the last resort if the drive home goes wrong with you aboard
+  if (MH.fadeT > 0) { MH.fadeT -= dt; if (MH.fade) MH.fade.style.opacity = String(Math.min(1, MH.fadeT * 2)); }
+}
+function mhActions(items) {
+  if (MH.pax) {
+    const W = WEAPONS[WPN.cur]; if (W && W.kind === 'gun' && W.reload && (WPN.mag[WPN.cur] || 0) < W.mag && (WPN.ammo[WPN.cur] || 0) > 0) items.push({ id: 'mh:reload', label: WPN.reloadT > 0 ? 'Reloading…' : 'Reload', cls: 'ghost' });
+    items.push({ id: 'mh:out', label: Math.abs(VEH.ute.state.v) > 2 ? 'Jump out!' : 'Get out', cls: Math.abs(VEH.ute.state.v) > 2 ? 'neg' : 'dark' });
+    return;
+  }
+  if (MH.mode === 'solo' && activeName === 'foot' && Math.hypot(F.pos.x - HOME.ute.x, F.pos.z - HOME.ute.z) < 9) items.push({ id: 'mh:busy', label: 'Madman’s out hunting', cls: 'ghost' });
+}
+function mhAct(id) { if (id === 'mh:out') mhAbort(); else if (id === 'mh:reload') wpnReload(); else if (id === 'mh:busy') toast('He took the ute and the dogs. Back soon', 2); }
+function mhReset() {
+  if (MH.pax) { MH.pax = false; DAZZA.root.visible = true; camera.fov = 58; camera.updateProjectionMatrix(); }
+  mhEnd(); MH.cdG = 0; MH.cdS = 0; for (const d of MM.dogs) d.task = null;
+}
+/* ---------- the hunt chip: pigs and time ---------- */
+function mhChip(on) {
+  if (!MH.chip) { const st = document.createElement('style');
+    st.textContent = '#mhChip{position:fixed;z-index:9;left:50%;top:calc(58px + env(safe-area-inset-top,0px));transform:translateX(-50%);display:none;gap:10px;align-items:center;background:rgba(22,26,25,.82);color:#fff;border-radius:14px;padding:7px 14px;font:700 13px var(--font);pointer-events:none}#mhChip.show{display:flex}#mhChip b{color:#f2c14e;font-size:15px}#mhChip .lo{color:#ff8a6a}' +
+      'body.pax #stick,body.pax #stickZone,body.pax #jump,body.pax #mHead,body.pax #mKick,body.pax #mPunch,body.pax #wHolster,body.pax #emobtn{display:none!important}' +
+      '#mhFade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:40}@media (max-height:400px){#mhChip{top:calc(52px + env(safe-area-inset-top,0px))}}';
+    document.head.appendChild(st); const c = document.createElement('div'); c.id = 'mhChip'; c.className = 'ui'; c.innerHTML = '<span>PIG HUNT</span><b>0/5</b><span class="tm">4:00</span>'; document.body.appendChild(c); MH.chip = c;
+    const f = document.createElement('div'); f.id = 'mhFade'; document.body.appendChild(f); MH.fade = f; }
+  MH.chip.classList.toggle('show', !!on);
+}
+function mhChipStep() {
+  if (!MH.chip || !MH.chip.classList.contains('show')) return; const k = MH.kills + '/' + MH.goal, t = Math.max(0, MH.left), s = Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0'), key = k + s;
+  if (key !== MH.chipKey) { MH.chipKey = key; MH.chip.querySelector('b').textContent = k; const tm = MH.chip.querySelector('.tm'); tm.textContent = MH.ph === 'home' || MH.ph === 'park' || MH.ph === 'loadHome' ? 'heading home' : s; tm.classList.toggle('lo', t < 30); }
+}
+
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
