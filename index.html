@@ -4204,7 +4204,7 @@ function vehWorldTop(v) {
 function updatePins() {
   for (const v of Object.values(VEH)) {
     const s = PINS[v.name]; if (!s) continue;
-    const show = activeName === 'foot' && v.name !== activeName && SEQ.veh !== v && !(v.kind === 'air' && v.st.crashed);
+    const show = activeName === 'foot' && !MH.pax && v.name !== activeName && SEQ.veh !== v && !(v.kind === 'air' && v.st.crashed);
     const p = show ? vehWorldTop(v) : null;
     if (!p) { s.visible = false; continue; }
     const d = camera.position.distanceTo(p);
@@ -9572,8 +9572,9 @@ function wpnTracer(a, b) { const T = WPN.tracer, i = T.i; T.i = (T.i + 1) % 40; 
   A[i * 6] = a.x; A[i * 6 + 1] = a.y; A[i * 6 + 2] = a.z; A[i * 6 + 3] = b.x; A[i * 6 + 4] = b.y; A[i * 6 + 5] = b.z; T.life[i] = 0.06; T.m.geometry.attributes.position.needsUpdate = true; }
 function wpnFlashAt(p) { WPN.flash.position.copy(p); WPN.flash.intensity = 6; WPN.flashS.position.copy(p); WPN.flashS.visible = true; WPN.flashS.scale.setScalar(0.7 + Math.random() * 0.8); WPN.flashT = 0.05; }
 function wpnShoot(W) {
-  const o = camera.position.clone(), aim = camera.getWorldDirection(new THREE.Vector3());
-  const muzzle = wpnMuzzle(new THREE.Vector3()); const n = W.pellets || 1; const spread = W.spread * (WPN.scope ? 0.2 : 1) * (1 + Math.min(1, F.speedH / 4));
+  let o = camera.position.clone(), aim = camera.getWorldDirection(new THREE.Vector3());
+  const muzzle = wpnMuzzle(new THREE.Vector3());
+  if (MH.pax) { const tgt = wpnTrace(o, aim, W.range).point; aim = tgt.sub(muzzle).normalize(); o = muzzle.clone(); } const n = W.pellets || 1; const spread = W.spread * (WPN.scope ? 0.2 : 1) * (1 + Math.min(1, F.speedH / 4));
   const ends = [];
   for (let k = 0; k < n; k++) {
     const d = aim.clone().add(_w1.set((Math.random() - 0.5) * 2 * spread, (Math.random() - 0.5) * 2 * spread, (Math.random() - 0.5) * 2 * spread)).normalize();
@@ -10721,7 +10722,8 @@ function npcBubble(n) {
   n.bub = { c, t, sp, time: 0 };
 }
 function npcSay(n, line, dur = 3.2) {
-  if (!n.bub) return; if (n.mm) { mmSayBub(n, line[0], dur); return; } const [fr, en] = line, B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
+  if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; }     // Madman never gets the backpackers' French: map to his own lines
+  const [fr, en] = line, B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
   x.fillStyle = 'rgba(255,255,255,.96)'; x.strokeStyle = 'rgba(30,30,40,.8)'; x.lineWidth = 4; x.beginPath(); x.roundRect ? x.roundRect(6, 6, 628, 130, 26) : x.rect(6, 6, 628, 130); x.fill(); x.stroke();
   x.beginPath(); x.moveTo(300, 134); x.lineTo(320, 166); x.lineTo(340, 134); x.closePath(); x.fillStyle = 'rgba(255,255,255,.96)'; x.fill();
   x.textAlign = 'center'; x.textBaseline = 'middle'; let fs = 40; x.font = '800 ' + fs + 'px system-ui,sans-serif'; while (x.measureText(fr).width > 590 && fs > 22) { fs -= 2; x.font = '800 ' + fs + 'px system-ui,sans-serif'; }
@@ -11814,6 +11816,7 @@ const MM_L = {
   ko: ['Cheap shot...', 'Strewth... me head...'],
   wreck: ['ME UTE! You’ve wrecked me bloody ute!', 'Fuck me dead... she’s cooked.', 'Strewth... me ute...'],
   fixed: ['Mate’s towed her back and patched her up. No thanks to you.'],
+  ejected: ['Oi! Me own bloody ute!', 'Strewth, that\u2019s gunna leave a mark!', 'Ya mongrel!'],
   bye: ['Catch ya.', 'Hooroo!', 'See ya, mate.', 'Don’t do anything I wouldn’t do.', 'Go hard.'],
   soon: ['Not today, mate. Dogs are still sore from Tuesday.', 'Yeah nah, give it a bit. Dogs need a rest.'],
   multi: ['Not with all your mates about. Dogs get confused.'],
@@ -11833,7 +11836,18 @@ function mmSay(k, dur, force) {
   const d = Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z);
   if (d < 32 || force) { const S_ = MM.sub; if (S_) { S_.innerHTML = '<b>Madman:</b> '; S_.appendChild(document.createTextNode(line)); S_.classList.add('show'); MM.subT = dur; } }
 }
+// a generic NPC line aimed at Madman (fights, tumbles, getting kicked out): swap it for the matching Aussie list
+const MM_FROM_NPC = { hurt: ['hurt', false], angry: ['hostile', false], ko: ['ko', true], win: ['win', true], kicked: ['ejected', true], drive: [null], enter: [null] };
+function mmSayNpc(n, line, dur) {
+  let key = null, force = false;
+  for (const k in NPC_L) if (NPC_L[k].includes(line)) { [key, force] = MM_FROM_NPC[k] || [null]; break; }
+  if (!key && line && /plus/.test(line[0])) key = 'bye';
+  if (!key) return;                                  // anything else just goes unsaid
+  if (key === 'hurt' && MM.hurtSaidT > MM.t) return; if (key === 'hurt') MM.hurtSaidT = MM.t + 1.4;
+  mmSay(key, Math.min(dur || 3, 3), force || key === 'hostile' && MM.sayT <= 0);
+}
 function mmSayBub(n, line, dur) {
+  if (typeof line !== 'string' || !line) return;
   const B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
   x.font = '800 38px system-ui,sans-serif'; const words = line.split(' '), rows = []; let cur = '';
   for (const w of words) { const t = cur ? cur + ' ' + w : w; if (x.measureText(t).width > 580 && cur) { rows.push(cur); cur = w; } else cur = t; } if (cur) rows.push(cur);
@@ -11910,7 +11924,7 @@ function mmCalm() {
 }
 function mmHurt(n, how) {
   if (how === 'shot') { if (MM.hostileT <= 0) mmGoHostile(); else MM.hostileT = Math.max(MM.hostileT, 25); }
-  else if (how === 'hit') { mmOffend('hit', 40, true); if (MM.hostileT <= 0) MM.hostileT = 20 + Math.random() * 10; MM.refuseT = Math.max(MM.refuseT, 60); }
+  else if (how === 'hit') { mmOffend('hit', 40, true); if (MM.hostileT <= 0) { MM.hostileT = 20 + Math.random() * 10; mmSay('hostile', 2.6, true); } MM.refuseT = Math.max(MM.refuseT, 60); }
   else if (how === 'run') { mmOffend('run', 45, true); }
 }
 // he hears a gunshot near him (and it wasn't at him)
@@ -12202,7 +12216,7 @@ function mmDogMake(i) {
 }
 function mmDogTray(d) {
   const v = mmUte(), R = UTE_RIG.dogs[d.i], M = d.M; v.model.body.add(M.root);
-  M.root.position.set(R.x, UTE_RIG.deck, R.z); M.root.rotation.set(0, R.yaw, 0); M.root.scale.setScalar(0.95 + d.i * 0.06); d.mode = 'tray'; d.st = d.i ? 'sit' : 'lie'; d.baseYaw = R.yaw;
+  M.root.position.set(R.x, UTE_RIG.deck, R.z); M.root.rotation.set(0, R.yaw, 0); M.root.scale.setScalar(0.95 + d.i * 0.06); d.mode = 'tray'; d.task = null; d.st = d.i ? 'sit' : 'lie'; d.baseYaw = R.yaw;
 }
 // out of a wrecked ute: they hop down and sit beside it
 function mmDogDrop(d) {
@@ -12225,7 +12239,10 @@ function mmDogStep(d, dt) {
   d.nextBark -= dt;
   if (d.barkN <= 0 && ((d.alert > 0 && d.nextBark <= 0) || d.nextBark <= -60)) { d.barkN = d.alert > 2 ? 4 + Math.floor(Math.random() * 4) : 2 + Math.floor(Math.random() * 3); d.barkT = 0.15 * d.i; d.nextBark = d.alert > 0 ? 3 + Math.random() * 5 : 40 + Math.random() * 60; }
   if (d.barkN > 0) { d.barkT -= dt; if (d.barkT <= 0) { d.barkN--; d.barkT = 0.28 + Math.random() * 0.22; d.barkPh = 0.2;
-      M.root.updateMatrixWorld(true); const wp = M.head.getWorldPosition(_w4); if (typeof sfx === 'function' && AU.buf['mm_bark' + d.i]) sfx('mm_bark' + (Math.random() < 0.7 ? d.i : 2), wp, d.alert > 2 ? 1.1 : 0.85, 0.94 + Math.random() * 0.12, 14); } }
+      M.root.updateMatrixWorld(true); mmBarkSfx(d.i, M.head.getWorldPosition(_w4), d.alert > 2); } }
+  // the odd pant on a hot day, and Dusty whines when Madman's upset (rare, quiet)
+  d.noiseT = (d.noiseT === undefined ? 20 + Math.random() * 30 : d.noiseT) - dt;
+  if (d.noiseT <= 0 && d.barkN <= 0 && typeof sfx === 'function' && AU.buf.mm_pant && faCamD(M.root.getWorldPosition(_w4)) < 25) { d.noiseT = 25 + Math.random() * 40; sfx(MM.anger > 40 && d.i === 1 ? 'mm_whine' : 'mm_pant', _w4, 0.5, 0.95 + Math.random() * 0.1, 8); }
   d.barkPh = Math.max(0, d.barkPh - dt);
   // posture: stand up when alert, sit or lie when it's quiet
   const want = d.alert > 0 || d.barkN > 0 ? 'stand' : d.wag > 0 ? 'sit' : (d.t % 40 < 25 ? (d.i ? 'sit' : 'lie') : 'lie');
@@ -12252,23 +12269,65 @@ function mmDogPose(d, dt) {
   M.tail.rotation.z = wag; lr(M.tail, 'x', d.st === 'stand' ? -0.5 : d.st === 'sit' ? -1.9 : -1.4);
 }
 
-/* ---------- sounds: a deep woof for Tank, a sharper one for Dusty, and a growly one ---------- */
+/* ---------- sounds: dog barks, built like the real thing ----------
+   A bark is a short burst from a rough, jittery voice (every other pulse weaker, like a growl in it) through a
+   dog-sized mouth: a click-and-huff at the onset, the pitch jumping up then falling away, the mouth opening then
+   closing (formants rise and fall), breath noise through the same mouth, and a chest thump underneath.
+   Tank is the big one (low, long "WOOF"); Dusty yaps (higher, shorter "ruff"). Three takes each, plus a whine
+   and some panting, so it doesn't sound like the same sample on a loop. */
 function mmBark(sr, o) {
-  const n = Math.round(sr * o.dur), d = new Float32Array(n), r = fa2Rng(o.seed), F_ = [fa2Res(sr), fa2Res(sr), fa2Res(sr)];
-  let ph = 0, hp1 = 0, hp2 = 0;
-  for (let i = 0; i < n; i++) { const t = i / sr, u = i / n;
-    const f = o.f0 * (1.25 - 0.45 * u) * (1 + (r() - 0.5) * 0.06); ph += f / sr; if (ph >= 1) ph -= 1;
-    const pul = Math.pow(Math.max(0, Math.sin(Math.PI * ph)), 14) * 2.5 - 0.1, src = pul * (1 - o.noise) + (r() * 2 - 1) * o.noise * 1.6;
-    let y = F_[0](src, o.f1 * (1 - 0.15 * u), 180) * 1.0 + F_[1](src, o.f2, 260) * 0.8 + F_[2](src, o.f1 * 3.8, 420) * 0.35;
-    const env = Math.min(1, t / 0.006) * (u < 0.25 ? 1 : Math.exp(-(u - 0.25) * 5.5)) * (o.growl ? 0.75 + 0.25 * Math.sin(2 * Math.PI * 32 * t) : 1);
-    y *= env; const h = y - hp1 + 0.995 * hp2; hp1 = y; hp2 = h; d[i] = h; }
+  const n = Math.round(sr * o.dur), d = new Float32Array(n), r = fa2Rng(o.seed), F_ = [fa2Res(sr), fa2Res(sr), fa2Res(sr), fa2Res(sr)], N_ = [fa2Res(sr), fa2Res(sr)], chest = fa2Res(sr);
+  let ph = 0, cyc = 0, amp = 1, jit = 0, hp1 = 0, hp2 = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, u = i / n;
+    // pitch: a jump up in the first 30 ms, then a fall of about a third
+    const up = Math.min(1, t / 0.03), f0 = o.f0 * (1 + 0.22 * up * (1 - u)) * (1 - 0.35 * Math.pow(u, 1.3));
+    jit += (r() - 0.5) * 0.12; jit *= 0.85;
+    ph += f0 * (1 + jit) / sr; if (ph >= 1) { ph -= 1; cyc++; amp = 0.75 + r() * 0.5; }
+    const sub = cyc % 2 ? 1 : 1 - o.rough;
+    const pulse = Math.pow(Math.max(0, Math.sin(Math.PI * ph)), 10) * 2.6 * amp * sub - 0.12;
+    const breath = (r() * 2 - 1);
+    // mouth: opens quickly (formants up), closes at the end
+    const open = Math.sin(Math.PI * Math.min(1, u * 1.25)) * 0.8 + 0.2, K = o.fk;
+    const f1 = (380 + 420 * open) * K, f2 = (1050 + 500 * open) * K, f3 = 2450 * K, f4 = 3600 * K;
+    const src = pulse * (1 - o.breathy) + breath * o.breathy * 1.4;
+    let y = F_[0](src, f1, 160 * K) * 2.2 + F_[1](src, f2, 240 * K) * 2.0 + F_[2](src, f3, 340 * K) * 1.0 + F_[3](src, f4, 450) * 0.45;
+    y += N_[0](breath, f2 * 1.2, 900) * 0.35 * (1 - u) + N_[1](breath, 4200, 2500) * 0.12 * Math.exp(-t / 0.02);   // huff and hiss
+    y += chest(pulse, 140 * K, 120) * 0.25;                                                                          // chest thump
+    if (t < 0.006) y += breath * (1 - t / 0.006) * 1.6;                                                               // the click of the onset
+    const env = Math.min(1, t / 0.004) * (t < 0.03 ? 1 : Math.exp(-(t - 0.03) / o.tau)) * (u > 0.85 ? (1 - u) / 0.15 : 1);
+    y *= env; const h = y - hp1 + 0.995 * hp2; hp1 = y; hp2 = h; d[i] = h;
+  }
   return fa2Norm(d, 0.9);
 }
+function mmWhine(sr, seed) {
+  const n = Math.round(sr * 0.75), d = new Float32Array(n), r = fa2Rng(seed), F_ = fa2Res(sr); let ph = 0;
+  for (let i = 0; i < n; i++) { const t = i / sr, u = i / n, f = 820 + 380 * Math.sin(Math.PI * Math.min(1, u * 1.4)) + 30 * Math.sin(2 * Math.PI * 7 * t);
+    ph += f / sr; const y = Math.sin(2 * Math.PI * ph) + 0.25 * Math.sin(4 * Math.PI * ph) + (r() - 0.5) * 0.15; d[i] = F_(y, f * 1.6, 600) * Math.sin(Math.PI * u) ** 1.5; }
+  return fa2Norm(d, 0.7);
+}
+function mmPant(sr, seed) {
+  const n = Math.round(sr * 1.3), d = new Float32Array(n), r = fa2Rng(seed), A = fa2Res(sr), B = fa2Res(sr);
+  for (let i = 0; i < n; i++) { const t = i / sr, k = (t * 4.2) % 1, out = k < 0.45, env = Math.sin(Math.PI * (out ? k / 0.45 : (k - 0.45) / 0.55)) * (out ? 1 : 0.55);
+    const x = r() * 2 - 1; d[i] = (A(x, out ? 1500 : 1100, 700) + B(x, 2600, 1200) * 0.5) * env * Math.min(1, t * 6, (1.3 - t) * 6); }
+  return fa2Norm(d, 0.6);
+}
 function mmSynth() {
-  if (typeof AU === 'undefined' || !AU.ctx) return;
-  const B = { mm_bark0: mmBark(AU.sr, { dur: 0.22, f0: 230, f1: 620, f2: 1250, noise: 0.45, seed: 3 }), mm_bark1: mmBark(AU.sr, { dur: 0.17, f0: 340, f1: 820, f2: 1650, noise: 0.4, seed: 7 }),
-    mm_bark2: mmBark(AU.sr, { dur: 0.3, f0: 210, f1: 560, f2: 1150, noise: 0.55, seed: 11, growl: 1 }) };
-  for (const [k, d] of Object.entries(B)) { fa2Rms(d, 0.2); const b = AU.ctx.createBuffer(1, d.length, AU.sr); b.getChannelData(0).set(d); AU.buf[k] = b; }
+  if (typeof AU === 'undefined' || !AU.ctx) return; const sr = AU.sr, B = {};
+  for (let k = 0; k < 3; k++) {
+    B['mm_bark0' + 'abc'[k]] = mmBark(sr, { dur: 0.24 + k * 0.03, f0: 165 + k * 12, fk: 0.82, tau: 0.075, rough: 0.45, breathy: 0.3, seed: 3 + k * 7 });     // Tank
+    B['mm_bark1' + 'abc'[k]] = mmBark(sr, { dur: 0.13 + k * 0.02, f0: 380 + k * 35, fk: 1.18, tau: 0.04, rough: 0.25, breathy: 0.25, seed: 41 + k * 5 });    // Dusty
+  }
+  B.mm_bark2 = mmBark(sr, { dur: 0.36, f0: 150, fk: 0.8, tau: 0.12, rough: 0.7, breathy: 0.4, seed: 91 });      // a growly one
+  B.mm_whine = mmWhine(sr, 5); B.mm_pant = mmPant(sr, 9);
+  for (const [k, d] of Object.entries(B)) { fa2Rms(d, /pant|whine/.test(k) ? 0.08 : 0.2); const b = AU.ctx.createBuffer(1, d.length, sr); b.getChannelData(0).set(d); AU.buf[k] = b; }
+}
+// one bark from dog i, rate-limited across both dogs (no more than ~5 a second between them)
+function mmBarkSfx(i, pos, loud) {
+  if (typeof sfx !== 'function' || !AU.buf.mm_bark0a) return; const now = performance.now();
+  if (now - (MM.lastBark || 0) < 190) return; MM.lastBark = now;
+  const name = Math.random() < 0.12 && i === 0 ? 'mm_bark2' : 'mm_bark' + i + 'abc'[Math.floor(Math.random() * 3)];
+  sfx(name, pos, loud ? 1.1 : 0.85, 0.95 + Math.random() * 0.1, 16);
 }
 ENG.ute = Object.assign({}, ENG.suv, { cyl: 4, seed: 93, idle: 760, rough: 0.075, wClat: 0.24 });
 
@@ -12425,7 +12484,7 @@ function phReset() {
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') phSave(); });
 addEventListener('pagehide', () => phSave());
 
-const DRV = {"X0": -210, "Z0": -270, "C": 4, "NX": 125, "NZ": 115, "b": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////////4XJgAAAAAAD/////////80PBAAAAAAAH////////+5jwCAAAAAAAP////////5/xh8AAAAAAAf//////z/n/j/4AAAAAAA///////x/b///wAAAAAAB///////D+f///gAAAAAAD/////////////AAAAAAAH////////////+AAAAAAAP////////////8AAAAAAAf///////8n///4AAAAAAA////////7f///wAAAAAAB////////yAf//gAAAAAAD///////4AA///AAAAAAAH///////wAH//+AAAAAAAP///////4AJ//8AAAAAAAf///////gAD//4AAAAAAA////////AAH//wAAAAAAB////8///gAj//gAAAAAAD////B//+ABX//AAAAAAAH///+P//8AD//+AAAAAAAP///8f//yACf/8AAAAAAAf///4///4AE//4AAAAAAA////w///gBp//wAAAAAAB////n///Z27//gAAAAAAD///////9sFz//AAAAAAAH/////+Pn4PH/+AAAAAAAP/////wHJ/+8/8AAAAAAAf///5HzDz/55/4AAAAAAA////iP3jPxn//wAAAAAAB////Fw+GfjB5/gAAAAAAD///8DgdOT/n//AAAAAAAH///6/AH8n/n+eAAAAAAAP///gAGP+DzP88AAAAAAAf///EDn/8Xn/84AAAAAAA///8f/OcmP/+RwAAAAAAB///7//85D//grgAAAAAAD///if/P/3/5PHAAAAAAAH///U/+Pn5/Cf+AAAAAAAP//+f/+fIDJ858AAAAAAAf//9n//7wET/z4AAAAAAA////P/k3+K9//wAAAAAAB///w//N8iQYTHgAAAAAAD///J///5H8imvAAAAAAAH//4D/0w//5P+eAAAAAAAP//AH/pj/98P88AAAAAAAf//P/8n///5//4AAAAAAA//57/5v//////wAAAAf/////L/8+//wAAAAAAAA/////+H/g///gAAAAAAAB//////P/n///AAAAAAAAD/////9g////+AAAAAAAAH////z72///98AAAAAAAAP////33t///34AAAAAAAAf////Pv7///vwwAAAAAAA//////d3/////gAAAAAAB/////97v/////wAAAAAAD/////72/////734AAAAAH////nxt///////CAAAAAP////P+D/////v/+AAAAAf///+P53////+N/+AAAAA////8f//////89/xYAAAB////x8f//7/////f2AAAD////j4P//5//////kAAAH////n/5//x///z//AAAAP////L/wD/z/f/0/2AAAAf////n/AB/x/v/x/8AAAA////4f+AD/j/P/j/5AAAB////wf98H/j/n///oMAAD////w/4Df/H/v///YYAAH//////wA///////6QgAAP//////gB///////lBAAAf//////+D/+/////ICAAA//////////9////+QAAAB//////////////8BgAAAD//////////////53AQAAH//////////9///7uggAAP////+/////j///jPBAAAf//////////n//zg8EAAAAAAAH/////////j/4MAAAAAAAH///////5/j/wYAAAAAAAP//////8b///AwAAAAAAAf//+B//4///8BgAAAAAAA//59///////0CAAAAAAAA//z7///////oAAAAAAAAB///wP9/n/9/AQAAAAAAAD/+///7/P///AgAAAAAAAD/////77////BAAAAAAAACX//+f3yf/vyCAAAAAAAAHk3///v8//fUAAAAAAAAAHv3+4Af///9gAAAAAAAAAD3/947////zAAAAAAAAAAAAf7w3////sAAAAAAAAAAAAAfBP///+UAAAAAAAAAAAAAAAD9//doAAAAAAAAAAAAAAAH97/2AAAAAAAAAAAAAAAAH/3/IAAAAAAAAAAAAAAAAP//+gAAAAAAAAAAAAAAAAP//9QAAAAAAAAAAAAAAAAf//6AAAAAAAAAAAAAAAAAf//kAAAAAAAAAAAAAAAAAf//QAAAAAAAAAAAAAAAAA//6AAAAAAAAAAAAAAAAAB//gBAAAAAAAAAAAAAAAAD//AEAAAAAAAAAAAAAAAAH+9AAAAAAAAAAAAAAAAAAH+0AAAAAAAAAAAAAAAAAAP+QAAAAAAAAAAAAAAAAAAf/gAAAAAAAAAAAAAAAAAAf+gAAAAAAAAAAAAAAAAAA//AAAAAAAAAAAAAAAAAAA/eAAAAAA"};   // 4 m cells the ute can drive (insidePoly, flat, nothing at bonnet height, not the channel)
+const DRV = {"X0": -210, "Z0": -270, "C": 4, "NX": 125, "NZ": 115, "b": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////////4XJgAAAAAAD/////////80OBAAAAAAAH////////45jwCAAAAAAAP////////x/hgcAAAAAAAf//////z/l/D54AAAAAAA///////h/D///wAAAAAAB///////D+f///gAAAAAAD/////////////AAAAAAAH////////////+AAAAAAAP////////////8AAAAAAAf///////8j///4AAAAAAA////////5H///wAAAAAAB////////yAf//gAAAAAAD///////4AA///AAAAAAAH///////wAH//+AAAAAAAP///////4AJ//8AAAAAAAf///////gAD//4AAAAAAA////9///AAH//wAAAAAAB////w///gAj//gAAAAAAD////B//+ABX//AAAAAAAH///+P//8ACf/+AAAAAAAP///8P//yACf/8AAAAAAAf///4P//4AE//4AAAAAAA////wf//gBh//wAAAAAAB////j///Z2j//gAAAAAAD///////9oFj//AAAAAAAH/////+PjwPD/+AAAAAAAP/////wHJ/8c/8AAAAAAAf///5HDDz/55/4AAAAAAA////gP3DPxn3/wAAAAAAB////Fw+GfjB5/gAAAAAAD///8DgcOT/n//AAAAAAAH///6/AB8n/H+eAAAAAAAP///gAGP+DzP88AAAAAAAf///ADn/8Xmf84AAAAAAA///8f/OcgP/+RwAAAAAAB///4//85D//grgAAAAAAD///if/P/n/hHHAAAAAAAH///E/+Pnx/Cf+AAAAAAAP//+D/+fIDJ858AAAAAAAf//8n//7wET/z4AAAAAAA///3H/k38K9//wAAAAAAB///wv/J8gQYTHgAAAAAAD//9J//T5H8CmvAAAAAAAH//QB/Aw/+4L+eAAAAAAAP//AH/hh/58H88AAAAAAAf/7P/8n7//5//4AAAAAAA//w7/5P//////wAAAAf////vL/0e//wAAAAAAAA////+cH/gf//gAAAAAAAB//////P/n///AAAAAAAAD////99A//97+AAAAAAAAH////z72///98AAAAAAAAP////33t///2YAAAAAAAAf////Pvb///jwwAAAAAAA////+9V3///7egAAAAAAB////597v//+6fwAAAAAAD////772f///+r34AAAAAH////nwt////+fPCAAAAAP///+H8D////1/68AAAAAf///8P5n/+//8EU+AAAAA////8f//////w9/xYAAAB////w8f//6//vP3HyAAAD////h4P//55/8//7kAAAH////D/5//x8//y//AAAAP///+D/wD/z+f/U/mAAAAf///5j/AB/x+P/x/4AAAA////4f+AD/j/P/j/xAAAB////wf9kH/j/n///gEAAD////w/4CP/H/v///IIAAH////9/wA///////4QAAAP//////gB///////gBAAAf//////+D/+/////ICAAA//////////4////+QAAAB////////////f/8BAAAAD////////////+/52AQAAH//////////8///zugAAAP///9+/////j///gPAAAAf///7//////n//zg0EAAAAAAAD///////7/j/4IAAAAAAAH///////5/j+gQAAAAAAAP//////8Z///AwAAAAAAAf//+B//w///8BgAAAAAAA//59//+Qv//wCAAAAAAAA//z7///s//+gAAAAAAAAB///wP9+n/9+AQAAAAAAAD/+///75L///AgAAAAAAAD/////7z7f//BAAAAAAAAAf//4f3yX/nyCAAAAAAAADg3///v8r7WUAAAAAAAAADHj8YAf7vvdgAAAAAAAAAD3X44b/3f8zAAAAAAAAAAAAf6gH/r/6sAAAAAAAAAAAAAfBH/3v+UAAAAAAAAAAAAAAAD9/edoAAAAAAAAAAAAAAAD57/0AAAAAAAAAAAAAAAAH/n+IAAAAAAAAAAAAAAAAH+7+gAAAAAAAAAAAAAAAAP/b8QAAAAAAAAAAAAAAAAf3/qAAAAAAAAAAAAAAAAAfv5kAAAAAAAAAAAAAAAAAf//QAAAAAAAAAAAAAAAAA//yAAAAAAAAAAAAAAAAAB/fgBAAAAAAAAAAAAAAAAD+PAEAAAAAAAAAAAAAAAAH8MAAAAAAAAAAAAAAAAAAH+wAAAAAAAAAAAAAAAAAAP+QAAAAAAAAAAAAAAAAAAf/AAAAAAAAAAAAAAAAAAAf+AAAAAAAAAAAAAAAAAAA/7AAAAAAAAAAAAAAAAAAA/KAAAAAA"};   // 4 m cells the ute can drive (insidePoly, flat, nothing at 0.45 or 0.9 m, not the channel)
 
 /* ================================================================
    PIG HUNTING WITH MADMAN (stage 2, Nov 2026)
@@ -12440,7 +12499,7 @@ const DRV = {"X0": -210, "Z0": -270, "C": 4, "NX": 125, "NZ": 115, "b": "AAAAAAA
    The view in the passenger seat is first person from the passenger's head, limited to the left side
    (forward-left round to the tray), and it turns with the ute; bullets can't hit the ute, Madman or the dogs.
    ================================================================ */
-const MH = { mode: '', ph: '', t: 0, pax: false, kills: 0, goal: 5, limit: 240, left: 240, mob: null, visited: [], nav: null, cdG: 0, cdS: 0, sayT: 0, stopT: 0, shotT: 0,
+const MH = { mode: '', ph: '', t: 0, pax: false, kills: 0, goal: 5, limit: 150, left: 150, mob: null, visited: [], nav: null, cdG: 0, cdS: 0, sayT: 0, stopT: 0, shotT: 0,
   camYaw0: undefined, chip: null, fade: null, fadeT: 0, gave: '', soloKills: 0, told: {}, stats: STORE.get('wfy.hunt', { g: 0, s: 0, k: 0, best: 0 }), seen: new Set() };
 const MH_L = {
   start: ['Righto, hop in! Grab ya gun, shoot out the window.', 'In ya get. Five pigs and we’re home for a beer.', 'Let’s go get some pork, mate!'],
@@ -12465,8 +12524,13 @@ function mhSay(k, force, n) { const line = (MH_L[k] ? mhPick(k) : k).replace('{n
 
 /* ================= the drivable grid and the route planner ================= */
 let DRVA = null;
-function drvInit() { if (DRVA) return; const raw = atob(DRV.b); DRVA = new Uint8Array(DRV.NX * DRV.NZ); for (let k = 0; k < DRVA.length; k++) DRVA[k] = (raw.charCodeAt(k >> 3) >> (7 - (k & 7))) & 1; }
-const drvOk = (i, j) => i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ && DRVA[j * DRV.NX + i] === 1;
+function drvInit() { if (DRVA) return; const raw = atob(DRV.b); DRVA = new Uint8Array(DRV.NX * DRV.NZ); for (let k = 0; k < DRVA.length; k++) DRVA[k] = (raw.charCodeAt(k >> 3) >> (7 - (k & 7))) & 1;
+  // trees: their trunks are thin enough to slip between the grid's test rays, so block the cells round every trunk
+  let n = 0; for (const t of (typeof TREES !== 'undefined' ? TREES : [])) { const tx = t.base ? t.base.x : t.x, tz = t.base ? t.base.z : t.z; if (tx === undefined) continue;
+    for (let dz = -2; dz <= 2; dz += 2) for (let dx = -2; dx <= 2; dx += 2) { const [i, j] = drvIJ(tx + dx, tz + dz); if (i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ && DRVA[j * DRV.NX + i]) { DRVA[j * DRV.NX + i] = 0; n++; } } }
+  DRV.treeCells = n; }
+const DRVX = new Set();   // cells found blocked while driving (cleared each hunt)
+const drvOk = (i, j) => i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ && DRVA[j * DRV.NX + i] === 1 && !DRVX.has(j * DRV.NX + i);
 const drvIJ = (x, z) => [Math.floor((x - DRV.X0) / DRV.C), Math.floor((z - DRV.Z0) / DRV.C)];
 const drvXZ = (i, j) => [DRV.X0 + (i + 0.5) * DRV.C, DRV.Z0 + (j + 0.5) * DRV.C];
 const drvOkXZ = (x, z) => { const [i, j] = drvIJ(x, z); return drvOk(i, j); };
@@ -12497,50 +12561,100 @@ function drvPath(x0, z0, x1, z1) {
 function drvSpotNear(x, z, rMin, rMax, fromX, fromZ, noLos) {
   drvInit(); let best = null, bs = 1e9;
   for (let a = 0; a < 32; a++) for (const r of [rMin, (rMin + rMax) / 2, rMax]) { const ang = a / 32 * Math.PI * 2, px = x + Math.sin(ang) * r, pz = z + Math.cos(ang) * r;
-    const [i, j] = drvIJ(px, pz); if (!drvOk(i, j) || drvClear(i, j) > 2) continue; const sc = Math.hypot(px - fromX, pz - fromZ) + drvClear(i, j) * 6; if (sc >= bs) continue;
+    const [i, j] = drvIJ(px, pz); if (!drvOk(i, j) || drvClear(i, j) > 1) continue;
+    // heading that puts the pigs out the passenger (left) window, and a run-up point 10 m back along it
+    const yaw = Math.atan2(x - px, z - pz) - Math.PI / 2, ax = px - Math.sin(yaw) * 10, az = pz - Math.cos(yaw) * 10;
+    if (!drvOkXZ(ax, az) || !drvLOS(ax, az, px, pz)) continue;
+    const sc = Math.hypot(ax - fromX, az - fromZ) + drvClear(i, j) * 6; if (sc >= bs) continue;
     // you have to be able to see the pigs from the passenger window
     const gy = groundAt(px, pz, 30, 0), ty = groundAt(x, z, 30, 0) + 0.5, o = _w1.set(px, gy + 1.9, pz), dv = _w2.set(x - px, ty - gy - 1.9, z - pz), L = dv.length(); dv.normalize();
-    if (!noLos && castHit(o, dv, L - 2)) continue; bs = sc; best = [px, pz]; }
+    if (!noLos && castHit(o, dv, L - 2)) continue; bs = sc; best = [px, pz, ax, az, yaw]; }
   return best;
 }
 
 /* ================= Madman at the wheel: follow a route ================= */
 function mhNavTo(x, z, opt = {}) {
-  const st = VEH.ute.state; const pts = drvPath(st.pos.x, st.pos.z, x, z);
-  MH.nav = pts ? { pts, i: 1, goal: [x, z], nudges: 0, turnSign: 0, cruise: opt.cruise || 7, stuckT: 0, recT: 0, rec: 0, best: 1e9, progT: 0, lastStr: 0, done: false, fail: false, replans: 0 } : { fail: true };
+  const st = VEH.ute.state; let pts = opt.via ? drvPath(st.pos.x, st.pos.z, opt.via[0], opt.via[1]) : drvPath(st.pos.x, st.pos.z, x, z);
+  if (pts && opt.via) pts.push([x, z]);
+  const old = MH.nav || {};
+  MH.nav = pts ? { pts, i: 0, goal: [x, z], via: opt.via || null, cruise: opt.cruise || 5.5, str: 0, recT: 0, recStr: 0, stuckT: 0, best: 1e9, progT: 0, done: false, fail: false,
+    replans: opt.keep ? (old.replans || 0) : 0, scanT: 0, clear: 99, clearL: 99, clearR: 99, turnCD: 0, waitT: 0 } : { fail: true };
   return !!pts;
 }
+// how far the ute can go straight ahead (or back) before its footprint meets something: the scan, a shed, a parked machine
+function mhScan(st, back) {
+  const fx = Math.sin(st.yaw) * (back ? -1 : 1), fz = Math.cos(st.yaw) * (back ? -1 : 1), lx = Math.cos(st.yaw), lz = -Math.sin(st.yaw);
+  const S_ = UTE_RIG.size, nose = back ? S_.rear : S_.front, D = Math.max(4, 3 + Math.abs(st.v) * 1.7), out = [99, 99, 99];
+  const offs = [-(S_.halfW + 0.25), -(S_.halfW + 0.25) / 2, 0, (S_.halfW + 0.25) / 2, S_.halfW + 0.25], res = [];
+  offs.forEach((off, k5) => { const k = k5 === 2 ? 1 : 0;
+    let px = st.pos.x + fx * nose + lx * off, pz = st.pos.z + fz * nose + lz * off;
+    for (let d = 1; d <= D; d += 1) { const nx = px + fx, nz = pz + fz; let hit = false;
+      const g0 = groundAt(px, pz, st.pos.y + 3, st.pos.y), g1 = groundAt(nx, nz, st.pos.y + 3, g0);
+      if (!insidePoly(nx, nz)) hit = 'edge';
+      else for (const h of k === 1 ? [0.45, 0.75, 1.4] : [0.45, 0.75]) { _w1.set(px, g0 + h, pz); _w2.set(fx, (g1 - g0), fz).normalize(); if (castHit(_w1, _w2, 1.05)) { hit = 'ray' + h; break; } }
+      if (!hit) for (const n of GROUND) { if (n === 'ute') continue; const o = VEH[n] && VEH[n].state && vehicleOBB(VEH[n]); if (!o) continue; const dx = nx - o.cx, dz = nz - o.cz; if (Math.abs(dx * o.fx + dz * o.fz) < o.hl + 0.4 && Math.abs(dx * o.lx + dz * o.lz) < o.hw + 0.4) { hit = 'veh:' + n; break; } }
+      if (!hit && k === 1 && !drvOkXZ(nx, nz) && d > 2) out.off = Math.min(out.off || 99, d);           // keep to the drivable ground
+      if (hit) { res[k5] = d - 1; MH.lastHit = hit + '@' + k5; break; } px = nx; pz = nz; } if (res[k5] === undefined) res[k5] = 99; });
+  out[0] = Math.min(res[0], res[1]); out[1] = res[2]; out[2] = Math.min(res[3], res[4]);
+  return out;      // [right side, centre, left side]
+}
 function mhNavStep(dt) {
-  const N = MH.nav, v = VEH.ute, st = v.state; if (!N || N.fail) return 'fail'; if (N.done) { mmDrive(dt, Math.abs(st.v) > 0.3 ? -0.6 : 0, 0); return 'done'; }
-  const x = st.pos.x, z = st.pos.z, dGoal = Math.hypot(N.goal[0] - x, N.goal[1] - z);
-  if (dGoal < N.best - 2) { N.best = dGoal; N.progT = 0; } else N.progT += dt;
-  if (N.progT > 9) { N.progT = 0; N.best = dGoal; if (++N.nudges > 4) { N.fail = true; return 'fail'; } mhNudge(N); return 'go'; }
-  if (dGoal < 3.2) { N.done = true; mmDrive(dt, -0.6, 0); return 'done'; }
-  while (N.i < N.pts.length - 1 && Math.hypot(N.pts[N.i][0] - x, N.pts[N.i][1] - z) < 5.5) N.i++;
-  const [tx, tz] = N.pts[N.i];
-  const e = faAng(Math.atan2(tx - x, tz - z) - st.yaw), sp = st.v;
-  N.turnCD = (N.turnCD || 0) - dt;
-  // swinging round: back up with the wheel the other way (a three-point turn), or backing out of a corner
-  if (N.recT > 0) { N.recT -= dt; mmDrive(dt, -0.6, N.turnSign); if (N.recT <= 0) N.turnCD = 1.2; return 'go'; }
-  const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
-  const blocked = Math.abs(sp) < 2.5 && !!castHit(_w1.set(x + fx * (UTE_RIG.size.front - 0.6), st.pos.y + 0.8, z + fz * (UTE_RIG.size.front - 0.6)), _w2.set(fx, 0, fz), 2.6);
-  if ((Math.abs(e) > 1.35 && Math.abs(sp) < 3 && N.turnCD <= 0) || blocked) { N.recT = blocked ? 1.8 : 2.2; N.rec++; N.turnSign = Math.abs(e) > 2.6 && N.turnSign ? N.turnSign : (Math.sign(e) || 1); return 'go'; }
-  let str = THREE.MathUtils.clamp(-e * 2.0, -1, 1);       // (the sim's steering: + turns the heading clockwise)
-  let vt = N.cruise * (1 - Math.min(0.75, Math.abs(e) / 1.2)); if (dGoal < 14) vt = Math.min(vt, 1.8 + dGoal * 0.32);
-  let thr = sp < vt ? THREE.MathUtils.clamp(0.3 + (vt - sp) * 0.35, 0, 1) : sp > vt + 1.2 ? -0.5 : 0.05;
-  if (thr > 0.2 && Math.abs(sp) < 0.45) N.stuckT += dt; else N.stuckT = Math.max(0, N.stuckT - dt);
-  if (N.stuckT > 1.4) { N.stuckT = 0; N.recT = 1.8; N.rec++; N.turnSign = Math.sign(e) || 1; if (N.rec % 5 === 0 && N.replans++ < 3) { mhNavTo(N.goal[0], N.goal[1], { cruise: N.cruise }); MH.nav.replans = N.replans; MH.nav.rec = N.rec; } }
-  mmDrive(dt, thr, str);
+  const N = MH.nav, v = VEH.ute, st = v.state; if (!N || N.fail) return 'fail';
+  const brake = () => mmDrive(dt, Math.abs(st.v) > 0.3 ? -Math.sign(st.v) * 0.7 : 0, 0);
+  if (N.done) { brake(); return 'done'; }
+  const x = st.pos.x, z = st.pos.z, sp = st.v, dGoal = Math.hypot(N.goal[0] - x, N.goal[1] - z);
+  if (dGoal < N.best - 1.5) { N.best = dGoal; N.progT = 0; } else N.progT += dt;
+  if (dGoal < 2.6) { N.done = true; brake(); return 'done'; }
+  // no headway for a long while: give up on this one (the caller picks another target); only out of sight does he get a helping hand
+  if (N.progT > 14) { if (!MH.pax && faCamD(st.pos) > 90 && (N.nudges = (N.nudges || 0) + 1) <= 3) { mhNudge(N); N.progT = 0; N.best = dGoal; return 'go'; } N.fail = true; return 'fail'; }
+  // what's ahead (ten times a second)
+  N.scanT -= dt; if (N.scanT <= 0) { N.scanT = 0.1; const c = mhScan(st, false); N.clearR = c[0]; N.clear = c[1]; N.clearL = c[2]; N.off = c.off || 99; }
+  const clear = Math.min(N.clear, N.clearL, N.clearR);
+  // backing away from something (wheel turned away from the side that's blocked)
+  if (N.recT > 0) { N.recT -= dt; const rb = mhScan(st, true)[1]; if (rb < 1.2) N.recT = 0; else mmDrive(dt, -0.5, N.recStr); if (N.recT <= 0) { N.turnCD = 1.5; if (N.replan) { N.replan = false; mhNavTo(N.goal[0], N.goal[1], { via: N.via && Math.hypot(N.via[0] - x, N.via[1] - z) > 4 ? N.via : null, cruise: N.cruise, keep: true }); } } return 'go'; }
+  // advance along the route: the point we're on, then a carrot ahead of it
+  while (N.i < N.pts.length - 2) { const a = N.pts[N.i], b = N.pts[N.i + 1], sx = b[0] - a[0], sz = b[1] - a[1], L2 = sx * sx + sz * sz || 1; if (((x - a[0]) * sx + (z - a[1]) * sz) / L2 > 0.98 || Math.hypot(b[0] - x, b[1] - z) < 3) N.i++; else break; }
+  const look = 4.5 + Math.abs(sp) * 0.8; let tx = N.pts[N.pts.length - 1][0], tz = N.pts[N.pts.length - 1][1], rem = look;
+  { let px = x, pz = z; for (let k = N.i + 1; k < N.pts.length; k++) { const q = N.pts[k], L = Math.hypot(q[0] - px, q[1] - pz); if (L >= rem) { tx = px + (q[0] - px) * rem / L; tz = pz + (q[1] - pz) * rem / L; break; } rem -= L; px = q[0]; pz = q[1]; } }
+  const e = faAng(Math.atan2(tx - x, tz - z) - st.yaw);
+  N.turnCD -= dt;
+  // the route's behind him: a careful three-point turn (only if there's room behind)
+  if (Math.abs(e) > 1.7 && Math.abs(sp) < 1.5 && N.turnCD <= 0) { if (mhScan(st, true)[1] > 3) { N.recT = 1.8; N.recStr = Math.sign(e) || 1; return 'go'; } N.turnCD = 2; }
+  // speed: cruise, slower into bends and corners coming up, slower still near anything in the way, near pigs or dogs, and at the end
+  let vt = N.cruise * (1 - Math.min(0.75, Math.abs(e) / 1.1));
+  if (N.i + 2 < N.pts.length) { const a = N.pts[N.i + 1], b = N.pts[N.i + 2], dA = Math.hypot(a[0] - x, a[1] - z); if (dA < 14) { const turn = Math.abs(faAng(Math.atan2(b[0] - a[0], b[1] - a[1]) - Math.atan2(a[0] - x, a[1] - z))); vt = Math.min(vt, Math.max(2.2, N.cruise * (1 - turn / 1.6) + dA * 0.2)); } }
+  vt = Math.min(vt, Math.max(0, (clear - 1.8) * 0.9), 1.6 + dGoal * 0.35); if (N.off < 6 && dGoal > 8) vt = Math.min(vt, 2.5);
+  for (const a of FA.pigs) if (a.st !== 'down' && Math.hypot(a.pos.x - x, a.pos.z - z) < 9) { vt = Math.min(vt, 2.5); break; }
+  for (const d of MM.dogs) if (d.mode !== 'tray' && Math.hypot(d.pos.x - x, d.pos.z - z) < 7) { vt = Math.min(vt, 1.5); break; }
+  // something right on the nose: stop, back off turning away from it, mark it and plan round
+  if (clear < 1.8) {
+    if (Math.abs(sp) > 0.4) { brake(); return 'go'; }
+    const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw), hx = x + fx * (UTE_RIG.size.front + clear + 0.8), hz = z + fz * (UTE_RIG.size.front + clear + 0.8), [hi, hj] = drvIJ(hx, hz);
+    // mark it; if he's been stopped near here before, mark a wider patch so the new route really goes round
+    const again = (MH.blockAt || []).some(b => Math.hypot(b[0] - hx, b[1] - hz) < 5); (MH.blockAt = MH.blockAt || []).push([hx, hz]); const [gi, gj] = drvIJ(N.goal[0], N.goal[1]);
+    for (let dj = again ? -1 : 0; dj <= (again ? 1 : 0); dj++) for (let di = again ? -1 : 0; di <= (again ? 1 : 0); di++) if (hi + di !== gi || hj + dj !== gj) DRVX.add((hj + dj) * DRV.NX + hi + di);
+    MH.blocks = (MH.blocks || 0) + 1; (MH.blockLog = MH.blockLog || []).push([Math.round(x), Math.round(z), MH.lastHit, N.clearR, N.clear, N.clearL].join(' ')); if (++N.replans > 5) { N.fail = true; return 'fail'; }
+    N.recT = 1.4; N.recStr = N.clearL < N.clearR ? -1 : 1; N.replan = true; return 'go';
+  }
+  // steering: toward the carrot, smoothed so he doesn't saw at the wheel
+  const want = THREE.MathUtils.clamp(-e * 1.7, -1, 1);       // (the sim's steering: + turns the heading clockwise)
+  N.str += (want - N.str) * Math.min(1, dt * 4.5);
+  const thr = sp < vt - 0.3 ? THREE.MathUtils.clamp(0.25 + (vt - sp) * 0.3, 0, 0.85) : sp > vt + 0.6 ? -Math.min(0.9, 0.3 + (sp - vt) * 0.25) : 0.04;
+  if (thr > 0.2 && Math.abs(sp) < 0.4) N.stuckT += dt; else N.stuckT = Math.max(0, N.stuckT - dt);
+  if (N.stuckT > 1.6) { MH.stucks = (MH.stucks || 0) + 1; (MH.blockLog = MH.blockLog || []).push('stuck ' + Math.round(x) + ' ' + Math.round(z)); N.stuckT = 0; { const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw), [hi, hj] = drvIJ(x + fx * (UTE_RIG.size.front + 1.5), z + fz * (UTE_RIG.size.front + 1.5)), [gi, gj] = drvIJ(N.goal[0], N.goal[1]);
+      const n = (MH.stuckAt = MH.stuckAt || []).filter(b => Math.hypot(b[0] - x, b[1] - z) < 4).length; MH.stuckAt.push([x, z]);
+      for (let dj = n ? -1 : 0; dj <= (n ? 1 : 0); dj++) for (let di = n ? -1 : 0; di <= (n ? 1 : 0); di++) if (hi + di !== gi || hj + dj !== gj) DRVX.add((hj + dj) * DRV.NX + hi + di);
+      if (n >= 3) { MH.stuckAt = MH.stuckAt.filter(b => Math.hypot(b[0] - x, b[1] - z) >= 4); if (MH.pax || faCamD(st.pos) < 90) { MH.fadeT = 0.6; if (MH.fade) MH.fade.style.opacity = '1'; } mhNudge(N); return 'go'; } }
+    if (++N.replans > 5) { N.fail = true; return 'fail'; } N.recT = 1.4; N.recStr = -(Math.sign(N.str) || 1); N.replan = true; return 'go'; }
+  mmDrive(dt, thr, N.str);
   return 'go';
 }
-// wedged: fade out, pop the ute onto the route a few cells on, fade back in
+// out of sight and wedged: pop the ute a few metres on along its route (never while you can see it)
 function mhNudge(N) {
-  const st = VEH.ute.state; let k = Math.min(N.pts.length - 1, N.i + 1), p = N.pts[k];
-  const tx = st.pos.x + (p[0] - st.pos.x) * Math.min(1, 8 / Math.max(1, Math.hypot(p[0] - st.pos.x, p[1] - st.pos.z))), tz = st.pos.z + (p[1] - st.pos.z) * Math.min(1, 8 / Math.max(1, Math.hypot(p[0] - st.pos.x, p[1] - st.pos.z)));
-  const c = drvNear(tx, tz, 4); if (!c) return; const [cx, cz] = drvXZ(c[0], c[1]);
-  if (MH.pax || faCamD(st.pos) < 80) { MH.fadeT = 0.6; if (MH.fade) MH.fade.style.opacity = '1'; }
-  st.pos.x = cx; st.pos.z = cz; st.pos.y = groundAt(cx, cz, st.pos.y + 3, st.pos.y) + 0.05; st.yaw = Math.atan2(p[0] - cx, p[1] - cz); st.v = st.vx = st.vz = 0; N.recT = 0; N.stuckT = 0;
-  if (MH.mode === 'guided' && MH.pax) mhSay('Strewth, hang on...', true);
+  MH.nudges = (MH.nudges || 0) + 1;
+  const st = VEH.ute.state, k = Math.min(N.pts.length - 1, N.i + 2), p = N.pts[k], c = drvNear(p[0], p[1], 4); if (!c) return; const [cx, cz] = drvXZ(c[0], c[1]);
+  st.pos.x = cx; st.pos.z = cz; st.pos.y = groundAt(cx, cz, st.pos.y + 3, st.pos.y) + 0.05; st.v = st.vx = st.vz = 0; N.recT = 0; N.stuckT = 0;
+  const q = N.pts[Math.min(N.pts.length - 1, k + 1)]; st.yaw = Math.atan2(q[0] - cx, q[1] - cz);
 }
 // turn on the spot-ish (small shuffles) until a bearing sits out the passenger window
 function mhSideOn(dt, bx, bz) {
@@ -12555,7 +12669,7 @@ function mhSeatPlayer() {
   const v = VEH.ute; cancelSeq(); if (typeof MEL !== 'undefined') { MEL.cur = null; MEL.queued = false; }
   if (activeName !== 'foot') setActive('foot');
   seatFarmer(v.model.body, UTE_RIG.passenger); F.mode = 'seated'; F.seatPose = v.pose; F.vel.set(0, 0, 0); F.speedH = 0; setFarmerProps('seated');
-  MH.pax = true; MH.camYaw0 = undefined; camYawF = v.state.yaw + Math.PI / 2; camPitchF = 0.12; DAZZA.root.visible = false;
+  MH.pax = true; MH.camYaw0 = undefined; MH.camL = null; MH.camY = undefined; camYawF = v.state.yaw + Math.PI / 2 + 0.15; camPitchF = 0.06;
   // a gun in hand: his spare rifle if you've got none, and enough rounds
   const guns = ['rifle', 'shotgun', 'sniper', 'pistol', 'minigun'], have = guns.find(i => WPN.owned[i]);
   if (!have) { wpnTake('rifle'); mhSay('gun', true); }
@@ -12571,17 +12685,42 @@ function mhUnseat(bail) {
   if (bail) startTumble(new THREE.Vector3(st.vx * 0.6 + ox * 3, 2.4, st.vz * 0.6 + oz * 3));
   camYawF = Math.atan2(ox, oz) + Math.PI; camInit = false; document.body.classList.remove('pax');
 }
+// the shooting view: over your shoulder, just outside the passenger window. It rides on the ute's heading only
+// (not its pitch and roll, so bumps don't throw the view about), you aim independently of the ute, and it never
+// goes inside the cab: it's held out past the door and pulled in if the scan's in the way.
 function mhCam(dt) {
-  const v = VEH.ute, st = v.state, body = v.model.body; body.updateMatrixWorld(true);
+  const v = VEH.ute, st = v.state;
   if (MH.camYaw0 !== undefined) camYawF += faAng(st.yaw - MH.camYaw0); MH.camYaw0 = st.yaw;
-  const rel = THREE.MathUtils.clamp(faAng(camYawF - st.yaw), -0.3, 2.85); camYawF = st.yaw + rel; camPitchF = THREE.MathUtils.clamp(camPitchF, -0.55, 0.7);
+  const rel = THREE.MathUtils.clamp(faAng(camYawF - st.yaw), -0.4, 2.75); camYawF = st.yaw + rel; camPitchF = THREE.MathUtils.clamp(camPitchF, -0.45, 0.5);
   const yaw = camYawF, pit = camPitchF, cp = Math.cos(pit), sp = Math.sin(pit), f = _w1.set(Math.sin(yaw) * cp, -sp, Math.cos(yaw) * cp);
-  const R = UTE_RIG.passenger, head = body.localToWorld(_w3.set(R.x + 0.16, R.hip + 0.66, R.z - 0.05));
-  const want = WPN.scope ? 14 : 62; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
-  camera.position.copy(head).addScaledVector(f, -0.12); camPos.copy(camera.position);
-  if (camShake > 0) camera.position.addScaledVector(_w2.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), 0.12 * camShake);
-  lookAt.copy(camera.position).addScaledVector(f, 30); camera.lookAt(lookAt);
-  DAZZA.root.visible = false; F.yaw = yaw;
+  const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw), lx = fz, lz = -fx, W = UTE_RIG.window, side = W.x > 0 ? 1 : -1;
+  MH.camY = MH.camY === undefined ? st.pos.y : MH.camY + (st.pos.y - MH.camY) * Math.min(1, dt * 6);
+  const piv = _w3.set(st.pos.x + lx * (W.x + 0.2 * side) + fx * W.z, MH.camY + W.y + 0.12, st.pos.z + lz * (W.x + 0.2 * side) + fz * W.z);
+  const scoped = WPN.scope;
+  const want = scoped ? 14 : 60; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
+  // over the shoulder: back along the aim, up a bit, then kept out past the door on the passenger side
+  // GTA drive-by style: the camera swings round the ute with your aim, high enough to look over the cab, so you see
+  // the ute (and yourself at the window) in the foreground and the pigs beyond. Scoped, it moves to the window.
+  const cam = _w4;
+  if (scoped) cam.copy(piv).addScaledVector(f, 0.2).setY(piv.y + 0.02);
+  else { const hx = Math.sin(yaw), hz = Math.cos(yaw), cx = st.pos.x + fx * 1.0 + lx * side * 0.35, cz = st.pos.z + fz * 1.0 + lz * side * 0.35;
+    cam.set(cx - hx * 6.2, MH.camY + 3.1 + Math.max(0, pit) * 2.2, cz - hz * 6.2); }
+  if (scoped) { let ox = (cam.x - st.pos.x) * lx + (cam.z - st.pos.z) * lz; const minOut = side * (UTE_RIG.size.halfW + 0.35); if (side * ox < side * minOut) { const k = minOut - ox; cam.x += lx * k; cam.z += lz * k; } }
+  // don't poke the camera through the scan (a bank, a tree, a shed)
+  { const o = scoped ? piv : _w2.set(st.pos.x, MH.camY + 2.6, st.pos.z), dv = new THREE.Vector3().copy(cam).sub(o), L = dv.length(); if (L > 0.05) { dv.normalize(); const h = castHit(o, dv, L + 0.25); if (h) cam.copy(o).addScaledVector(dv, Math.max(scoped ? 0.35 : 2.5, h.distance - 0.3)); } }
+  // smooth it in the ute's frame so it glides with the ute but doesn't lag your aim
+  const rx = cam.x - st.pos.x, ry = cam.y - st.pos.y, rz = cam.z - st.pos.z, lxv = rx * lx + rz * lz, lzv = rx * fx + rz * fz;
+  if (!MH.camL) MH.camL = [lxv, ry, lzv]; const k = 1 - Math.exp(-(scoped ? 30 : 14) * dt);
+  MH.camL[0] += (lxv - MH.camL[0]) * k; MH.camL[1] += (ry - MH.camL[1]) * k; MH.camL[2] += (lzv - MH.camL[2]) * k;
+  camera.position.set(st.pos.x + lx * MH.camL[0] + fx * MH.camL[2], st.pos.y + MH.camL[1], st.pos.z + lz * MH.camL[0] + fz * MH.camL[2]); camPos.copy(camera.position);
+  if (camShake > 0) camera.position.addScaledVector(_w2.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), 0.1 * camShake);
+  lookAt.copy(camera.position).addScaledVector(f, 40); camera.lookAt(lookAt);
+  // you, in the seat, turned to the window with the gun up (hidden when you're looking down the scope)
+  DAZZA.root.visible = !scoped; F.yaw = yaw;
+  const P = DAZZA, kk = 1 - Math.exp(-14 * dt), set = (o, ax, val) => { o.rotation[ax] += (val - o.rotation[ax]) * kk; }, tw = THREE.MathUtils.clamp(rel, -0.3, 1.45);
+  set(P.torso, 'y', tw * 0.75); set(P.head, 'y', tw * 0.3); set(P.head, 'x', pit * 0.5);
+  set(P.shR, 'x', -1.55 + pit * 0.9); set(P.shR, 'z', -0.12); set(P.elR, 'x', -0.08); set(P.shL, 'x', -1.45 + pit * 0.9); set(P.shL, 'z', -0.55); set(P.elL, 'x', -0.55);
+  if (P.can) P.can.visible = false;
 }
 // where your shots appear to leave from: the passenger window, along your aim
 function mhMuzzle(out) { const v = VEH.ute, body = v.model.body; body.updateMatrixWorld(true); const W = UTE_RIG.window; body.localToWorld(out.set(W.x, W.y, W.z)); return out.addScaledVector(camera.getWorldDirection(_w4), 0.35); }
@@ -12595,7 +12734,7 @@ function mhDogOut(d, k) {
 function mhDogIn(d) { if (d.mode === 'tray') return; d.task = 'return'; }
 function mhDogStep(d, dt) {
   const M = d.M; d.t += dt; d.alert = Math.max(0, d.alert - dt); d.wag = Math.max(0, d.wag - dt); d.barkPh = Math.max(0, d.barkPh - dt);
-  const bark = (loud) => { d.barkPh = 0.2; if (typeof sfx === 'function' && AU.buf['mm_bark' + d.i]) sfx('mm_bark' + (Math.random() < 0.7 ? d.i : 2), _w4.copy(d.pos).setY(d.pos.y + 0.6), loud ? 1.15 : 0.9, 0.94 + Math.random() * 0.12, 16); };
+  const bark = (loud) => { d.barkPh = 0.2; mmBarkSfx(d.i, _w4.copy(d.pos).setY(d.pos.y + 0.6), loud); };
   if (d.mode === 'jump') {
     const J = d.jump; J.t += dt; const u = Math.min(1, J.t / J.dur), to = J.into ? mmTrayW(d) : J.to;
     M.root.position.lerpVectors(J.from, to, u); M.root.position.y += Math.sin(u * Math.PI) * 0.9; d.st = 'stand';
@@ -12649,29 +12788,29 @@ function mhMenuState() {
 }
 function mhStartGuided() {
   const st = mhMenuState(); if (st.hunt) { mhSay(st.hunt.startsWith('Dogs') ? 'cooldown' : 'annoyed', true); return false; }
-  Object.assign(MH, { mode: 'guided', ph: 'board', t: 0, tt: 0, kills: 0, left: MH.limit, mob: null, visited: [], nav: null, stopT: 0, bailed: null, said: {}, missT: 0 });
+  DRVX.clear(); MH.navFails = 0; MH.bad = []; MH.blockAt = []; MH.stuckAt = []; Object.assign(MH, { mode: 'guided', ph: 'board', t: 0, tt: 0, kills: 0, left: MH.limit, mob: null, visited: [], nav: null, stopT: 0, bailed: null, said: {}, missT: 0 });
   MH.seen = new Set(FA.pigs.filter(a => a.st === 'down'));
   mmMenuClose(); mhSeatPlayer(); mhSay('start', true); MM.n.st = 'mhBoard'; MM.n.t = 0; MM.idleT = 60;
   document.body.classList.add('pax'); mhChip(true);
-  if (!MH.told.how) { MH.told.how = 1; toast('Drag to aim out the window · hold FIRE · 5 pigs before time runs out', 3.4); }
+  if (!MH.told.how) { MH.told.how = 1; toast('Drag to aim out the window · hold FIRE · 5 pigs \u00b7 the clock only runs while you\u2019re on the pigs', 3.6); }
   return true;
 }
 function mhStartSolo() {
   const st = mhMenuState(); if (st.solo) { mhSay(st.solo.startsWith('Dogs') ? 'cooldown' : 'annoyed', true); return false; }
-  Object.assign(MH, { mode: 'solo', ph: 'board', t: 0, tt: 0, kills: 0, soloKills: 0, mob: null, visited: [], nav: null, stopT: 0, shotT: 6 + Math.random() * 6 });
+  DRVX.clear(); MH.navFails = 0; MH.bad = []; MH.blockAt = []; MH.stuckAt = []; Object.assign(MH, { mode: 'solo', ph: 'board', t: 0, tt: 0, kills: 0, soloKills: 0, mob: null, visited: [], nav: null, stopT: 0, shotT: 6 + Math.random() * 6 });
   MH.seen = new Set(FA.pigs.filter(a => a.st === 'down'));
   mmMenuClose(); mhSay('soloGo', true); MM.n.st = 'mhBoard'; MM.n.t = 0;
   return true;
 }
 // choose the next mob to go after: nearest with pigs in it that we haven't done this trip; for the solo hunt, one well away from you
-function mhPickMob() {
+function mhPickMob(again) {
   const st = VEH.ute.state; let best = null, bs = 1e9;
-  for (const m of PH.mobs) { if (!m.members.length || MH.visited.includes(m)) continue; const Z = PH_ZONES[m.zi], c = m.G ? m.G.center : [Z[0], Z[1]];
+  for (const m of PH.mobs) { if (!m.members.length || MH.visited.includes(m) || (MH.bad && MH.bad.includes(m))) continue; const Z = PH_ZONES[m.zi], c = m.G ? m.G.center : [Z[0], Z[1]];
     const spot = drvSpotNear(c[0], c[1], 14, 40, st.pos.x, st.pos.z) || drvSpotNear(c[0], c[1], 12, 45, st.pos.x, st.pos.z, true); if (!spot) continue;
     let sc = Math.hypot(c[0] - st.pos.x, c[1] - st.pos.z) - m.members.length * 6;
     if (MH.mode === 'solo') sc = -Math.hypot(c[0] - F.pos.x, c[1] - F.pos.z) + Math.hypot(c[0] - st.pos.x, c[1] - st.pos.z) * 0.3;
     if (sc < bs) { bs = sc; best = { mob: m, spot, c }; } }
-  if (!best && MH.visited.length && PH.mobs.some(m => m.members.length)) { MH.visited = MH.visited.slice(-1); return mhPickMob(); }   // been everywhere: go round again
+  if (!best && !again && MH.visited.length && PH.mobs.some(m => m.members.length && !(MH.bad && MH.bad.includes(m)) && !MH.visited.slice(-1).includes(m))) { MH.visited = MH.visited.slice(-1); return mhPickMob(true); }   // been everywhere: go round again
   return best;
 }
 
@@ -12695,7 +12834,7 @@ function mhDriveThink(n, dt) {
       if (MH.mode === 'solo' && MH.visited.length >= 1 && (MH.soloKills + MH.kills >= 2 || MH.tt > 150 || MH.visited.length >= 2)) { mhHome('solo'); return; }
       const P = mhPickMob(); if (!P) { mhHome(MH.mode === 'solo' ? 'solo' : 'timeout'); return; }
       MH.mob = P.mob; MH.target = P.c; MH.visited.push(P.mob);
-      if (!mhNavTo(P.spot[0], P.spot[1], { cruise: 7.5 })) { mmDrive(dt, 0, 0); return; }
+      if (!mhNavTo(P.spot[0], P.spot[1], { via: P.spot[2] !== undefined ? [P.spot[2], P.spot[3]] : null, cruise: MH.mode === 'guided' ? 5.5 : 6.5 })) { MH.visited.push(P.mob); mmDrive(dt, 0, 0); return; }
       MH.ph = 'drive'; MH.t = 0; if (MH.mode === 'guided') mhSay('drive'); return;
     }
     case 'drive': {
@@ -12703,12 +12842,13 @@ function mhDriveThink(n, dt) {
       if (MH.mode === 'solo' && MH.tt > 200) { mhHome('solo'); return; }
       const r = mhNavStep(dt);
       if (r === 'done') { MH.ph = 'side'; MH.t = 0; }
-      else if (r === 'fail') { MH.ph = 'pick'; }
+      else if (r === 'fail') { MH.ph = 'pick'; (MH.bad = MH.bad || []).push(MH.mob); const g_ = MH.nav && MH.nav.goal; if (g_) { const [gi, gj] = drvIJ(g_[0], g_[1]); DRVX.add(gj * DRV.NX + gi); } if ((MH.navFails = (MH.navFails || 0) + 1) > 3) mhHome(MH.mode === 'solo' ? 'solo' : 'timeout'); }
       return;
     }
     case 'side': {
       const c = MH.mob && MH.mob.G ? MH.mob.G.center : MH.target;
-      if (mhSideOn(dt, c[0], c[1]) || MH.t > 6) { MH.ph = 'stop'; MH.t = 0; MH.stopT = 0;
+      mmDrive(dt, Math.abs(st.v) > 0.3 ? -0.7 : 0, 0);
+      if (Math.abs(st.v) < 0.3 || MH.t > 3) { MH.ph = 'stop'; MH.t = 0; MH.stopT = 0;
         const live = FA.pigs.some(a => a.st !== 'down' && Math.hypot(a.pos.x - st.pos.x, a.pos.z - st.pos.z) < 70);
         if (live) { MM.dogs.forEach((d, k) => mhDogOut(d, k)); if (MH.mode === 'guided') mhSay('near', true); } }
       return;
@@ -12760,7 +12900,7 @@ function mhHome(why) {
   if (why === 'win') mhSay('win', true); else if (why === 'timeout') mhSay('timeout', true);
   MH.ph = 'loadHome'; MH.t = 0; mhChip(MH.mode === 'guided' && MH.pax);
 }
-function mhGoHome() { const h = HOME.ute, fx = Math.sin(h.yaw), fz = Math.cos(h.yaw); if (!mhNavTo(h.x - fx * 9, h.z - fz * 9, { cruise: 8 })) MH.nav = { fail: true }; MH.ph = 'home'; MH.t = 0; }
+function mhGoHome() { const h = HOME.ute, fx = Math.sin(h.yaw), fz = Math.cos(h.yaw); if (!mhNavTo(h.x - fx * 2.5, h.z - fz * 2.5, { via: [h.x - fx * 13, h.z - fz * 13], cruise: 6.5 })) MH.nav = { fail: true }; MH.ph = 'home'; MH.t = 0; }
 function mhFinish() {
   const why = MH.endWhy, mode = MH.mode, n = MM.n;
   MM.dogs.forEach(d => { if (d.mode !== 'tray') mmDogTray(d); });
@@ -12788,7 +12928,7 @@ function mhReward(n) {
 // a hunt ended badly: whatever happened, put everyone back where they belong
 function mhFail(why) {
   if (!MH.mode) return;
-  if (MH.pax) mhUnseat(why === 'wreck' || Math.abs((VEH.ute.state || { v: 0 }).v) > 2);
+  if (MH.pax) mhUnseat(why === 'wreck' || why === 'dead' || Math.abs((VEH.ute.state || { v: 0 }).v) > 2);
   MM.dogs.forEach(d => { if (d.mode === 'jump') mmDogTray(d); else if (d.mode !== 'tray') d.task = 'return'; });
   const n = MM.n; if (n.veh && why !== 'wreck') { /* he drives home on his own */ MH.mode = 'return'; mhHome('fail'); mhChip(false); return; }
   mhEnd();
@@ -12818,7 +12958,8 @@ function mhStep(dt) {
     if (MH.pax && F.dead > 0) { mhFail('dead'); }
     if (MH.mode && v.wrecked) { if (n.veh) mmLeaveUte(false); mhFail('wreck'); }
     if (MH.mode && n.st !== 'drive' && n.st !== 'mhBoard') { mhFail('madman'); if (MH.mode === 'return') mhEnd(); }
-    if (MH.mode === 'guided' && MH.ph !== 'board' && MH.ph !== 'home' && MH.ph !== 'park' && MH.ph !== 'loadHome') { MH.left -= dt; }
+    if (MH.mode === 'guided' && (MH.ph === 'stop' || MH.ph === 'side')) MH.left -= dt;     // the clock runs while you're on the pigs, not while he's driving
+    if (MH.mode === 'guided' && MH.tt > 540 && MH.ph !== 'home' && MH.ph !== 'park' && MH.ph !== 'loadHome') MH.left = 0;
     // kills: any pig dropped near the ute during the hunt
     for (const a of FA.pigs) if (a.st === 'down' && !MH.seen.has(a)) { MH.seen.add(a); if (v.state && Math.hypot(a.pos.x - v.state.pos.x, a.pos.z - v.state.pos.z) < 160) { MH.kills++; if (MH.mode === 'guided') mhSay(MH.kills >= MH.goal ? 'win' : 'kill', true); } }
     if (MH.mode === 'guided' && MH.kills >= MH.goal && (MH.ph === 'stop' || MH.ph === 'drive' || MH.ph === 'side')) { MM.dogs.forEach(mhDogIn); MH.ph = 'load'; MH.t = 0; }
@@ -12856,7 +12997,7 @@ function mhChip(on) {
 }
 function mhChipStep() {
   if (!MH.chip || !MH.chip.classList.contains('show')) return; const k = MH.kills + '/' + MH.goal, t = Math.max(0, MH.left), s = Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0'), key = k + s;
-  if (key !== MH.chipKey) { MH.chipKey = key; MH.chip.querySelector('b').textContent = k; const tm = MH.chip.querySelector('.tm'); tm.textContent = MH.ph === 'home' || MH.ph === 'park' || MH.ph === 'loadHome' ? 'heading home' : s; tm.classList.toggle('lo', t < 30); }
+  if (key !== MH.chipKey) { MH.chipKey = key; MH.chip.querySelector('b').textContent = k; const tm = MH.chip.querySelector('.tm'); tm.textContent = MH.ph === 'home' || MH.ph === 'park' || MH.ph === 'loadHome' ? 'heading home' : MH.ph === 'stop' || MH.ph === 'side' ? s : s + ' \u00b7 driving'; tm.classList.toggle('lo', t < 30); }
 }
 
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
