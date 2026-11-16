@@ -2472,7 +2472,7 @@ try { drift.best = +localStorage.getItem('wingfield-drift-best') || 0; } catch (
 
 function step(dt) {
   dt = Math.max(dt, 1e-4);            // Safari's coarse timer can report two frames at the same instant
-  readKeys(); stbStep(dt);
+  readKeys(); stbStep(dt);           // the steering buttons wind the wheel on and off
   let throttle, steerIn, braking;
   const handbrake = drift.on && (input.hb || input.kb);
   if (drift.on) {
@@ -4956,7 +4956,7 @@ function setStickLabels(name) {
 }
 
 const HINTS = {
-  ute: ['Madman\u2019s ute. He\u2019s got the keys, and he\u2019s not happy you\u2019re in it.', '<b>E</b> get out before he gets here'],
+  ute: ['Madman\u2019s ute. <b>Hold GAS</b> to go; <b>Brake</b> reverses when stopped. Drive off in it and he\u2019ll come after you in whatever he can find.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
   combine: ['<b>Left thumb</b> drives. Drive into the <b>wheat</b> and the header cuts it; the grain bin fills as you go. When it\u2019s full, pull up beside the <b>chaser trailer</b> on the headland and tap <b>Unload grain</b>.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   dirtbike: ['<b>Left thumb</b> steers and shifts your weight. <b>GAS</b> and <b>Brake</b> on the right. Lean back + gas = <b>wheelie</b>. Jumps: lean back up the face, <b>flick forward at the lip</b>. Stopped? Hold <b>Brake</b> to back up.', '<b>W</b> gas &middot; <b>S</b> brake &middot; <b>A/D</b> steer &middot; <b>&uarr;/&darr;</b> lean &middot; <b>Q</b> camera &middot; <b>E</b> get off'],
   bmw:     ['The BMW. <b>Hold GAS</b>, steer into a corner and <b>tap Handbrake</b> to hang the tail out. <b>Brake</b> reverses when stopped.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
@@ -11389,8 +11389,8 @@ function bmwLoopsLoad() {
 
 /* Driver alerts: say what just broke (which tyre, which panel, how bad), not just that something did. */
 const DMGA = { txt: '', at: 0 };
-// Madman's ute never pops damage text (he drives it; you only ride in it)
-function dmgQuiet() { return activeName === 'ute' || (typeof MM !== 'undefined' && MM.npcDriving) || (typeof MH !== 'undefined' && MH.pax); }
+// no damage text while Madman's doing the driving
+function dmgQuiet() { return (typeof MM !== 'undefined' && MM.npcDriving) || (typeof MH !== 'undefined' && MH.pax); }
 function dmgAlert(msg) { if (dmgQuiet()) return; const n = performance.now(); DMGA.txt = n - DMGA.at < 800 ? DMGA.txt + ' · ' + msg : msg; DMGA.at = n; toast(DMGA.txt, 3.4); }
 function dmgTyreMsg(st, ty, t) {
   if (st.nPop === ty.length) return 'All tyres gone';
@@ -11893,35 +11893,88 @@ function mmAimCheck(dt) {
   if (MM.aimT > 0.7 && MM.aimSaidT <= 0) { MM.aimSaidT = 12; MM.aimT = 0; mmSay('aimed', 0, true); }
 }
 
-/* ================= Madman's donga: one room you can walk into =================
-   A standalone donga just east of the Dongas block (the scan's own dongas are one roofed lump, so they stay as they are).
-   Built through the structures system so the farmer, machines, rays and the camera all treat it as solid; the scan's
-   odd fence wire inside its footprint is trimmed. Door swings open when someone's at it; a warm bulb comes on when you're close.
-   Madman sometimes rests inside or on the verandah, and heads here after a hunt; he lets you know if you barge in. */
-const DG = { x: 194, z: 25, yaw: 0, L: 6, W: 3, H: 2.55, fl: 0.14, du: 1.7, dw: 1.05, deck: 1.6, root: null, door: null, doorA: 0, light: null, bulb: null, gy: 0,
+/* ================= The Dongas block: four rooms you can walk into, one of them Madman's =================
+   The scan's own dongas came out as one ragged, hollow lump, so the lump is cut away and the block is rebuilt on its
+   footprint: two dongas along the north side, two along the south, a slab and a roofed breezeway between the rows.
+   Madman's is the south-east one, with its verandah facing his ute; the others are the bunks, the mess and the rec room.
+   Built through the structures system so the farmer, machines, rays and the camera all treat it as solid.
+   Doors swing open when someone's at them; a warm glow comes on when you're close.
+   Madman sometimes rests inside or on the verandah, and heads here after a hunt; he lets you know if you barge in on him. */
+const DG = { x: 180.1, z: 53.5, yaw: 0, kind: 'madman', awning: true, L: 6, W: 3, H: 2.55, fl: 0.14, du: 1.7, dw: 1.05, deck: 1.6, root: null, door: null, doorA: 0, light: null, bulb: null, gy: 0,
   inT: 0, warnN: 0, warnT: 0, okSaid: false, restT: 120 + Math.random() * 120 };
+const DG_BLOCK = { x0: 169.7, x1: 183.4, z0: 39.4, z1: 55.1 };
+const DG_UNITS = [DG, { x: 173.3, z: 53.5, yaw: 0, kind: 'rec', awning: true }, { x: 173.3, z: 41, yaw: 0, kind: 'bunk' }, { x: 180.1, z: 41, yaw: 0, kind: 'mess' }];
 const DG_ST = ['dgGo', 'dgEnter', 'dgIn', 'dgOut', 'dgVer', 'dgLeave'];
 // local (u along the length, v across; +v is the front with the door) -> world
-function dgW(u, v) { const c = Math.cos(DG.yaw), s = Math.sin(DG.yaw); return [DG.x + u * c + v * s, DG.z - u * s + v * c]; }
-function dgL(x, z) { const c = Math.cos(DG.yaw), s = Math.sin(DG.yaw), dx = x - DG.x, dz = z - DG.z; return [dx * c - dz * s, dx * s + dz * c]; }
+function dgW(u, v, U = DG) { const c = Math.cos(U.yaw), s = Math.sin(U.yaw); return [U.x + u * c + v * s, U.z - u * s + v * c]; }
+function dgL(x, z, U = DG) { const c = Math.cos(U.yaw), s = Math.sin(U.yaw), dx = x - U.x, dz = z - U.z; return [dx * c - dz * s, dx * s + dz * c]; }
 // literal numbers: this runs while the scan is set up, before anything else here exists
-function dgCut(x, y, z) { const u = x - 194, v = z - 25; return y > 0.12 && Math.abs(u) < 3.6 && v > -2.1 && v < 3.6; }
+function dgCut(x, y, z) {
+  if (x > 168.95 && x < 183.9 && z > 38.75 && z < 55.9) return y > 0.5;                                   // the scanned lump, down to the dirt
+  if (x > 168.2 && x <= 168.95 && z > 38.75 && z < 55.9) return y > 2.3;                                  // the west eaves, over the parked utes' noses
+  return y > 2.6 && x >= 183.9 && x < 184.9 && z > 43.2 && z < 49.3;                                      // the east eaves, between the tanks
+}
 function dgInside(p) { const [u, v] = dgL(p.x, p.z); return Math.abs(u) < DG.L / 2 - 0.05 && Math.abs(v) < DG.W / 2 - 0.05; }
 function dgBuild() {
-  structMats(); const gy = Math.max(...[[-3, -1.5], [3, -1.5], [-3, 1.5], [3, 1.5], [0, 0]].map(([u, v]) => { const [x, z] = dgW(u, v); return rawGround(x, z, 20); })); DG.gy = gy;
-  const root = new THREE.Group(); root.position.set(DG.x, gy, DG.z); root.rotation.y = DG.yaw; scene.add(root); DG.root = root;
-  const M = DG.mats || (DG.mats = {
-    ext: new THREE.MeshLambertMaterial({ color: 0xe9e5d8 }), trim: new THREE.MeshLambertMaterial({ color: 0x6f7d73 }), int: new THREE.MeshLambertMaterial({ color: 0xd6ccb4, side: THREE.DoubleSide }),
+  structMats(); const B = DG_BLOCK, cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2, hx = (B.x1 - B.x0) / 2, hz = (B.z1 - B.z0) / 2;
+  // the slab sits just proud of the highest dirt round the block
+  const gs = []; for (let k = 0; k < 28; k++) { const t = k / 7 % 1 * 2 - 1, e = Math.floor(k / 7), x = e < 2 ? cx + t * hx : cx + (e === 2 ? -1 : 1) * (hx + 1), z = e < 2 ? cz + (e ? 1 : -1) * (hz + 1) : cz + t * hz;
+    const g = rawGround(x, z, 20); if (g > 0.1 && g < 0.8) gs.push(g); }
+  gs.sort((a, b) => a - b); const gy = THREE.MathUtils.clamp((gs[Math.floor(gs.length * 0.6)] || 0.5) + 0.03, 0.5, 0.62); DG.gy = gy;
+  const corr = (rgb, rep) => { const t = corrTex(rgb, true); t.repeat.set(rep, 1); return t; };
+  DG.mats = DG.mats || {
+    ext: new THREE.MeshLambertMaterial({ color: 0xecebe4 }), trim: new THREE.MeshLambertMaterial({ color: 0x6f7d73 }), int: new THREE.MeshLambertMaterial({ color: 0xd6ccb4, side: THREE.DoubleSide }),
     floor: new THREE.MeshLambertMaterial({ color: 0x7a6248 }), deck: new THREE.MeshLambertMaterial({ color: 0x8c7356 }), glass: new THREE.MeshLambertMaterial({ color: 0x2b3a44, emissive: 0x0d1418 }),
-    roof: new THREE.MeshLambertMaterial({ color: 0xb9bdbb }), white: new THREE.MeshLambertMaterial({ color: 0xf1f1ec }), blanket: new THREE.MeshLambertMaterial({ color: 0x4f6b8a }),
+    roof: new THREE.MeshLambertMaterial({ map: corr([196, 201, 200], 14) }), white: new THREE.MeshLambertMaterial({ color: 0xf1f1ec }), blanket: new THREE.MeshLambertMaterial({ color: 0x4f6b8a }),
     wood: new THREE.MeshLambertMaterial({ color: 0x8a6440 }), dark: new THREE.MeshLambertMaterial({ color: 0x2c2a27 }), steel: new THREE.MeshLambertMaterial({ color: 0x9aa1a3 }),
     tin: new THREE.MeshLambertMaterial({ color: 0xc9a227 }), tusk: new THREE.MeshLambertMaterial({ color: 0xefe6cf }), boot: new THREE.MeshLambertMaterial({ color: 0x4a3626 }),
-    bulb: new THREE.MeshBasicMaterial({ color: 0xffe2a8 }) });
-  const L = DG.L, W = DG.W, H = DG.H, fl = DG.fl, du = DG.du, dw = DG.dw;
+    bulb: new THREE.MeshBasicMaterial({ color: 0xffe2a8 }), blue: new THREE.MeshLambertMaterial({ color: 0x2f5f9e }), red: new THREE.MeshLambertMaterial({ color: 0x9c3b30 }),
+    green: new THREE.MeshLambertMaterial({ color: 0x3f6b46 }), yellow: new THREE.MeshLambertMaterial({ color: 0xd9b23a }), big: new THREE.MeshLambertMaterial({ map: corr([186, 192, 192], 34), side: THREE.DoubleSide }) };
+  const M = DG.mats, group = { id: 'donga', root: null, parts: [], ctr: new THREE.Vector3(cx, gy + 1.5, cz), rad: 14, gy, fixed: true }; STRUCTS.groups.push(group);
+  for (const U of DG_UNITS) dgUnit(U, gy, group);
+  group.root = DG.root;
+  // ---- the slab and the breezeway between the two rows ----
+  const root = new THREE.Group(); root.position.set(0, gy, 0); scene.add(root); DG.yard = root;
+  const box = (w, h, d, m, x, y, z, ry) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); if (ry) o.rotation.y = ry; root.add(o); return o; };
+  const eX = new THREE.Vector3(1, 0, 0), eY = new THREE.Vector3(0, 1, 0), eZ = new THREE.Vector3(0, 0, 1);
+  const solid = (x, y, z, sx, sy, sz) => { const p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, gy + y, z), eX, eY, eZ, sx, sy, sz); };
+  box(hx * 2 + 1.3, 0.6, hz * 2 + 0.5, SMAT.slab, cx - 0.4, -0.26, cz); solid(cx - 0.4, -0.26, cz, hx + 0.65, 0.3, hz + 0.25);      // (a bit wider on the west, out to the parked utes)
+  const zN = DG_UNITS[2].z + DG.W / 2 + DG.deck, zS = DG.z - DG.W / 2, rz0 = zN - DG.deck - 0.55, rz1 = zS + 0.55, ry = 3.02;
+  box(hx * 2 + 0.9, 0.07, rz1 - rz0, M.big, cx, ry + 0.035, (rz0 + rz1) / 2); solid(cx, ry + 0.035, (rz0 + rz1) / 2, hx + 0.45, 0.05, (rz1 - rz0) / 2);
+  for (const s of [-1, 1]) box(0.05, 0.2, rz1 - rz0, M.blue, cx + s * (hx + 0.45), ry - 0.03, (rz0 + rz1) / 2);
+  for (const z of [zN, zS - 0.12]) { box(hx * 2 + 0.6, 0.16, 0.1, M.steel, cx, ry - 0.08, z);
+    for (const x of [B.x0 + 0.25, cx + 0.05, B.x1 - 0.25]) { box(0.1, ry - 0.16, 0.1, M.steel, x, (ry - 0.16) / 2, z); solid(x, ry / 2, z, 0.07, ry / 2, 0.07); } }
+  for (const x of [cx - 3.4, cx + 3.4]) box(1.3, 0.04, 0.1, M.bulb, x, ry - 0.05, (zN + zS) / 2);                      // the fluoros
+  // picnic table and benches
+  const tx = cx - 0.6, tz = (zN + zS) / 2 + 0.2; box(2.0, 0.06, 0.85, M.wood, tx, 0.78, tz); for (const s of [-1, 1]) { box(2.0, 0.05, 0.3, M.wood, tx, 0.47, tz + s * 0.78); for (const e of [-0.8, 0.8]) { box(0.07, 0.74, 0.07, M.wood, tx + e, 0.41, tz + s * 0.3); box(0.07, 0.42, 0.07, M.wood, tx + e, 0.25, tz + s * 0.78); } }
+  solid(tx, 0.42, tz, 1.0, 0.38, 0.45);
+  const cyl = (r, h, m, x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), m); o.position.set(x, y, z); root.add(o); return o; };
+  cyl(0.033, 0.12, M.tin, tx - 0.3, 0.87, tz + 0.1); cyl(0.033, 0.12, M.tin, tx + 0.45, 0.87, tz - 0.2); box(0.3, 0.02, 0.22, M.white, tx + 0.1, 0.82, tz + 0.05);
+  // the barbie and its gas bottle, by the east posts
+  const bx = B.x1 - 1.3, bz = zS - 1.2; box(1.2, 0.3, 0.6, M.dark, bx, 0.95, bz); box(1.24, 0.05, 0.64, M.steel, bx, 1.12, bz); box(0.5, 0.03, 0.5, M.wood, bx + 0.88, 0.98, bz);
+  for (const [a, b] of [[-0.52, -0.24], [0.52, -0.24], [-0.52, 0.24], [0.52, 0.24]]) box(0.05, 0.8, 0.05, M.dark, bx + a, 0.44, bz + b);
+  cyl(0.16, 0.5, M.white, bx - 0.15, 0.29, bz); cyl(0.06, 0.1, M.steel, bx - 0.15, 0.59, bz); solid(bx, 0.57, bz, 0.62, 0.57, 0.32);
+  // wheelie bins by the west end, an esky, boots by the doors
+  for (const [k, m] of [[0, M.red], [1, M.yellow]]) { const x = B.x0 + 0.7 + k * 0.75, z = zS - 0.75; box(0.56, 0.92, 0.6, M.green, x, 0.52, z); box(0.6, 0.07, 0.66, m, x, 1.01, z); solid(x, 0.52, z, 0.29, 0.52, 0.31); }
+  box(0.62, 0.36, 0.38, M.blue, tx + 1.7, 0.22, tz + 1.5, 0.3); box(0.64, 0.06, 0.4, M.white, tx + 1.7, 0.43, tz + 1.5, 0.3);
+  // a washing line strung between the west posts
+  const lz0 = zN + 0.1, lz1 = zS - 0.2, lx = B.x0 + 0.25; box(0.015, 0.015, lz1 - lz0, M.dark, lx, 2.05, (lz0 + lz1) / 2);
+  [[1.6, M.blue, 0.7, 0.6], [2.9, M.yellow, 0.55, 0.75], [4.1, M.white, 0.9, 0.5], [5.5, M.red, 0.6, 0.6]].forEach(([d, m, w, h]) => box(0.02, h, w, m, lx, 2.05 - h / 2, lz0 + d));
+  root.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== M.bulb; o.receiveShadow = true; } });
+}
+// one donga: the shell, a door on a hinge, a verandah (the south pair) and whatever's inside
+function dgUnit(U, gy, group) {
+  const M = DG.mats, L = DG.L, W = DG.W, H = DG.H, fl = DG.fl, du = DG.du, dw = DG.dw, mm = U.kind === 'madman';
+  const root = new THREE.Group(); root.position.set(U.x, gy, U.z); root.rotation.y = U.yaw; scene.add(root); U.root = root; U.doorA = 0;
   const box = (w, h, d, m, x, y, z, ry) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); if (ry) o.rotation.y = ry; root.add(o); return o; };
   const label = (txt, w, h, bg, fg, px) => { const c = document.createElement('canvas'); c.width = 256; c.height = Math.round(256 * h / w); const x = c.getContext('2d'); x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
     x.fillStyle = fg; x.font = `900 ${px}px system-ui,sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle'; txt.split('\n').forEach((t, i, a) => x.fillText(t, 128, c.height / 2 + (i - (a.length - 1) / 2) * px * 1.1));
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: t })); };
+  const can = (x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.12, 10), M.tin); o.position.set(x, y, z); root.add(o); return o; };
+  const legs = (x, z, a, b, h) => { for (const [i, j] of [[-a, -b], [a, -b], [-a, b], [a, b]]) box(0.05, h, 0.05, M.wood, x + i, fl + h / 2, z + j); };
+  const chair = (x, z, back) => { box(0.42, 0.05, 0.42, M.wood, x, fl + 0.45, z); box(0.42, 0.45, 0.05, M.wood, x, fl + 0.7, z + back * 0.2); legs(x, z, 0.18, 0.18, 0.44); };
+  const bed = (u, m) => { const s = Math.sign(u); box(1.95, 0.32, 0.95, M.wood, u, fl + 0.16, -W / 2 + 0.6); box(1.9, 0.14, 0.9, M.white, u, fl + 0.39, -W / 2 + 0.6);
+    box(1.4, 0.06, 0.92, m, u - s * 0.25, fl + 0.48, -W / 2 + 0.6); box(0.45, 0.1, 0.62, M.white, u + s * 0.77, fl + 0.5, -W / 2 + 0.6); };
   // shell: floor, deck, walls with a door gap, roof, skids
   box(L + 0.1, fl, W + 0.1, M.floor, 0, fl / 2, 0); box(L, 0.12, DG.deck, M.deck, 0, fl - 0.06, W / 2 + DG.deck / 2 + 0.05);
   for (const u of [-L / 2 + 0.3, L / 2 - 0.3]) box(0.2, 0.12, W + 0.2, M.dark, u, 0.06, 0);
@@ -11933,58 +11986,89 @@ function dgBuild() {
   box(L - 0.2, H - 0.05, 0.02, M.int, 0, fl + H / 2, -W / 2 + 0.06); box(0.02, H - 0.05, W - 0.2, M.int, -L / 2 + 0.06, fl + H / 2, 0); box(0.02, H - 0.05, W - 0.2, M.int, L / 2 - 0.06, fl + H / 2, 0);
   box(L - 0.1, 0.02, W - 0.1, M.int, 0, fl + H - 0.02, 0);
   box(L + 0.35, 0.08, W + 0.35, M.roof, 0, fl + H + 0.04, 0);
-  // awning over the deck on two posts (looks only: nothing to bump your head on)
-  box(L + 0.2, 0.05, DG.deck + 0.2, M.roof, 0, fl + H - 0.15, W / 2 + DG.deck / 2 + 0.1).rotation.x = 0.08;
-  for (const u of [-L / 2 + 0.15, L / 2 - 0.15]) box(0.08, H - 0.15, 0.08, M.steel, u, fl + (H - 0.15) / 2, W / 2 + DG.deck);
-  // trim, windows (both faces), a step
-  for (const sg of [-1, 1]) { box(L + 0.12, 0.1, 0.03, M.trim, 0, fl + 0.05, sg * (W / 2 + 0.06)); box(0.03, 0.1, W + 0.12, M.trim, sg * (L / 2 + 0.06), fl + 0.05, 0); }
+  if (U.awning) {
+    // awning over the deck on two posts (looks only: nothing to bump your head on), a skirt and two steps down to the dirt
+    box(L + 0.2, 0.05, DG.deck + 0.2, M.roof, 0, fl + H - 0.15, W / 2 + DG.deck / 2 + 0.1).rotation.x = 0.08;
+    for (const u of [-L / 2 + 0.15, L / 2 - 0.15]) box(0.08, H - 0.15, 0.08, M.steel, u, fl + (H - 0.15) / 2, W / 2 + DG.deck);
+    box(L, 0.5, 0.04, M.dark, 0, fl - 0.37, W / 2 + DG.deck + 0.02); for (const s of [-1, 1]) box(0.04, 0.5, DG.deck, M.dark, s * (L / 2 - 0.02), fl - 0.37, W / 2 + DG.deck / 2 + 0.05);
+    box(dw + 0.5, 0.5, 0.45, M.deck, du, fl - 0.41, W / 2 + DG.deck + 0.27); box(dw + 0.5, 0.4, 0.45, M.deck, du, fl - 0.52, W / 2 + DG.deck + 0.72);
+  }
+  // trim top and bottom, windows (both faces), an air conditioner out the back
+  for (const sg of [-1, 1]) { box(L + 0.12, 0.1, 0.03, M.trim, 0, fl + 0.05, sg * (W / 2 + 0.06)); box(0.03, 0.1, W + 0.12, M.trim, sg * (L / 2 + 0.06), fl + 0.05, 0);
+    box(L + 0.14, 0.2, 0.03, M.blue, 0, fl + H - 0.1, sg * (W / 2 + 0.065)); box(0.03, 0.2, W + 0.14, M.blue, sg * (L / 2 + 0.065), fl + H - 0.1, 0); }
   for (const [x, z, ry] of [[-1.4, -W / 2, 0], [1.2, -W / 2, 0], [-L / 2, 0, Math.PI / 2], [-1.2, W / 2, 0]]) { box(1.0, 0.75, 0.11, M.glass, x, fl + 1.45, z, ry); box(1.1, 0.06, 0.13, M.trim, x, fl + 1.06, z, ry); }
-  box(dw + 0.3, 0.1, 0.4, M.deck, du, 0.05, W / 2 + DG.deck + 0.2);
+  box(0.8, 0.5, 0.34, M.white, 2.4, fl + 1.95, -W / 2 - 0.2); box(0.62, 0.32, 0.02, M.dark, 2.4, fl + 1.95, -W / 2 - 0.375);
   // door on a hinge (swings in)
-  const hinge = new THREE.Group(); hinge.position.set(du - dw / 2, fl, W / 2); root.add(hinge); DG.door = hinge;
+  const hinge = new THREE.Group(); hinge.position.set(du - dw / 2, fl, W / 2); root.add(hinge); U.door = hinge;
   const dm = new THREE.Mesh(new THREE.BoxGeometry(dw - 0.04, 2.02, 0.05), M.trim); dm.position.set(dw / 2, 1.02, 0); hinge.add(dm);
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), M.steel); knob.position.set(dw - 0.14, 1.0, 0.05); hinge.add(knob);
-  const sign = label('MADMAN\nKNOCK FIRST', 0.62, 0.3, '#2c3a33', '#f0e6c8', 30); sign.position.set(dw / 2, 1.55, 0.03); hinge.add(sign);
-  // the bed (far west end), with a swag of a blanket and a pillow
-  box(1.95, 0.32, 0.95, M.wood, -L / 2 + 1.1, fl + 0.16, -W / 2 + 0.6); box(1.9, 0.14, 0.9, M.white, -L / 2 + 1.1, fl + 0.39, -W / 2 + 0.6);
-  box(1.4, 0.06, 0.92, M.blanket, -L / 2 + 1.35, fl + 0.48, -W / 2 + 0.6); box(0.45, 0.1, 0.62, M.white, -L / 2 + 0.33, fl + 0.5, -W / 2 + 0.6);
-  // the table and a chair, a tinnie and his spare cap on it
-  box(1.0, 0.05, 0.7, M.wood, 0.25, fl + 0.74, -W / 2 + 0.55); for (const [a, b] of [[-0.44, -0.3], [0.44, -0.3], [-0.44, 0.3], [0.44, 0.3]]) box(0.05, 0.72, 0.05, M.wood, 0.25 + a, fl + 0.36, -W / 2 + 0.55 + b);
-  box(0.42, 0.05, 0.42, M.wood, 0.25, fl + 0.45, -W / 2 + 1.25); box(0.42, 0.45, 0.05, M.wood, 0.25, fl + 0.7, -W / 2 + 1.45); for (const [a, b] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]]) box(0.04, 0.44, 0.04, M.wood, 0.25 + a, fl + 0.22, -W / 2 + 1.25 + b);
-  const can = (x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.12, 10), M.tin); o.position.set(x, y, z); root.add(o); return o; };
-  can(0.05, fl + 0.83, -W / 2 + 0.45); can(0.12, fl + 0.83, -W / 2 + 0.62);
-  box(0.24, 0.08, 0.26, M.trim, 0.5, fl + 0.81, -W / 2 + 0.5);
-  // the beer fridge, with its sticker
-  box(0.56, 0.86, 0.56, M.white, L / 2 - 0.45, fl + 0.43, -W / 2 + 0.45); box(0.04, 0.3, 0.04, M.steel, L / 2 - 0.66, fl + 0.6, -W / 2 + 0.75);
-  const st = label('COLD\nONES', 0.34, 0.24, '#b3261e', '#fff', 46); st.position.set(L / 2 - 0.45, fl + 0.6, -W / 2 + 0.735); root.add(st);
-  // empties stacked on the fridge
-  for (const [a, b, y] of [[-0.1, 0, 0], [0, 0, 0], [0.1, 0, 0], [-0.05, 0, 0.12], [0.05, 0, 0.12]]) can(L / 2 - 0.45 + a, fl + 0.92 + y, -W / 2 + 0.45 + b);
-  // personal touches: boar tusks on a board, a photo of the ute, the dogs' bowls by the door, boots, a calendar
-  box(0.5, 0.32, 0.03, M.wood, L / 2 - 0.08, fl + 1.65, -0.1, Math.PI / 2);
-  for (const s of [-1, 1]) { const t = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.26, 8), M.tusk); t.position.set(L / 2 - 0.16, fl + 1.66, -0.1 + s * 0.09); t.rotation.set(0, 0, s * 0.7 - Math.PI / 2); root.add(t); }
-  const ph = (() => { const c = document.createElement('canvas'); c.width = 192; c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#8bb7d6'; x.fillRect(0, 0, 192, 80); x.fillStyle = '#b8955f'; x.fillRect(0, 80, 192, 48);
-    x.fillStyle = '#e8e8e4'; x.fillRect(40, 58, 110, 26); x.fillRect(58, 44, 46, 18); x.fillStyle = '#222'; for (const cx of [62, 128]) { x.beginPath(); x.arc(cx, 86, 11, 0, 7); x.fill(); } x.fillStyle = '#6a4a2a'; x.fillRect(150, 74, 14, 10);
-    x.strokeStyle = '#5a3b22'; x.lineWidth = 10; x.strokeRect(0, 0, 192, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.34), new THREE.MeshLambertMaterial({ map: t })); })();
-  ph.position.set(-L / 2 + 1.1, fl + 1.45, -W / 2 + 0.065); root.add(ph);
-  const cal = label('WINGFIELD\nNOV 2026', 0.4, 0.5, '#f4f1e6', '#3a3a3a', 26); cal.position.set(-0.5, fl + 1.5, -W / 2 + 0.065); root.add(cal);
-  for (const [k, nm] of [[0, 'TANK'], [1, 'DUSTY']]) { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.11, 0.07, 12), k ? M.blanket : M.trim); o.position.set(du + 0.75 + k * 0.32, fl + 0.035, W / 2 - 0.3); root.add(o); }
-  box(0.13, 0.16, 0.3, M.boot, du - 0.85, fl + 0.08, W / 2 - 0.3); box(0.13, 0.16, 0.3, M.boot, du - 0.68, fl + 0.08, W / 2 - 0.28);
+  const sign = label({ madman: 'MADMAN\nKNOCK FIRST', rec: 'REC ROOM', bunk: 'BUNKS', mess: 'MESS' }[U.kind], 0.62, 0.3, '#2c3a33', '#f0e6c8', mm ? 30 : 40); sign.position.set(dw / 2, 1.55, 0.03); hinge.add(sign);
+  if (mm) {
+    // the bed (far west end), with a swag of a blanket and a pillow
+    box(1.95, 0.32, 0.95, M.wood, -L / 2 + 1.1, fl + 0.16, -W / 2 + 0.6); box(1.9, 0.14, 0.9, M.white, -L / 2 + 1.1, fl + 0.39, -W / 2 + 0.6);
+    box(1.4, 0.06, 0.92, M.blanket, -L / 2 + 1.35, fl + 0.48, -W / 2 + 0.6); box(0.45, 0.1, 0.62, M.white, -L / 2 + 0.33, fl + 0.5, -W / 2 + 0.6);
+    // the table and a chair, a tinnie and his spare cap on it
+    box(1.0, 0.05, 0.7, M.wood, 0.25, fl + 0.74, -W / 2 + 0.55); legs(0.25, -W / 2 + 0.55, 0.44, 0.3, 0.72);
+    chair(0.25, -W / 2 + 1.25, 1);
+    can(0.05, fl + 0.83, -W / 2 + 0.45); can(0.12, fl + 0.83, -W / 2 + 0.62);
+    box(0.24, 0.08, 0.26, M.trim, 0.5, fl + 0.81, -W / 2 + 0.5);
+    // the beer fridge, with its sticker
+    box(0.56, 0.86, 0.56, M.white, L / 2 - 0.45, fl + 0.43, -W / 2 + 0.45); box(0.04, 0.3, 0.04, M.steel, L / 2 - 0.66, fl + 0.6, -W / 2 + 0.75);
+    const st = label('COLD\nONES', 0.34, 0.24, '#b3261e', '#fff', 46); st.position.set(L / 2 - 0.45, fl + 0.6, -W / 2 + 0.735); root.add(st);
+    // empties stacked on the fridge
+    for (const [a, b, y] of [[-0.1, 0, 0], [0, 0, 0], [0.1, 0, 0], [-0.05, 0, 0.12], [0.05, 0, 0.12]]) can(L / 2 - 0.45 + a, fl + 0.92 + y, -W / 2 + 0.45 + b);
+    // personal touches: boar tusks on a board, a photo of the ute, the dogs' bowls by the door, boots, a calendar
+    box(0.5, 0.32, 0.03, M.wood, L / 2 - 0.08, fl + 1.65, -0.1, Math.PI / 2);
+    for (const s of [-1, 1]) { const t = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.26, 8), M.tusk); t.position.set(L / 2 - 0.16, fl + 1.66, -0.1 + s * 0.09); t.rotation.set(0, 0, s * 0.7 - Math.PI / 2); root.add(t); }
+    const ph = (() => { const c = document.createElement('canvas'); c.width = 192; c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#8bb7d6'; x.fillRect(0, 0, 192, 80); x.fillStyle = '#b8955f'; x.fillRect(0, 80, 192, 48);
+      x.fillStyle = '#e8e8e4'; x.fillRect(40, 58, 110, 26); x.fillRect(58, 44, 46, 18); x.fillStyle = '#222'; for (const cx of [62, 128]) { x.beginPath(); x.arc(cx, 86, 11, 0, 7); x.fill(); } x.fillStyle = '#6a4a2a'; x.fillRect(150, 74, 14, 10);
+      x.strokeStyle = '#5a3b22'; x.lineWidth = 10; x.strokeRect(0, 0, 192, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.34), new THREE.MeshLambertMaterial({ map: t })); })();
+    ph.position.set(-L / 2 + 1.1, fl + 1.45, -W / 2 + 0.075); root.add(ph);
+    const cal = label('WINGFIELD\nNOV 2026', 0.4, 0.5, '#f4f1e6', '#3a3a3a', 26); cal.position.set(-0.5, fl + 1.5, -W / 2 + 0.075); root.add(cal);
+    for (const [k, nm] of [[0, 'TANK'], [1, 'DUSTY']]) { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.11, 0.07, 12), k ? M.blanket : M.trim); o.position.set(du + 0.75 + k * 0.32, fl + 0.035, W / 2 - 0.3); root.add(o); }
+    box(0.13, 0.16, 0.3, M.boot, du - 0.85, fl + 0.08, W / 2 - 0.3); box(0.13, 0.16, 0.3, M.boot, du - 0.68, fl + 0.08, W / 2 - 0.28);
+  } else if (U.kind === 'bunk') {
+    // two beds, a steel locker between the windows, a hi-vis shirt on a hook, boots
+    bed(-L / 2 + 1.1, M.red); bed(L / 2 - 1.1, M.green);
+    box(0.55, 1.75, 0.45, M.steel, -0.1, fl + 0.875, -W / 2 + 0.32); box(0.02, 1.6, 0.02, M.dark, -0.1, fl + 0.9, -W / 2 + 0.55);
+    box(0.5, 0.6, 0.04, M.yellow, L / 2 - 0.1, fl + 1.55, 0.5, Math.PI / 2); box(0.5, 0.06, 0.05, M.steel, L / 2 - 0.1, fl + 1.3, 0.5, Math.PI / 2);
+    box(0.13, 0.16, 0.3, M.boot, -0.9, fl + 0.08, W / 2 - 0.3); box(0.13, 0.16, 0.3, M.boot, -0.72, fl + 0.08, W / 2 - 0.27);
+    box(1.3, 0.012, 0.8, M.blanket, 0.2, fl + 0.006, 0.45);
+  } else if (U.kind === 'mess') {
+    // kitchen bench with a sink, a microwave and a kettle; the tall fridge; a table and two chairs
+    box(2.5, 0.88, 0.6, M.white, -1.6, fl + 0.44, -W / 2 + 0.38); box(2.56, 0.04, 0.64, M.steel, -1.6, fl + 0.9, -W / 2 + 0.38); box(0.5, 0.02, 0.38, M.dark, -2.2, fl + 0.925, -W / 2 + 0.38);
+    box(0.5, 0.3, 0.36, M.dark, -0.75, fl + 1.07, -W / 2 + 0.32); box(0.3, 0.2, 0.02, M.glass, -0.8, fl + 1.07, -W / 2 + 0.505);
+    const k = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.22, 12), M.steel); k.position.set(-1.45, fl + 1.03, -W / 2 + 0.34); root.add(k);
+    box(0.64, 1.72, 0.64, M.white, L / 2 - 0.44, fl + 0.86, -W / 2 + 0.44); box(0.04, 0.5, 0.04, M.steel, L / 2 - 0.7, fl + 1.1, -W / 2 + 0.78);
+    box(1.2, 0.05, 0.75, M.wood, 0.3, fl + 0.74, 0.25); legs(0.3, 0.25, 0.54, 0.32, 0.72); chair(0.0, 0.95, 1); chair(0.6, -0.42, -1);
+    for (const [a, b, m] of [[0.05, 0.2, M.red], [0.5, 0.35, M.blue]]) { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.09, 10), m); o.position.set(a, fl + 0.81, b); root.add(o); }
+    const mn = label('SMOKO\n10 · 12:30 · 3', 0.5, 0.36, '#f4f1e6', '#3a3a3a', 30); mn.position.set(1.2, fl + 1.95, -W / 2 + 0.075); root.add(mn);
+  } else {
+    // rec room: a couch, the telly on a cabinet, a dartboard, a rug and an esky
+    box(1.9, 0.38, 0.8, M.blanket, -L / 2 + 1.2, fl + 0.24, -W / 2 + 0.55); box(1.9, 0.5, 0.2, M.blanket, -L / 2 + 1.2, fl + 0.6, -W / 2 + 0.25);
+    for (const s of [-1, 1]) box(0.2, 0.55, 0.8, M.blanket, -L / 2 + 1.2 + s * 1.05, fl + 0.32, -W / 2 + 0.55);
+    box(0.42, 0.5, 1.2, M.wood, L / 2 - 0.3, fl + 0.25, -0.35); box(0.06, 0.58, 1.0, M.dark, L / 2 - 0.3, fl + 0.84, -0.35); box(0.02, 0.5, 0.92, M.glass, L / 2 - 0.34, fl + 0.84, -0.35);
+    const db = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.04, 20), M.dark); db.rotation.x = Math.PI / 2; db.position.set(2.35, fl + 1.6, -W / 2 + 0.09); root.add(db);
+    const d2 = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.045, 20), M.red); d2.rotation.x = Math.PI / 2; d2.position.copy(db.position); root.add(d2);
+    const d3 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 14), M.green); d3.rotation.x = Math.PI / 2; d3.position.copy(db.position); root.add(d3);
+    box(1.8, 0.012, 1.1, M.red, -0.6, fl + 0.006, 0.45); box(0.6, 0.36, 0.38, M.blue, 0.6, fl + 0.18, -W / 2 + 0.4); box(0.62, 0.05, 0.4, M.white, 0.6, fl + 0.385, -W / 2 + 0.4);
+    can(0.5, fl + 0.47, -W / 2 + 0.4);
+  }
   // the bulb
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), M.bulb); bulb.position.set(0, fl + H - 0.2, 0); root.add(bulb); DG.bulb = bulb;
-  DG.light = { intensity: 0 };      // no real light (it would cost every pixel in the game): the lining glows a little instead
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), M.bulb); bulb.position.set(0, fl + H - 0.2, 0); root.add(bulb); U.bulb = bulb;
+  if (mm) DG.light = { intensity: 0 };      // no real light (it would cost every pixel in the game): the lining glows a little instead
   root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  // solid parts: floor, deck, three walls, two wall pieces and the lintel at the front, the roof
-  const group = { id: 'donga', root, parts: [], ctr: new THREE.Vector3(DG.x, gy + 1.3, DG.z), rad: 5, gy, fixed: true }; STRUCTS.groups.push(group);
-  const c = Math.cos(DG.yaw), s = Math.sin(DG.yaw), eU = new THREE.Vector3(c, 0, -s), eY = new THREE.Vector3(0, 1, 0), eV = new THREE.Vector3(s, 0, c);
-  const solid = (u, y, v, hu, hy, hv) => { const [x, z] = dgW(u, v), p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, gy + y, z), eU, eY, eV, hu, hy, hv); };
-  solid(0, fl / 2, 0, L / 2 + 0.05, fl / 2, W / 2 + 0.05); solid(0, fl / 2, W / 2 + DG.deck / 2 + 0.05, L / 2, fl / 2, DG.deck / 2);
+  // solid parts: floor, deck, three walls, two wall pieces and the lintel at the front, the roof, the steps
+  const c = Math.cos(U.yaw), s = Math.sin(U.yaw), eU = new THREE.Vector3(c, 0, -s), eY = new THREE.Vector3(0, 1, 0), eV = new THREE.Vector3(s, 0, c);
+  const solid = (u, y, v, hu, hy, hv) => { const [x, z] = dgW(u, v, U), p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, gy + y, z), eU, eY, eV, hu, hy, hv); };
+  solid(0, fl / 2, 0, L / 2 + 0.05, fl / 2, W / 2 + 0.05); solid(0, fl / 2 - (U.awning ? 0.25 : 0), W / 2 + DG.deck / 2 + 0.05, L / 2, fl / 2 + (U.awning ? 0.25 : 0), DG.deck / 2);
   solid(0, fl + H / 2, -W / 2, L / 2, H / 2, 0.06); solid(-L / 2, fl + H / 2, 0, 0.06, H / 2, W / 2); solid(L / 2, fl + H / 2, 0, 0.06, H / 2, W / 2);
   solid(-L / 2 + aW / 2, fl + H / 2, W / 2, aW / 2, H / 2, 0.06); solid(L / 2 - bW / 2, fl + H / 2, W / 2, bW / 2, H / 2, 0.06); solid(du, fl + 2.05 + (H - 2.05) / 2, W / 2, dw / 2, (H - 2.05) / 2, 0.06);
   solid(0, fl + H + 0.04, 0, L / 2 + 0.17, 0.05, W / 2 + 0.17);
-  DG.doorA = 0;
+  if (U.awning) { solid(du, fl - 0.41, W / 2 + DG.deck + 0.27, dw / 2 + 0.25, 0.25, 0.225); solid(du, fl - 0.52, W / 2 + DG.deck + 0.72, dw / 2 + 0.25, 0.2, 0.225); }
 }
-// the drive grid keeps the ute off it
-function dgDrvBlock() { for (let u = -4; u <= 4; u += 2) for (let v = -2.5; v <= 4.5; v += 2) { const [x, z] = dgW(u, v), [i, j] = drvIJ(x, z); if (i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ) DRVA[j * DRV.NX + i] = 0; } }
+// the drive grid keeps the ute off the block
+function dgDrvBlock() { const B = DG_BLOCK; for (let x = B.x0 - 1; x <= B.x1 + 1; x += 2) for (let z = B.z0 - 1; z <= B.z1 + 3.5; z += 2) { const [i, j] = drvIJ(x, z); if (i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ) DRVA[j * DRV.NX + i] = 0; } }
 const dgPt = (k) => k === 'door' ? dgW(DG.du, DG.W / 2 + 1.1) : k === 'in' ? dgW(DG.du - 0.4, -0.25) : k === 'ver' ? dgW(-1.3, DG.W / 2 + 0.85) : dgW(DG.du, DG.W / 2 - 0.2);
 // move Madman straight at a point (inside the donga npcWalk's grid can't help); true when there
 function dgMove(n, x, z, sp, dt) {
@@ -12033,7 +12117,8 @@ function dgStep(dt) {
   const [dx, dz] = dgPt('step'), near = (p) => Math.hypot(p.x - dx, p.z - dz) < 1.9;
   const want = DG.want || near(F.pos) || (n && near(n.pos)); DG.want = 0;
   DG.doorA += ((want ? 1 : 0) - DG.doorA) * Math.min(1, dt * 4); DG.door.rotation.y = -1.45 * DG.doorA;
-  const dP = Math.hypot(F.pos.x - DG.x, F.pos.z - DG.z), on = dP < 22 || (n && dgInside(n.pos)); DG.light.intensity += ((on ? 1 : 0) - DG.light.intensity) * Math.min(1, dt * 3); DG.bulb.visible = DG.light.intensity > 0.2; DG.mats.int.emissive.setRGB(0.16 * DG.light.intensity, 0.13 * DG.light.intensity, 0.08 * DG.light.intensity);
+  for (const U of DG_UNITS) { if (U === DG || !U.door) continue; const [ux, uz] = dgW(DG.du, DG.W / 2 - 0.2, U), by = (p) => Math.hypot(p.x - ux, p.z - uz) < 1.9, w = by(F.pos) || (n && by(n.pos)); U.doorA += ((w ? 1 : 0) - U.doorA) * Math.min(1, dt * 4); U.door.rotation.y = -1.45 * U.doorA; }
+  const dP = Math.hypot(F.pos.x - DG.x, F.pos.z - DG.z), on = dP < 22 || (n && dgInside(n.pos)); DG.light.intensity += ((on ? 1 : 0) - DG.light.intensity) * Math.min(1, dt * 3); for (const U of DG_UNITS) if (U.bulb) U.bulb.visible = DG.light.intensity > 0.2; DG.mats.int.emissive.setRGB(0.16 * DG.light.intensity, 0.13 * DG.light.intensity, 0.08 * DG.light.intensity);
   // you, inside
   const inside = activeName === 'foot' && !MH.pax && F.dead <= 0 && dgInside(F.pos);
   if (!inside) { DG.inT = 0; if (DG.warnT > 0) DG.warnT -= dt; else DG.warnN = 0; if (dP > 12) DG.okSaid = false; return; }
@@ -12083,7 +12168,8 @@ function sndPick(name) {
    Sunnies, cap, beard, beer gut, a blue singlet and a tinnie. He leans on the tailgate of his ute with his
    two pig dogs in the tray, talks to you, the dogs and the pigs, and he does not like anyone touching the ute.
    - walk up on foot and tap "Talk to Madman" for the choices (the two hunts arrive in stage 2)
-   - get in his ute and he yells, marches over and drags you out; he keeps the keys, so it won't go anyway
+   - get in his ute and he yells, runs over and drags you out; drive off in it and he pinches the nearest machine,
+     runs you down in it and drags you out wherever you stop
    - keep at it (or ram it, shoot it, thump him) and he loses his rag and has a go at you, then calms down
    He lives in NPC.list so the fists, guns and blasts already find him, but runs his own brain (mmThink).
    ================================================================ */
@@ -12103,7 +12189,9 @@ const MM_L = {
   pigs: ['Look at that! Bloody pigs, bold as brass.', 'Fuck me dead, they’re right on the doorstep!', 'Dogs have seen ’em. Hang on to ya hat.', 'Strewth, there’s a few out there today.', 'Cheeky buggers, aren’t they?'],
   touch: ['Oi! Mitts off the ute!', 'Don’t lean on her, mate.', 'Hands where I can see ’em.', 'Get off the bloody ute!', 'You scratch her, you’re payin’.'],
   enter: ['OI! Get outta me ute!', 'Fuck me dead! Outta the bloody ute!', 'Whaddaya reckon you’re doin’?! OUT!', 'Strewth! Nobody drives her but me!'],
-  nokeys: ['Keys are in me pocket, genius.', 'Not goin’ anywhere without these, are ya?'],
+  stolen: ['OI! That’s me bloody ute! Bring her back!', 'You thievin’ mongrel! I’ll have ya for that!', 'Fuck me dead, he’s nicked the ute! Get back ’ere!'],
+  pinch: ['Right. Two can play at that.', 'I’m takin’ this. Hang on, girls, I’m comin’!', 'Not gettin’ away that easy, ya rat!'],
+  pursue: ['Pull over, ya mongrel!', 'I’ll run ya off the bloody road!', 'That’s MY ute!', 'You scratch her and you’re dead!', 'Nowhere to go, mate!'],
   yank: ['Out ya get!', 'Righto. OUT!', 'Go on, rack off!', 'Get out and stay out!'],
   left: ['And stay out!', 'Yeah, you’d better.', 'Too right.'],
   ram: ['OI! Watch the bloody ute!', 'Fuck me dead, you’ll dent her!', 'Ya galah! That’s me ute!', 'Strewth! Mind the paint!'],
@@ -12128,7 +12216,7 @@ const MM_L = {
   dongaOk: ['Make yaself at home. Don’t touch the fridge.', 'Come in, mate. Mind the mess.'],
 };
 const MM = { ready: false, n: null, dogs: [], t: 0, anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, idleT: 14, sayT: 0, told: {}, last: {},
-  noKeysT: 0, inUteT: 0, touchT: 0, nearT: 0, away: true, sipT: 4, sip: 0, react: null, reactT: 0, rest: null, moved: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0,
+  inUteT: 0, stolen: false, uteAt: null, lostT: 0, pur: null, touchT: 0, nearT: 0, away: true, sipT: 4, sip: 0, react: null, reactT: 0, rest: null, moved: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0,
   npcDriving: false, sub: null, subT: 0, sheet: null, uteSeen: null, scareT: 0, barkT: 20 };
 const mmPick = (k) => { const g = typeof mmGen === 'function' ? mmGen(k) : null; if (g) return g; const L = MM_L[k]; if (!L || !L.length) return ''; let i = Math.floor(Math.random() * L.length); if (L[i] === MM.last[k] && L.length > 1) i = (i + 1) % L.length; MM.last[k] = L[i]; return L[i]; };
 // say a line: speech bubble over his head, and a subtitle when you're close enough to hear it
@@ -12169,7 +12257,6 @@ function mmUteSt() { const v = VEH.ute; return v === activeVeh() ? S : v.state; 
 function mmUteW(lx, lz, out) { const st = mmUteSt(), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw); return out.set(st.pos.x + fz * lx + fx * lz, st.pos.y, st.pos.z - fx * lx + fz * lz); }
 function mmHomeW(lx, lz) { const h = HOME.ute, fx = Math.sin(h.yaw), fz = Math.cos(h.yaw); return [h.x + fz * lx + fx * lz, h.z - fx * lx + fz * lz]; }
 function mmUteHome() { const st = mmUteSt(), h = HOME.ute; if (!st || !h) return false; return Math.hypot(st.pos.x - h.x, st.pos.z - h.z) < 1.2 && Math.abs(faAng(st.yaw - h.yaw)) < 0.25; }
-const mmNoKeys = () => !MM.npcDriving;
 
 /* ---------- build ---------- */
 function mmBuild() {
@@ -12237,6 +12324,7 @@ faunaScare = function (pos, r) { if (MM.ready && MM.n && r >= 30 && activeName =
 /* ---------- brain ---------- */
 function mmThink(n, dt) {
   n.t += dt; const v = mmUte();
+  if (n.veh && n.veh !== v && n.st !== 'drive') { const st = n.st, t = n.t; mmLeaveRide(n); n.st = st; n.t = t; }      // knocked out of whatever he pinched
   const dP = Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z);
   // fights, tumbles, getting knocked out: the backpackers' code does all that
   if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) {
@@ -12251,37 +12339,46 @@ function mmThink(n, dt) {
   }
   // run over by whatever you're driving
   const veh = FA.threats.find(t => t.kind === 'veh');
-  if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
+  if (veh && veh.sp > 2.5 && !n.veh) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (typeof dgStuckIn === 'function' && dgStuckIn(n, dt)) return;
   if (MH.mode && mhMadman(n, dt)) return;
-  if (n.st === 'drive') { if (MH.mode) mhDriveThink(n, dt); else mmDriveThink(n, dt); return; }
-  // you're in his ute: get in his ute and chase you down
-  if (activeName === 'ute' && n.st !== 'uteChase' && n.st !== 'drive') { n.st = 'uteChase'; n.t = 0; MM.hostileT = Math.max(MM.hostileT, 120); n.angry = true; mmSay('enter', 2.6, true); }
+  if (n.st === 'drive') { if (n.veh !== v) mmPursue(n, dt); else if (MH.mode) mhDriveThink(n, dt); else mmDriveThink(n, dt); return; }
+  // you're in his ute: he comes for you, on foot or in whatever he can get his hands on, and drags you out
+  if (activeName === 'ute' && n.st !== 'toDoor' && n.st !== 'yank' && n.st !== 'toRide') { MM.gawpT = n.st === 'lean' || n.st === 'home' ? 1.2 : 0; n.st = 'toDoor'; n.t = 0; MM.lostT = 0; }
   if (n.st === 'toDoor') {
     if (activeName !== 'ute') { n.st = MM.hostileT > 0 && n.angry ? 'chase' : 'home'; n.t = 0; if (dP < 20 && n.st === 'home') mmSay('left'); return; }
+    const st = mmUteSt(), usp = Math.hypot(st.vx || 0, st.vz || 0);
     const door = mmUteW(UTE_RIG.driver.x < 0 ? -1.75 : 1.75, UTE_RIG.door.z, _w1), d = Math.hypot(door.x - n.pos.x, door.z - n.pos.z);
-    if (d < 0.7 || (n.t > 25 && d < 3)) { n.st = 'yank'; n.t = 0; return; }
-    if (n.t > 40) { mmYank(n); n.st = MM.hostileT > 0 ? 'chase' : 'home'; return; }        // stuck somewhere: he gets there in the end
-    npcWalk(n, faSteer(n, Math.atan2(door.x - n.pos.x, door.z - n.pos.z), 2), d > 4 ? 3.6 : 2.2, dt); return;
+    if (MM.gawpT > 0) { MM.gawpT -= dt; npcFace(n, door.x, door.z, 6, dt); n.sp *= 0.8; return; }        // a moment of disbelief first
+    MM.doorT = usp < 1 && d < 9 ? (MM.doorT || 0) + dt : 0;                            // can't quite get round to the door (you've parked it against something): he reaches in anyway
+    if (usp < 5 && (d < 0.9 || MM.doorT > 4)) { n.st = 'yank'; n.t = 0; MM.doorT = 0; return; }
+    // it's getting away from him: find some wheels
+    if (d > 9 && usp > 3) MM.lostT += dt; else MM.lostT = Math.max(0, MM.lostT - dt * 0.5);
+    if (MM.lostT > 1.2 || d > 45) { MM.lostT = 0; const r = mmPickRide(n);            // (parked up a long way off: only if the machine's a good bit nearer than the ute)
+      if (r && (usp > 1.5 || Math.hypot(r.state.pos.x - n.pos.x, r.state.pos.z - n.pos.z) < d * 0.6)) { n.ride = r; n.st = 'toRide'; n.t = 0; MM.slowT = 0; mmSay('pinch', 2.6, true); return; } }
+    const k = Math.min(1.2, d / 7); mmRun(n, door.x + (st.vx || 0) * k, door.z + (st.vz || 0) * k, d > 3 ? 6.4 : 2.6, dt, usp < 1); return;
   }
-  if (n.st === 'yank') { npcFace(n, mmUteSt().pos.x, mmUteSt().pos.z, 8, dt); if (n.t > 0.55) { if (activeName === 'ute') mmYank(n); n.st = MM.hostileT > 0 && n.angry ? 'chase' : 'home'; n.t = 0; } return; }
-  // chasing your ute on foot
-  if (n.st === 'uteChase') {
-    if (activeName !== 'ute') { n.st = 'home'; n.t = 0; return; }
-    const playerSt = mmUteSt(); const playerVel = new THREE.Vector3(playerSt.vx, 0, playerSt.vz);
-    const interceptX = playerSt.pos.x + playerVel.x * 1.5; const interceptZ = playerSt.pos.z + playerVel.z * 1.5;
-    const distToPlayer = Math.hypot(playerSt.pos.x - n.pos.x, playerSt.pos.z - n.pos.z);
-    npcWalk(n, faSteer(n, Math.atan2(interceptX - n.pos.x, interceptZ - n.pos.z), 2), Math.min(6.5, 3.2 + distToPlayer * 0.15), dt);
-    return;
+  if (n.st === 'yank') { npcFace(n, mmUteSt().pos.x, mmUteSt().pos.z, 8, dt);
+    if (activeName === 'ute' && Math.hypot(mmUteSt().vx || 0, mmUteSt().vz || 0) > 5.5) { n.st = 'toDoor'; n.t = 0; return; }       // you've floored it: he's left grabbing at air
+    if (n.t > 0.55) { if (activeName === 'ute') mmYank(n); n.st = MM.hostileT > 0 && n.angry ? 'chase' : 'home'; n.t = 0; } return; }
+  if (n.st === 'toRide') {
+    const r = n.ride, ok = r && !r.mp && !r.npc && r.name !== activeName && r.state && !(WPN.VD[r.name] && WPN.VD[r.name].wrecked);
+    if (activeName !== 'ute' || !ok) { n.ride = null; n.st = activeName === 'ute' ? 'toDoor' : MM.hostileT > 0 && n.angry ? 'chase' : 'home'; n.t = 0; return; }
+    const o = vehicleOBB(r), dx = n.pos.x - o.cx, dz = n.pos.z - o.cz, gap = Math.hypot(Math.max(0, Math.abs(dx * o.fx + dz * o.fz) - o.hl), Math.max(0, Math.abs(dx * o.lx + dz * o.lz) - o.hw));
+    // you've pulled up, and the ute's nearer than the machine: he just runs at it
+    const st = mmUteSt(), dU = Math.hypot(st.pos.x - n.pos.x, st.pos.z - n.pos.z), slow = Math.hypot(st.vx || 0, st.vz || 0) < 1.5; MM.slowT = slow && dU < gap * 1.3 ? (MM.slowT || 0) + dt : 0;
+    if ((slow && dU < 7) || MM.slowT > 1.5) { n.ride = null; n.st = 'toDoor'; n.t = 0; MM.lostT = 0; return; }
+    if (gap < 1.1 || (n.t > 14 + gap / 4 && faCamD(n.pos) > 70)) { mmEnterRide(n, r); return; }          // (stuck somewhere out of sight: he gets there in the end)
+    mmRun(n, o.cx, o.cz, 6.4, dt); return;
   }
   // his ute's been shoved off its spot: go and park it again
   if (!mmUteHome() && !v.coast && activeName !== 'ute' && !v.wrecked && !v.mp && MM.hostileT <= 0 && n.st !== 'toUte') { n.st = 'toUte'; n.t = 0; }
   if (n.st === 'toUte') {
     if (mmUteHome() || v.wrecked || v.mp || activeName === 'ute') { n.st = 'home'; return; }
     const door = mmUteW(UTE_RIG.driver.x < 0 ? -1.75 : 1.75, UTE_RIG.door.z, _w1), d = Math.hypot(door.x - n.pos.x, door.z - n.pos.z);
-    if (d < 0.8 || n.t > 30) { mmEnterUte(n); return; }
-    npcWalk(n, faSteer(n, Math.atan2(door.x - n.pos.x, door.z - n.pos.z), 2), d > 4 ? 2.4 : 1.6, dt); return;
+    if (d < 0.8 || (n.t > 30 && (d < 6 || faCamD(n.pos) > 60)) || n.t > 90) { mmEnterUte(n); return; }
+    mmRun(n, door.x, door.z, d > 12 ? 4.2 : d > 4 ? 2.4 : 1.6, dt); return;
   }
   // his donga
   if (DG_ST.includes(n.st) && dgThink(n, dt, dP)) return;
@@ -12338,19 +12435,94 @@ function mmYank(n) {
 function mmEnterUte(n) {
   const v = mmUte(); if (v.npc && v.npc !== n) return; n.veh = v; v.npc = n; v.coast = false; n.st = 'drive'; n.t = 0; n.sp = 0;
   const s = v.seat; v.model.body.add(n.root); n.root.position.set(s.x, s.hip - 0.702 * s.k, s.z); n.root.quaternion.identity(); n.root.scale.setScalar(n.s * s.k);
-  MM.parkPh = 'go'; MM.parkT = 0; if (typeof sfx === 'function') sfx('thud', v.state.pos, 0.25, 1.2, 6);
+  MM.parkPh = 'go'; MM.parkT = 0; MM.navHome = 0; if (typeof sfx === 'function') sfx('thud', v.state.pos, 0.25, 1.2, 6);
 }
 function mmLeaveUte(quiet) {
-  const n = MM.n, v = n.veh; if (!v) return; v.npc = null; n.veh = null; scene.attach(n.root); n.root.scale.setScalar(n.s);
+  const n = MM.n, v = n.veh; if (!v) return; if (v !== mmUte()) { mmLeaveRide(n); if (quiet) n.st = 'lean'; return; }
+  v.npc = null; n.veh = null; scene.attach(n.root); n.root.scale.setScalar(n.s);
   const st = v.state; if (st) { st.v *= 0.2; st.vx *= 0.2; st.vz *= 0.2; v.coast = Math.hypot(st.vx, st.vz) > 0.05; }
   const p = mmUteW(UTE_RIG.driver.x < 0 ? -1.7 : 1.7, UTE_RIG.door.z, new THREE.Vector3());
   n.pos.set(p.x, 0, p.z); n.gy = n.pos.y = groundAt(p.x, p.z, (st ? st.pos.y : 0) + 2, 0); n.st = quiet ? 'lean' : 'home'; n.t = 0; n.tilt = 0; MM.parkPh = '';
 }
 function mmDrive(dt, thr, str) { MM.npcDriving = true; try { return npcDrive(mmUte(), dt, thr, str); } finally { MM.npcDriving = false; } }
+
+/* ---------- you've driven off in his ute: he gets it back any way he can ---------- */
+// run at a point; a long way off he follows the drive grid's route round the sheds (open ground, so straight along it)
+function mmRun(n, x, z, sp, dt, still = true) {
+  const d = Math.hypot(x - n.pos.x, z - n.pos.z);
+  if (d > 14) {
+    n.runT = (n.runT || 0) - dt; if (n.runT <= 0 || !n.runP) { n.runT = 1.5; n.runP = drvPath(n.pos.x, n.pos.z, x, z); n.runI = 1; }
+    const P = n.runP; if (P && P.length > 1) { while (n.runI < P.length - 1 && Math.hypot(P[n.runI][0] - n.pos.x, P[n.runI][1] - n.pos.z) < 3) n.runI++; dgMove(n, P[n.runI][0], P[n.runI][1], sp, dt); pushOutOfVehicles(n.pos, 0.38); return; }
+  } else n.runP = null;
+  // the walk map's patchy out past the yard: if he's getting nowhere at something that isn't moving, he cuts straight across
+  n.runC = (n.runC || 0) - dt; if (n.runC <= 0) { n.runC = 1.5; if (still && d > 1 && n.runD !== undefined && d > n.runD - 0.6) n.runF = 2.5; n.runD = d; }
+  if (n.runF > 0) { n.runF -= dt; dgMove(n, x, z, sp, dt); pushOutOfVehicles(n.pos, 0.38); return; }
+  npcWalk(n, faSteer(n, Math.atan2(x - n.pos.x, z - n.pos.z), 2), sp, dt, 9);
+}
+// the nearest machine that goes (the slow ones only if there's nothing better about)
+function mmPickRide(n) {
+  let best = null, bs = 1e9;
+  for (const name of ['x5', 'bmw', 'suv', 'trophy', 'tractor', 'tele', 'truck', 'dozer']) {
+    const r = VEH[name]; if (!r || r.mp || r.npc || name === activeName || !r.state || !r.state.pos || (WPN.VD[name] && WPN.VD[name].wrecked)) continue;
+    if (name === 'tractor' && typeof IMPL !== 'undefined' && IMPL.hooked) continue;
+    const sc = Math.hypot(r.state.pos.x - n.pos.x, r.state.pos.z - n.pos.z) + (r.spec.top < 14 ? 60 : 0); if (sc < bs) { bs = sc; best = r; }
+  }
+  return best;
+}
+function mmEnterRide(n, r) {
+  n.veh = r; r.npc = n; r.coast = false; n.ride = null; n.runP = null; n.st = 'drive'; n.t = 0; n.sp = 0;
+  const s = r.seat; r.model.body.add(n.root); n.root.position.set(s.x, s.hip - 0.702 * s.k, s.z); n.root.quaternion.identity(); n.root.scale.setScalar(n.s * s.k);
+  MM.pur = { planT: 0, pts: null, i: 1, str: 0, stuckT: 0, recT: 0, recStr: 1, sayT: 2 };
+  if (typeof sfx === 'function') sfx('thud', r.state.pos, 0.25, 1.2, 6);
+}
+function mmLeaveRide(n) {
+  const r = n.veh; if (!r) return; const o = vehicleOBB(r), st = r.state; r.npc = null; r.coast = true; n.veh = null; MM.pur = null; scene.attach(n.root); n.root.scale.setScalar(n.s);
+  if (st) { st.v *= 0.3; st.vx *= 0.3; st.vz *= 0.3; }
+  const you = activeName === 'ute' ? mmUteSt().pos : F.pos, sd = o && (you.x - o.cx) * o.lx + (you.z - o.cz) * o.lz < 0 ? -1 : 1;      // out on the side nearer you
+  const px = o ? o.cx + o.lx * sd * (o.hw + 0.7) : n.pos.x, pz = o ? o.cz + o.lz * sd * (o.hw + 0.7) : n.pos.z;
+  n.pos.set(px, 0, pz); n.gy = n.pos.y = groundAt(px, pz, (st ? st.pos.y : 0) + 1.2, st ? st.pos.y : 0); if (o) n.yaw = Math.atan2(o.lx * sd, o.lz * sd); n.tilt = 0; n.sp = 0; n.t = 0;
+  n.st = activeName === 'ute' ? 'toDoor' : MM.hostileT > 0 && n.angry ? 'chase' : 'home';
+  if (typeof sfx === 'function' && st) sfx('thud', st.pos, 0.25, 1.2, 6);
+}
+// at the wheel of it: straight at you when there's a clear run, otherwise the route round the sheds; rams you if you keep going,
+// and once you've all but stopped he's out the door to drag you out by hand
+function mmPursue(n, dt) {
+  const r = n.veh, st = r.state, P = MM.pur, D = WPN.VD[r.name];
+  if (!st || !P || (D && D.wrecked) || r.mp) { mmLeaveRide(n); return; }
+  n.pos.copy(st.pos);                                    // so shots and blasts still find him
+  const sp = st.v, stop = () => npcDrive(r, dt, Math.abs(sp) > 0.3 ? -Math.sign(sp) * 0.8 : 0, 0);
+  if (activeName !== 'ute') { stop(); if (Math.abs(sp) < 1.2) mmLeaveRide(n); return; }
+  const U = mmUteSt(), usp = Math.hypot(U.vx || 0, U.vz || 0), d = Math.hypot(U.pos.x - st.pos.x, U.pos.z - st.pos.z);
+  if (d < 9 && usp < 2.5) { stop(); if (Math.abs(sp) < 1.5) mmLeaveRide(n); return; }
+  P.sayT -= dt; if (P.sayT <= 0) { P.sayT = 7 + Math.random() * 6; if (d < 45) mmSay('pursue', 2.4, true); }
+  if (P.recT > 0) { P.recT -= dt; npcDrive(r, dt, -0.7, P.recStr); if (P.recT <= 0) P.fwdT = 3; return; }                 // backing out of whatever he's run into
+  P.fwdT = (P.fwdT || 0) - dt;
+  P.planT -= dt; if (P.planT <= 0) { P.planT = 0.8; P.pts = d < 10 || drvLOS(st.pos.x, st.pos.z, U.pos.x, U.pos.z) ? null : drvPath(st.pos.x, st.pos.z, U.pos.x, U.pos.z); P.i = 1; }
+  let tx, tz;
+  if (P.pts && P.pts.length > 1) { const Q = P.pts; while (P.i < Q.length - 1 && Math.hypot(Q[P.i][0] - st.pos.x, Q[P.i][1] - st.pos.z) < 6) P.i++; [tx, tz] = Q[P.i]; }
+  else { const k = Math.min(1.5, d / 14); tx = U.pos.x + (U.vx || 0) * k; tz = U.pos.z + (U.vz || 0) * k; }
+  const e = faAng(Math.atan2(tx - st.pos.x, tz - st.pos.z) - st.yaw);
+  if (Math.abs(e) > 2 && Math.abs(sp) < 2 && d > 6 && P.fwdT <= 0) { P.recT = 1.4; P.recStr = Math.sign(e) || 1; return; }          // you're behind him: swing it round
+  let vt = Math.min(r.spec.top * 0.85, 24, 7 + d * 0.45 + usp * 0.9) * (1 - Math.min(0.72, Math.max(0, Math.abs(e) - 0.2) / 1.3)); if (P.pts) vt = Math.min(vt, 13);
+  const want = THREE.MathUtils.clamp(-e * 1.7 / (1 + Math.abs(sp) * 0.07), -1, 1); P.str += (want - P.str) * Math.min(1, dt * 5);
+  const thr = sp < vt - 0.3 ? THREE.MathUtils.clamp(0.5 + (vt - sp) * 0.3, 0, 1) : sp > vt + 1 ? -Math.min(1, 0.3 + (sp - vt) * 0.25) : 0.1;
+  if (thr > 0.2 && Math.abs(sp) < 0.5) P.stuckT += dt; else P.stuckT = Math.max(0, P.stuckT - dt * 2);
+  if (P.stuckT > 1.1) { P.stuckT = 0; P.recT = 1.3; P.recStr = -(Math.sign(P.str) || 1); P.planT = 0; return; }
+  npcDrive(r, dt, thr, P.str);
+}
 function mmDriveThink(n, dt) {
   const v = mmUte(), st = v.state, h = HOME.ute; MM.parkT += dt;
   if (!st || v.wrecked) { mmLeaveUte(false); return; }
   const dx = h.x - st.pos.x, dz = h.z - st.pos.z, d = Math.hypot(dx, dz);
+  if (MM.parkPh === 'go' && (d > 22 || MM.navHome)) {
+    // a long way from his spot (you drove it off): take the route home, then shuffle it in
+    const fx = Math.sin(h.yaw), fz = Math.cos(h.yaw);
+    if (!MM.navHome) { DRVX.clear(); MM.navHome = mhNavTo(h.x - fx * 2.5, h.z - fz * 2.5, { via: [h.x - fx * 13, h.z - fz * 13], cruise: 10 }) ? 1 : 2; }
+    if (MM.navHome === 1 && MM.parkT < 150 && mhNavStep(dt) === 'go') return;
+    MM.navHome = 0; MH.nav = null;
+    if (d > 14 && faCamD(st.pos) > 60) { st.pos.x = h.x - fx * 4; st.pos.z = h.z - fz * 4; st.pos.y = groundAt(st.pos.x, st.pos.z, 30, st.pos.y) + 0.05; st.yaw = h.yaw; st.v = st.vx = st.vz = 0; }      // couldn't get there, and nobody's looking
+    MM.parkPh = 'settle'; MM.parkT = 0; return;
+  }
   if (MM.parkPh === 'go') {
     // drive at the spot, forwards or backwards (whichever points the ute at it better), then shuffle it in
     const e = faAng(Math.atan2(dx, dz) - st.yaw), back = Math.abs(e) > 1.7 && d < 18;
@@ -12382,13 +12554,13 @@ function mmStep(dt) {
   if (MM.strikes > 0) { MM.strikeT -= dt; if (MM.strikeT <= 0) { MM.strikes--; MM.strikeT = 75; } }
   if (MM.refuseT > 0) MM.refuseT -= dt;
   if (MM.hostileT > 0) { MM.hostileT -= dt; if (MM.hostileT <= 0 || F.dead > 0) { if (F.dead > 0) { MM.hostileT = 0; n.angry = false; MM.anger = 40; if (npcAlive(n)) { n.st = 'home'; mmSay('win', 3, true); } } else mmCalm(); } }
-  // you got in
+  // you got in; drive off in it and it's on until he's got it back
   if (activeName === 'ute') {
-    if (MM.inUteT === 0) { mmOffend('enter', 35, true); mmSay('enter', 2.6, true); MM.noKeysT = 0; for (const d of MM.dogs) d.alert = 5; }
+    if (MM.inUteT === 0) { mmOffend('enter', 35, true); mmSay('enter', 2.6, true); MM.stolen = false; MM.uteAt = [S.pos.x, S.pos.z]; for (const d of MM.dogs) d.alert = 5; }
     MM.inUteT += dt;
-    if ((input.gas || input.y > 0.3 || input.ky > 0) && MM.noKeysT <= 0) { MM.noKeysT = 6; toast('No keys. Madman’s got them in his pocket', 2); if (MM.inUteT > 1.5) mmSay('nokeys'); }
-    MM.noKeysT -= dt;
-  } else MM.inUteT = 0;
+    if (!MM.stolen && Math.hypot(S.pos.x - MM.uteAt[0], S.pos.z - MM.uteAt[1]) > 8) { MM.stolen = true; mmSay('stolen', 3, true); toast('Madman wants his ute back, any way he can get it', 2.6); for (const d of MM.dogs) d.alert = 6; }
+    if (MM.stolen && npcAlive(n)) { MM.hostileT = Math.max(MM.hostileT, 25); MM.anger = 100; MM.refuseT = Math.max(MM.refuseT, 75); n.angry = true; }
+  } else { MM.inUteT = 0; MM.stolen = false; }
   // somebody leaning on it or standing on it
   if (activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air') && n.st === 'lean' && v.state) {
     const o = vehicleOBB(v), dx = F.pos.x - o.cx, dz = F.pos.z - o.cz, gap = Math.hypot(Math.max(0, Math.abs(dx * o.fx + dz * o.fz) - o.hl), Math.max(0, Math.abs(dx * o.lx + dz * o.lz) - o.hw));
@@ -13362,7 +13534,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { standFarmerAt, DG_UNITS, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
