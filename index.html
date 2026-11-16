@@ -2393,10 +2393,8 @@ const fwd = new THREE.Vector3(), side = new THREE.Vector3(), tmp = new THREE.Vec
 const UPV = new THREE.Vector3(0, 1, 0);
 function damp(cur, target, rate, dt) { return target + (cur - target) * Math.exp(-rate * dt); }
 
-/* Drift-mode car: a two-axle tyre-slip model (rear-wheel drive). Grip is shared between
-   driving and cornering, so full throttle or the handbrake lets the rear step out; the
-   driver holds the slide with counter-steer and throttle. A little counter-steer assist
-   keeps it playable on a phone. Units: SI. */
+/* DRIFT and the per-car .drift tables below now only carry each car's top speed, reverse speed and pull
+   (and what the damage code scales when a tyre goes); the driving itself is carMotion, further down. */
 const DRIFT = { m: 1700, a: 1.45, Iz: 2100, Cf: 62000, Cr: 58000, mu: 0.82, muF: 1.0, slide: 0.8, limit: 0.72, limitK: 26, circle: 1.0, drive: 5.2, top: 105 / 3.6, rev: 20 / 3.6,
                 steer: 0.6, steerFast: 0.32, steerRate: 3.2, assist: 0.42, catch: 0.55, hbGrip: 0.06, hbDrag: 0.3, kick: 2.4 };
 // the trophy truck uses the same drift model with its own (heavier, faster) numbers
@@ -2409,62 +2407,86 @@ SPECS.x5.drift = Object.assign({}, DRIFT, { m: 2200, Iz: 3600, a: 1.5, Cf: 74000
 SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 7.8, Cf: 76000, Cr: 70000, mu: 0.97 });
 SPECS.ute.drift = Object.assign({}, SPECS.x5.drift, { m: 2300, Iz: 4300, a: 1.62, Cf: 70000, Cr: 63000, mu: 0.9, drive: 6.0, top: 150 / 3.6, rev: 22 / 3.6, steer: 0.54, steerFast: 0.2, kick: 2.0 });
 SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 70000, Cr: 64000, mu: 0.9, drive: 8.6, top: 165 / 3.6, rev: 25 / 3.6, steer: 0.58, steerFast: 0.3, kick: 2.8 });
-function driftMotion(dt, throttle, steerIn, braking, handbrake) {
-  const D = driftTune(V.drift || DRIFT), b = V.wb - D.a, g = 9.8, MU = D.mu * WX.grip * slideGm();
-  const Nf = D.m * g * b / V.wb, Nr = D.m * g * D.a / V.wb;
-  const n = 4, h = dt / n;
-  let yaw = S.yaw, vx = S.vx, vz = S.vz, r = S.r, x = S.pos.x, z = S.pos.z, vF = 0, vL = 0, ax = 0;
-  const kick = handbrake && Math.abs(steerIn) > 0.15 ? -steerIn * D.kick : 0;   // a handbrake flick swings the tail round
+/* ================================================================
+   HANDLING (Nov 2026 rewrite): one weight-based model for every wheeled machine, tuned to feel like GTA.
+   The vehicle is a mass with a front and a rear axle. Each axle's tyres push back against sideways slip
+   up to what the load on them can hold, so:
+   - it carries momentum: it leans on its tyres into a corner, and if you ask too much it pushes wide or
+     the tail comes round progressively, instead of snapping;
+   - braking throws weight forward (the nose bites, the tail goes light), power throws it back;
+   - the handbrake lets go of the rear so you can swing it; rear-drive cars step out under power;
+   - let go of the wheel and it straightens itself and settles, with no wheel-waggling "help".
+   Steering lock shrinks with speed so full stick asks for about what the tyres can give.
+   Drift mode loosens the rear and adds the optional counter-steer assist; the slide slider and the rain
+   scale the grip. Tracks (dozer) and the bikes keep their own simpler models.
+   Per machine: g = cornering grip in g, cs = how sharply the tyres bite (per rad, times load),
+   fw = share of weight on the front, h = height of the centre of mass (m), drv = driven axle(s).
+   ================================================================ */
+const HND = {
+  x5:      { g: 1.02, cs: 16, fw: 0.52, h: 0.62, drv: 'a' }, bmw:     { g: 1.05, cs: 17, fw: 0.52, h: 0.6, drv: 'a' },
+  suv:     { g: 0.93, cs: 14, fw: 0.53, h: 0.74, drv: 'a' }, ute:     { g: 0.93, cs: 14, fw: 0.56, h: 0.72, drv: 'r' },
+  trophy:  { g: 0.98, cs: 12, fw: 0.5, h: 0.85, drv: 'r' },  tractor: { g: 0.7, cs: 9, fw: 0.42, h: 1.1, drv: 'a' },
+  tele:    { g: 0.7, cs: 9, fw: 0.5, h: 1.2, drv: 'a' },     truck:   { g: 0.62, cs: 8.5, fw: 0.45, h: 1.3, drv: 'r' },
+  combine: { g: 0.6, cs: 8.5, fw: 0.6, h: 1.6, drv: 'f' },   def:     { g: 0.85, cs: 11, fw: 0.5, h: 0.8, drv: 'a' } };
+const tyreCurve = (x) => x / Math.sqrt(1 + x * x);          // rises straight, then leans over to the limit: no cliff to fall off
+function carMotion(dt, throttle, steerIn, braking, handbrake) {
+  const H = HND[activeName] || HND.def, DS = V.drift || (activeName === 'suv' ? DRIFT : null), dm = DMG.v[activeName];
+  const m = VEH_MASS[activeName] || 1500, wb = V.wb, a = wb * (1 - H.fw), b = wb - a, g = 9.8, Iz = m * a * b * 1.3;
+  const top = DS ? DS.top : V.top, rev = DS ? DS.rev : V.rev, pull = DS ? DS.drive : V.accel, loose = DRIFTM && !!DS;
+  const MU = H.g * WX.grip * slideGm() * (dm && dm.s0 ? V.grip / dm.s0.grip : 1) * (loose ? 0.88 : 1), rearK = loose ? 0.72 : 1;
+  // the wheel eases toward the stick (quicker coming off than going on); the lock shrinks with speed
+  const sn0 = S.steerN || 0, off = Math.abs(steerIn) < Math.abs(sn0) || steerIn * sn0 < 0;
+  S.steerN = sn0 + THREE.MathUtils.clamp(steerIn - sn0, -(off ? 9 : 6) * dt, (off ? 9 : 6) * dt);
+  const sp0 = Math.hypot(S.vx, S.vz), lock = Math.min(V.steer, Math.atan(wb * H.g * g * 1.05 / Math.max(sp0 * sp0, 16)) + (loose ? 3 : 1.9) / H.cs);      // the turn the tyres can hold, plus the slip it takes to get there
+  const n = Math.max(2, Math.ceil(dt / 0.005)), h = dt / n;
+  // the machine's origin is its rear axle; the sums are done at its centre of mass, b ahead of that, so it turns about its middle
+  let yaw = S.yaw, r = S.r || 0, vx = S.vx + r * b * Math.cos(yaw), vz = S.vz - r * b * Math.sin(yaw), x = S.pos.x + b * Math.sin(yaw), z = S.pos.z + b * Math.cos(yaw), vF = 0, vL = 0, axF = S.axF || 0, d = 0, slipR = 0, spin = false;
+  const grade = -g * Math.sin(-S.pitch) * 0.6;              // gravity along the slope
   for (let k = 0; k < n; k++) {
     const fx = Math.sin(yaw), fz = Math.cos(yaw), lx = Math.cos(yaw), lz = -Math.sin(yaw);
     vF = vx * fx + vz * fz; vL = vx * lx + vz * lz;
-    const speed = Math.hypot(vF, vL), den = Math.max(Math.abs(vF), 2.0);
-    const beta = Math.atan2(vL, Math.max(Math.abs(vF), 0.5));
-    // steering: speed-sensitive lock + counter-steer assist toward the slide
-    const sk = Math.min(1, Math.abs(vF) / D.top);
-    let target = -steerIn * THREE.MathUtils.lerp(D.steer, D.steerFast, sk);
-    // stronger with the stick near centre, so letting go of the stick catches the slide
-    if (vF > 3 && !handbrake) target += (D.assist + D.catch * (1 - Math.abs(steerIn))) * THREE.MathUtils.clamp(beta, -0.6, 0.6);
-    target = THREE.MathUtils.clamp(target, -D.steer, D.steer);
-    S.steer += THREE.MathUtils.clamp(target - S.steer, -D.steerRate * h, D.steerRate * h);
-    const d = S.steer * Math.sign(vF || 1);
-    // longitudinal force on the rear (drive / brake / reverse)
-    let Fx = 0;
-    if (throttle > 0.02) Fx = vF < -0.5 ? MU * Nr * 0.9 : throttle * D.m * D.drive * Math.max(0, 1 - vF / D.top);
-    else if (throttle < -0.02) Fx = vF > 0.5 ? -MU * (Nf + Nr) * 0.6 : (vF > -D.rev ? throttle * D.m * 2.2 : 0);
-    if (braking) Fx = -Math.sign(vF) * MU * (Nf + Nr) * 0.85 * Math.min(1, Math.abs(vF) / 0.5);
-    if (handbrake) Fx += -Math.sign(vF) * D.hbDrag * MU * Nr * Math.min(1, Math.abs(vF) / 0.5);
-    if (S.rearSliding && Fx > 0) Fx *= 0.78;            // a little traction control once the tail is out
-    const drag = 0.42 * vF * Math.abs(vF) + 260 * Math.sign(vF) * Math.min(1, Math.abs(vF));
-    // lateral tyre forces with a friction circle on the rear
-    const af = Math.atan2(vL + r * D.a, den) - d;
-    const ar = Math.atan2(vL - r * b, den);
-    const Ffmax = MU * D.muF * Nf;
-    let Frmax = MU * Nr * Math.sqrt(Math.max(0.05, 1 - D.circle * Math.pow(Math.min(1, Math.abs(Fx) / (MU * Nr)), 2)));
-    if (handbrake) Frmax *= D.hbGrip;
-    // once the rear is past its peak it slides on lower friction until the slip angle comes back down
-    if (S.rearSliding) Frmax *= D.slide;
-    const peakR = Frmax / D.Cr;
-    S.rearSliding = Math.abs(ar) > (S.rearSliding ? peakR * 0.55 : peakR * 1.05);
-    const Fyf = THREE.MathUtils.clamp(-D.Cf * af, -Ffmax, Ffmax);
-    const Fyr = THREE.MathUtils.clamp(-D.Cr * ar, -Frmax, Frmax);
-    const aF = (Fx - Fyf * Math.sin(d) - drag) / D.m + vL * r;
-    const aL = (Fyf * Math.cos(d) + Fyr) / D.m - vF * r;
-    let torque = D.a * Fyf * Math.cos(d) - b * Fyr;
-    // drift-angle limiter: past ~40 degrees, a restoring yaw pulls the nose back toward the direction of travel
-    if (speed > 5) torque += kick * D.Iz * Math.min(1, speed / 10);
-    if (speed > 4 && Math.abs(beta) > D.limit) torque += Math.sign(beta) * (Math.abs(beta) - D.limit) * D.limitK * D.Iz;
-    vF += aF * h; vL += aL * h; r += torque / D.Iz * h;
-    // at walking pace, settle into plain rolling so the car can't pirouette on the spot
-    if (speed < 1.5) { const kk = 1 - Math.exp(-10 * h); vL -= vL * kk; r += (vF / V.wb * Math.tan(d) - r) * kk; }
+    const speed = Math.hypot(vF, vL), beta = Math.atan2(vL, Math.max(Math.abs(vF), 0.5));
+    d = -S.steerN * lock;
+    if (loose && vF > 3 && !handbrake) d = THREE.MathUtils.clamp(d + (0.42 + 0.55 * (1 - Math.abs(steerIn))) * dasK() * THREE.MathUtils.clamp(beta, -0.6, 0.6), -V.steer, V.steer);   // drift mode's counter-steer assist
+    // weight on each axle: braking loads the front, power the rear
+    const shift = THREE.MathUtils.clamp(m * axF * H.h / wb * 0.5, -0.25 * m * g, 0.25 * m * g), Nf = m * g * b / wb - shift, Nr = m * g * a / wb + shift;
+    const Nd = H.drv === 'a' ? Nf + Nr : H.drv === 'f' ? Nf : Nr;
+    // along the car: engine, brakes, handbrake, drag
+    let Fd = 0, Fb = 0;
+    if (throttle > 0.02) { if (vF < -0.5) Fb = m * V.brake; else Fd = throttle * m * pull * 0.85 * Math.max(0, 1 - Math.pow(Math.max(0, vF) / top, 1.6)); }
+    else if (throttle < -0.02) { if (vF > 0.5) Fb = m * V.brake * -throttle; else if (vF > -rev) Fd = throttle * m * pull * 0.6; }
+    if (braking) { Fb = m * V.brake; Fd = 0; }
+    const grip = MU * Nd; spin = Math.abs(Fd) > grip; Fd = THREE.MathUtils.clamp(Fd, -grip, grip);
+    Fb = Math.min(Fb, MU * (Nf + Nr) * 0.97);
+    const coast = Math.abs(throttle) < 0.02 && !braking ? (V.hydro ? 4.5 : 0.55) : 0.12;
+    const Fhb = handbrake ? MU * Nr * 0.3 : 0, roll = Math.sign(vF) * Math.min(1, Math.abs(vF) / 0.4);
+    const Fx = Fd - roll * (Fb + Fhb + m * coast) - 0.0022 * m * vF * Math.abs(vF);
+    // across the car: each axle's tyres against its own sideways slip
+    const vyf = vL + r * a, cd = Math.cos(d), sd = Math.sin(d), den = Math.max(Math.abs(vF), 2.5);
+    const slipF = Math.atan2(vyf * cd - vF * sd, Math.max(Math.abs(vF * cd + vyf * sd), 2.5)); slipR = Math.atan2(vL - r * b, den);
+    // power through an axle uses up some of its cornering grip (rear-drive cars step out, front-drive push; all-wheel drive only in drift mode)
+    const used = Math.min(1, Math.abs(Fd) * (loose && H.drv === 'a' ? 0.8 * (Nf + Nr) / Nr : 1) / Math.max(1, grip)), ck = loose ? 1 : 0.55, cut = Math.sqrt(Math.max(0.2, 1 - ck * used * used));
+    const capF = MU * Nf * (H.drv === 'f' ? cut : 1), capR = MU * rearK * Nr * (H.drv === 'r' || (loose && H.drv === 'a') ? cut : 1) * (handbrake ? (loose ? 0.1 : 0.22) : 1);
+    const Fyf = -capF * tyreCurve(H.cs * Nf * slipF / Math.max(1, capF)), Fyr = -capR * tyreCurve(H.cs * Nr * slipR / Math.max(1, capR));
+    const aF = (Fx - Fyf * sd) / m + grade + vL * r, aL = (Fyf * cd + Fyr) / m - vF * r;
+    let torque = a * Fyf * cd - b * Fyr - (1.1 + 0.05 * speed) * r * Iz;                       // (plus the damping a real chassis has)
+    if (handbrake && Math.abs(steerIn) > 0.15 && speed > 5) torque += -steerIn * (loose ? 2.2 : 1.6) * Iz * Math.min(1, speed / 10);      // a handbrake flick swings the tail
+    S.hbT = handbrake ? 0.8 : Math.max(0, (S.hbT || 0) - h);
+    const lim = loose ? 0.72 : S.hbT > 0 ? 0.85 : 0.3; if (speed > 4 && vF > 0 && Math.abs(beta) > lim) torque += Math.sign(beta) * (Math.abs(beta) - lim) * (loose ? 26 : 30) * Iz;   // past a big slide angle it pulls itself back into line
+    vF += aF * h; vL += aL * h; r += torque / Iz * h;
+    axF += ((Fx - Fyf * sd) / m - axF) * Math.min(1, 9 * h);
+    // at walking pace it just rolls where the wheels point, and it sits still once it's stopped
+    if (speed < 2.5) { const kk = (1 - Math.exp(-12 * h)) * (1 - speed / 2.5), rk = vF / wb * Math.tan(d); r += (rk - r) * kk; vL += (r * b - vL) * kk; }
+    if (Math.abs(vF) < 0.12 && Math.abs(throttle) < 0.02 && Math.abs(grade) < 1.2) { vF = 0; vL *= 0.8; r *= 0.8; }
     r = THREE.MathUtils.clamp(r, -4.5, 4.5);
-    ax = aF;
     yaw += r * h;
-    const fx2 = Math.sin(yaw), fz2 = Math.cos(yaw), lx2 = Math.cos(yaw), lz2 = -Math.sin(yaw);
-    vx = fx2 * vF + lx2 * vL; vz = fz2 * vF + lz2 * vL;
+    const fx2 = Math.sin(yaw), fz2 = Math.cos(yaw);
+    vx = fx2 * vF + fz2 * vL; vz = fz2 * vF - fx2 * vL;
     x += vx * h; z += vz * h;
   }
-  return { yaw, vx, vz, r, x, z, vF, vL, ax };
+  S.steer = d; S.axF = axF; S.wspin = spin; S.rearSliding = Math.abs(slipR) > 1.6 / H.cs;
+  const sy = Math.sin(yaw), cy = Math.cos(yaw);
+  return { yaw, vx: vx - r * b * cy, vz: vz + r * b * sy, r, x: x - b * sy, z: z - b * cy, vF, vL: vL - r * b, ax: axF };
 }
 
 const drift = { on: false, chain: 0, mult: 1, chainTime: 0, since: 0, total: 0, best: 0, angle: 0, flashT: 0 };
@@ -2501,6 +2523,7 @@ function step(dt) {
   }
   if (DMG.v[activeName]) steerIn = dmgPre(activeName, V, steerIn);          // flat tyres: slower, greasier, and it pulls to that side
 
+  const slip = !V.moto && !V.skid;                  // wheeled machines: the weight-based model (tracks and bikes keep the simple one)
   let newYaw, nx, nz, yawRate, accelObs, latAcc, moveX, moveZ, dist, D = null;
   if (S.air) {
     // airborne: momentum carries you, the wheels have nothing to push on
@@ -2508,9 +2531,9 @@ function step(dt) {
     const sp = Math.hypot(S.vx, S.vz); nx = S.pos.x + S.vx * dt; nz = S.pos.z + S.vz * dt; dist = sp * dt;
     moveX = sp > 1e-3 ? S.vx / sp : Math.sin(newYaw); moveZ = sp > 1e-3 ? S.vz / sp : Math.cos(newYaw);
     accelObs = 0; latAcc = 0;
-    if (drift.on) D = { yaw: newYaw, x: nx, z: nz, r: yawRate, vF: S.v, vx: S.vx, vz: S.vz, ax: 0 };
-  } else if (drift.on) {
-    D = driftMotion(dt, throttle, steerIn, braking, handbrake);
+    if (slip) D = { yaw: newYaw, x: nx, z: nz, r: yawRate, vF: S.v, vx: S.vx, vz: S.vz, ax: 0 };
+  } else if (slip) {
+    D = carMotion(dt, throttle, steerIn, braking, handbrake);
     newYaw = D.yaw; nx = D.x; nz = D.z; yawRate = D.r;
     S.v = D.vF; accelObs = D.ax; latAcc = D.vF * D.r;
     const sp = Math.hypot(D.vx, D.vz); dist = sp * dt;
@@ -2554,7 +2577,7 @@ function step(dt) {
 
   // collisions: rays from the middle of the vehicle out along the direction of travel, at several heights and lanes
   let blocked = false, hitN = null, impact = 0, sHit = null;
-  if (dist > 1e-4) {
+  if (dist > 1e-4 && !step.bench) {            // (step.bench: the handling test rig drives on open ground with nothing to hit)
     const midZ = (V.front - V.rear) / 2;
     const along = moveX * fwd.x + moveZ * fwd.z, across = moveX * side.x + moveZ * side.z;
     const halfLen = (V.front + V.rear) / 2;
@@ -2564,7 +2587,7 @@ function step(dt) {
     const span = Math.abs(along) * V.halfW + Math.abs(across) * halfLen * 0.8;
     for (const hgt of V.rayH) {
       for (const lane of [-0.8, 0, 0.8]) {
-        const off = lane * (along > 0.7 && !drift.on && V.noseLane < 1 ? V.halfW * V.noseLane : span);
+        const off = lane * (along > 0.7 && V.noseLane < 1 ? V.halfW * V.noseLane : span);
         tmp.set(S.pos.x + fwd.x * midZ + px * off, S.pos.y + hgt, S.pos.z + fwd.z * midZ + pz * off);
         const hit = castHit(tmp, tmp2, reach);
         if (hit && hit.face && !(MX.ready && !hit.struct && mxIn(hit.point.x, hit.point.z) && !insideYard(hit.point.x, hit.point.z)) && !(!hit.struct && hvIn(hit.point.x, hit.point.z) && !insideYard(hit.point.x, hit.point.z))) {
@@ -2591,16 +2614,17 @@ function step(dt) {
       }
     }
     // the other vehicles parked around the yard
-    if (!blocked) { const hv = groundVehicleHit(nx, nz, newYaw); if (hv) { blocked = true; hitN = hv; } }
+    if (!blocked) { const hv = groundVehicleHit(nx, nz, newYaw);
+      if (hv && !(moveX * hv.x + moveZ * hv.y > 0.2 && groundVehicleHit(S.pos.x, S.pos.z, S.yaw))) { blocked = true; hitN = hv; } }      // (already tangled up with one: pulling away from it is allowed)
   }
   if (blocked) {
-    if (drift.on) {
+    if (slip) {
       // bounce off: kill the velocity into the obstacle, keep some of the slide along it
       let vx = D.vx, vz = D.vz; const vn = vx * hitN.x + vz * hitN.y;
       if (vn < 0) { vx -= 1.3 * vn * hitN.x; vz -= 1.3 * vn * hitN.y; }
       else { vx = -vx * 0.3; vz = -vz * 0.3; }
       impact = Math.abs(vn) || Math.hypot(D.vx, D.vz);
-      S.vx = vx * 0.75; S.vz = vz * 0.75; S.r = D.r * 0.4; S.yaw = D.yaw;
+      S.vx = vx * 0.75; S.vz = vz * 0.75; S.r = D.r * 0.4; if (!groundVehicleHit(S.pos.x, S.pos.z, D.yaw)) S.yaw = D.yaw;      // it can still swing against a wall, but not into another machine
       S.v = S.vx * fwd.x + S.vz * fwd.z;
     } else {
       impact = Math.abs(S.v);
@@ -2612,14 +2636,14 @@ function step(dt) {
     if (sHit && impact > 0.25 && activeName !== 'foot') {
       const dirW = new THREE.Vector3(moveX, 0, moveZ).normalize(), res = structImpact(sHit.struct, sHit.point, dirW, impact, VEH_MASS[activeName] || 1500);
       const sgn = (moveX * fwd.x + moveZ * fwd.z) >= 0 ? 1 : -1;
-      if (res.through || res.keep > 0) { S.v = sgn * impact * (res.through ? res.keep : res.keep); if (drift.on) { S.vx = fwd.x * S.v; S.vz = fwd.z * S.v; } }
+      if (res.through || res.keep > 0) { S.v = sgn * impact * (res.through ? res.keep : res.keep); if (slip) { S.vx = fwd.x * S.v; S.vz = fwd.z * S.v; } }
     }
     if (impact > 1.8 && activeName !== 'foot') dmgCrash(activeName, hitN, impact, !!(sHit && sHit.struct && ['tree', 'wall', 'roof', 'gable'].includes(sHit.struct.kind)));
   } else {
     S.pos.x = nx; S.pos.z = nz; S.yaw = newYaw;
-    if (drift.on) { S.vx = D.vx; S.vz = D.vz; S.r = D.r; }
+    if (slip) { S.vx = D.vx; S.vz = D.vz; S.r = D.r; }
   }
-  if (!drift.on) { S.vx = Math.sin(S.yaw) * S.v; S.vz = Math.cos(S.yaw) * S.v; S.r = yawRate; }
+  if (!slip) { S.vx = Math.sin(S.yaw) * S.v; S.vz = Math.cos(S.yaw) * S.v; S.r = yawRate; }
 
   // ground following: four contact points
   const cy = Math.cos(S.yaw), sy = Math.sin(S.yaw);
@@ -2641,9 +2665,15 @@ function step(dt) {
   S.sus = THREE.MathUtils.clamp(S.sus + S.susV * dt, -0.12, 0.12);
 
   // body roll in turns / pitch under accel (sprung mass)
-  const rollGain = drift.on ? 0.009 : V.roll;
-  S.bodyRoll = damp(S.bodyRoll, THREE.MathUtils.clamp(latAcc * rollGain, -V.rollMax, V.rollMax), 4, dt);
-  S.bodyPitch = damp(S.bodyPitch, THREE.MathUtils.clamp(-accelObs * 0.008, -0.045, 0.045), 5, dt);
+  if (slip) {
+    // the body is a weight on springs: it leans out of a corner, dives on the brakes, squats on the power, and takes a moment to settle
+    const hh = (HND[activeName] || HND.def).h, rT = THREE.MathUtils.clamp(latAcc * hh * 0.0125, -0.11, 0.11), pT = THREE.MathUtils.clamp(-accelObs * 0.0075, -0.055, 0.055), sdt = Math.min(dt, 0.03);
+    S.rollV = (S.rollV || 0) + ((rT - S.bodyRoll) * 60 - (S.rollV || 0) * 6.6) * sdt; S.bodyRoll += S.rollV * sdt;
+    S.bpV = (S.bpV || 0) + ((pT - S.bodyPitch) * 70 - (S.bpV || 0) * 7.8) * sdt; S.bodyPitch += S.bpV * sdt;
+  } else {
+    S.bodyRoll = damp(S.bodyRoll, THREE.MathUtils.clamp(latAcc * V.roll, -V.rollMax, V.rollMax), 4, dt);
+    S.bodyPitch = damp(S.bodyPitch, THREE.MathUtils.clamp(-accelObs * 0.008, -0.045, 0.045), 5, dt);
+  }
   S.shake = Math.max(0, S.shake - dt * 2.2);
 
   // apply to the model
@@ -2653,7 +2683,7 @@ function step(dt) {
   T.body.rotation.set(S.bodyPitch + (Math.random() - 0.5) * 0.06 * sh, 0, S.bodyRoll + (Math.random() - 0.5) * 0.06 * sh);
   T.body.position.y = S.sus + (Math.random() - 0.5) * 0.12 * sh;
   if (DMG.v[activeName]) dmgBody(activeName, true, dt);
-  const spinRear = handbrake ? 0 : S.v + (drift.on && throttle > 0.5 && Math.abs(S.v) < 18 ? throttle * 6 : 0);   // wheelspin under power, locked on the handbrake
+  const spinRear = handbrake ? 0 : S.v + (slip && S.wspin && throttle > 0 ? throttle * 6 : 0);   // wheelspin under power, locked on the handbrake
   for (const w of T.wheels) w.spin.rotation.x += (w.rear ? spinRear : S.v) / w.r * dt;
   for (const p of T.steerPivots) p.rotation.y = S.steer;
 
@@ -2683,7 +2713,7 @@ function step(dt) {
 
   // dust and tyre marks from the rear wheels: heavy while sliding, a light trail at speed
   const vFn = S.vx * fwd.x + S.vz * fwd.z, vLn = S.vx * side.x + S.vz * side.z;
-  const rearSlip = Math.abs(vLn - S.r * (drift.on ? V.wb - (V.drift || DRIFT).a : 0)) + (handbrake ? Math.abs(vFn) * 0.6 : 0) + (drift.on && throttle > 0.6 && Math.abs(vFn) < 14 ? 3 : 0);
+  const rearSlip = Math.abs(vLn - S.r * (slip ? V.wb * (HND[activeName] || HND.def).fw : 0)) + (handbrake ? Math.abs(vFn) * 0.6 : 0) + (slip && S.wspin && throttle > 0.6 ? 3 : 0);
   const sliding = rearSlip > 2.2 && Math.hypot(S.vx, S.vz) > 2;
   const dustRate = S.air ? 0 : (sliding ? 10 + rearSlip * 4 : (Math.abs(S.v) > 7 ? (Math.abs(S.v) - 7) * 1.5 : 0)) * (1 - 0.92 * WX.wet);
   dustAcc += dt * dustRate;
@@ -2707,8 +2737,8 @@ function step(dt) {
     const [wx, wz, gy, rad, surf, sideS, isRear] = wheelsMud[k];
     const as = Math.abs(surf);
     let rate = isRear ? (sliding ? 30 + rearSlip * 7 : Math.max(0, as - 4.5) * 2.6) : Math.max(0, as - 6) * 1.1;
-    if (isRear && drift.on && throttle > 0.6 && Math.abs(vFn) < 14 && Math.hypot(S.vx, S.vz) > 0.5) rate += 45;   // wheelspin
-    if (!isRear && drift.on && sliding) rate += 10;
+    if (isRear && slip && S.wspin && throttle > 0.6 && Math.hypot(S.vx, S.vz) > 0.5) rate += 45;   // wheelspin
+    if (!isRear && slip && sliding) rate += 10;
     rate = S.air ? 0 : (rate + (WX.wet > 0.2 && as > 1.5 ? WX.wet * (isRear ? 12 : 5) : 0)) * (1 + 1.5 * WX.wet);
     mudAcc[k] += dt * rate * big;
     let n = 0;
@@ -4409,7 +4439,7 @@ function planeStep(ac, dt, controlled) {
   const thrust = A.ng > 0.5 ? P.thrust * Math.pow((A.ng - 0.5) / 0.5, 1.2) + 0.35 : 0;
   let lx = 0, ly = 0, rud = 0;
   if (controlled) {
-    lx = expo(input.x + input.kAD); ly = expo(input.y + input.kWS);
+    lx = expo(input.x + input.kAD); ly = -expo(input.y + input.kWS);          // like a real stick: pull back to climb, push forward to dive (and to brake on the ground)
     rud = (input.rudR || keys.has('x') ? 1 : 0) - (input.rudL || keys.has('z') ? 1 : 0);
     if (input.kUD) { A.thr = THREE.MathUtils.clamp(A.thr + input.kUD * 0.5 * dt, 0, 1); syncThrottle(); }
   }
@@ -4767,9 +4797,9 @@ function groundVehicleHit(nx, nz, yaw) {
 }
 function snapshotS() {
   return { pos: S.pos.clone(), yaw: S.yaw, v: S.v, steer: S.steer, pitch: S.pitch, roll: S.roll, bodyRoll: S.bodyRoll, bodyPitch: S.bodyPitch,
-           vx: S.vx, vz: S.vz, r: S.r, sus: S.sus, susV: S.susV, gVel: S.gVel, prevV: S.prevV };
+           vx: S.vx, vz: S.vz, r: S.r, sus: S.sus, susV: S.susV, gVel: S.gVel, prevV: S.prevV, steerN: S.steerN || 0, axF: S.axF || 0, rollV: S.rollV || 0, bpV: S.bpV || 0 };
 }
-function loadS(st) { const p = S.pos; Object.assign(S, st); S.pos = p; S.pos.copy(st.pos); S.shake = 0; S.air = false; S.vy = 0; S.pitchV = 0; }
+function loadS(st) { const p = S.pos; S.steerN = S.axF = S.rollV = S.bpV = 0; Object.assign(S, st); S.pos = p; S.pos.copy(st.pos); S.shake = 0; S.air = false; S.vy = 0; S.pitchV = 0; }
 function engineOff(v) { if (v.model.halo) { v.model.halo.material.opacity = 0; v.model.dome.material.color.setRGB(0.55, 0.32, 0.05); } }
 
 function setActive(name, opts = {}) {
@@ -4958,8 +4988,8 @@ jumpBtn.addEventListener('contextmenu', e => e.preventDefault());
 function setStickLabels(name) {
   const t = (sel, txt) => { const el = document.querySelector(sel); if (el) el.textContent = txt; };
   t('#stickR .tick.f', name === 'tele' || name === 'dozer' ? 'RAISE' : 'FWD'); t('#stickR .tick.r', name === 'tele' || name === 'dozer' ? 'LOWER' : 'BACK'); t('#stickR .tick.l', name === 'tele' ? '◀ CURL' : '◀'); t('#stickR .tick.rt', name === 'tele' ? 'DUMP ▶' : '▶');
-  if (name === 'duster') { t('#stick .tick.f', 'CLIMB'); t('#stick .tick.r', 'DIVE'); t('#stick .tick.l', '◀'); t('#stick .tick.rt', '▶'); }
-  else if (name === 'gyro') { t('#stick .tick.f', 'CLIMB'); t('#stick .tick.r', 'DIVE'); t('#stick .tick.l', '◀'); t('#stick .tick.rt', '▶'); }
+  if (name === 'duster') { t('#stick .tick.f', 'DIVE'); t('#stick .tick.r', 'CLIMB'); t('#stick .tick.l', '◀'); t('#stick .tick.rt', '▶'); }
+  else if (name === 'gyro') { t('#stick .tick.f', 'DIVE'); t('#stick .tick.r', 'CLIMB'); t('#stick .tick.l', '◀'); t('#stick .tick.rt', '▶'); }
   else if (name === 'drone' || name === 'flyer' || name === 'spray' || name === 'racer') { t('#stick .tick.f', 'UP'); t('#stick .tick.r', 'DOWN'); t('#stick .tick.l', '⟲'); t('#stick .tick.rt', '⟳'); }
   else if (name === 'dirtbike') { t('#stick .tick.f', 'LEAN FWD'); t('#stick .tick.r', 'LEAN BACK'); t('#stick .tick.l', '◀'); t('#stick .tick.rt', '▶'); }
   else { t('#stick .tick.f', 'FWD'); t('#stick .tick.r', 'REV'); t('#stick .tick.l', '◀'); t('#stick .tick.rt', '▶'); }
@@ -4986,7 +5016,7 @@ const HINTS = {
   tele:    ['<b>Left stick</b> drives. <b>Right stick</b>: up/down lifts the boom, left curls the bucket, right tips it. Drive the bucket into dirt to fill it. Tap the <b>camera</b> for bucket views.', '<b>W/S/A/D</b> drive &middot; <b>&uarr;&darr;</b> boom &middot; <b>&larr;&rarr;</b> bucket &middot; <b>X/C</b> boom out/in &middot; <b>Q</b> camera &middot; <b>H</b> horn'],
   scooter: ['<b>Left thumb</b> to ride. <b>Hold Brake</b> to stop.', '<b>W A S D</b> ride &middot; <b>Space</b> brake &middot; <b>H</b> bell &middot; <b>E</b> get off'],
   bike:    ['<b>Left thumb</b> to pedal and steer. Let go to coast. <b>Hold Brake</b> to stop.', '<b>W A S D</b> ride &middot; <b>Space</b> brake &middot; <b>H</b> bell &middot; <b>E</b> get off'],
-  duster:  ['<b>Throttle</b> up, roll down the road, <b>pull the stick up</b> past 105 km/h. Stick banks and climbs. Hit <b>Spray</b> low over the cotton.', '<b>&uarr;&darr;</b> throttle &middot; <b>W/S</b> climb/dive &middot; <b>A/D</b> bank &middot; <b>Z/X</b> rudder &middot; <b>Space</b> spray &middot; <b>V</b> height hold'],
+  duster:  ['<b>Throttle</b> up, roll down the road, <b>pull the stick back</b> past 105 km/h. Back climbs, forward dives; sideways banks. Hit <b>Spray</b> low over the cotton.', '<b>&uarr;&darr;</b> throttle &middot; <b>S/W</b> climb/dive &middot; <b>A/D</b> bank &middot; <b>Z/X</b> rudder &middot; <b>Space</b> spray &middot; <b>V</b> height hold'],
 };
 let hintSeen = {}; try { hintSeen = STORE.get('wfy.hints', {}) || {}; } catch (_) {} let hintTimer = 0;
 function showHintFor(name, force) {
@@ -5081,7 +5111,7 @@ function resetAll() {
   for (const name of GROUND) {             // park and settle each ground vehicle on its spot
     const v = VEH[name], h = HOME[name];
     T = v.model; V = v.spec; drift.on = name === 'suv' || !!V.drift; activeName = name;
-    S.pos.set(h.x, 0, h.z); S.yaw = h.yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; S.shake = 0; S.sus = S.susV = S.gVel = 0; S.prevV = 0; S.air = false; S.vy = 0; S.pitchV = 0;
+    S.pos.set(h.x, 0, h.z); S.yaw = h.yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; S.steerN = S.axF = S.rollV = S.bpV = 0; S.shake = 0; S.sus = S.susV = S.gVel = 0; S.prevV = 0; S.air = false; S.vy = 0; S.pitchV = 0;
     S.pos.y = homeY(h.x, h.z); S.pitch = S.roll = S.bodyRoll = S.bodyPitch = 0;
     for (let i = 0; i < 40; i++) step(1 / 60);
     v.state = snapshotS(); engineOff(v);
@@ -11106,7 +11136,6 @@ var DRIFTM = false;
 try { DRIFTM = localStorage.getItem('wfy.driftmode') === '1'; } catch (_) {}
 // grip mode (default, GTA-like): planted tyres, a car that settles itself, but the handbrake still hangs the tail out.
 // drift mode: the original loose, slidey handling.
-function driftTune(D) { return DRIFTM ? (typeof DAS === 'undefined' || DAS.lvl === 2 ? D : Object.assign({}, D, { assist: D.assist * dasK(), catch: D.catch * dasK() })) : Object.assign({}, D, { mu: D.mu * 1.9, slide: 0.95, assist: D.assist * 1.7, catch: D.catch * 1.7, circle: 0.7, limit: D.limit * 0.8, limitK: D.limitK * 1.5 }); }
 function driftModeSet(on, quiet) {
   DRIFTM = !!on; try { localStorage.setItem('wfy.driftmode', DRIFTM ? '1' : '0'); } catch (_) {}
   const m = document.getElementById('drfM'); if (m) { m.classList.toggle('on', DRIFTM); m.textContent = DRIFTM ? 'Drift mode: on' : 'Drift mode: off'; }
@@ -13618,7 +13647,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { standFarmerAt, DG_UNITS, dgRoom, faWalk, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
