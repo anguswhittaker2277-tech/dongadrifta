@@ -2472,7 +2472,7 @@ try { drift.best = +localStorage.getItem('wingfield-drift-best') || 0; } catch (
 
 function step(dt) {
   dt = Math.max(dt, 1e-4);            // Safari's coarse timer can report two frames at the same instant
-  readKeys(); stbStep(dt); if (activeName === 'ute' && mmNoKeys()) { input.gas = false; input.y = 0; input.ky = 0; input.hb = false; }           // the steering buttons wind the wheel on and off
+  readKeys(); stbStep(dt);
   let throttle, steerIn, braking;
   const handbrake = drift.on && (input.hb || input.kb);
   if (drift.on) {
@@ -12256,8 +12256,8 @@ function mmThink(n, dt) {
   if (typeof dgStuckIn === 'function' && dgStuckIn(n, dt)) return;
   if (MH.mode && mhMadman(n, dt)) return;
   if (n.st === 'drive') { if (MH.mode) mhDriveThink(n, dt); else mmDriveThink(n, dt); return; }
-  // you're in his ute: march over and drag you out
-  if (activeName === 'ute' && n.st !== 'toDoor' && n.st !== 'yank') { n.st = 'toDoor'; n.t = 0; }
+  // you're in his ute: get in his ute and chase you down
+  if (activeName === 'ute' && n.st !== 'uteChase' && n.st !== 'drive') { n.st = 'uteChase'; n.t = 0; MM.hostileT = Math.max(MM.hostileT, 120); n.angry = true; mmSay('enter', 2.6, true); }
   if (n.st === 'toDoor') {
     if (activeName !== 'ute') { n.st = MM.hostileT > 0 && n.angry ? 'chase' : 'home'; n.t = 0; if (dP < 20 && n.st === 'home') mmSay('left'); return; }
     const door = mmUteW(UTE_RIG.driver.x < 0 ? -1.75 : 1.75, UTE_RIG.door.z, _w1), d = Math.hypot(door.x - n.pos.x, door.z - n.pos.z);
@@ -12266,6 +12266,15 @@ function mmThink(n, dt) {
     npcWalk(n, faSteer(n, Math.atan2(door.x - n.pos.x, door.z - n.pos.z), 2), d > 4 ? 3.6 : 2.2, dt); return;
   }
   if (n.st === 'yank') { npcFace(n, mmUteSt().pos.x, mmUteSt().pos.z, 8, dt); if (n.t > 0.55) { if (activeName === 'ute') mmYank(n); n.st = MM.hostileT > 0 && n.angry ? 'chase' : 'home'; n.t = 0; } return; }
+  // chasing your ute on foot
+  if (n.st === 'uteChase') {
+    if (activeName !== 'ute') { n.st = 'home'; n.t = 0; return; }
+    const playerSt = mmUteSt(); const playerVel = new THREE.Vector3(playerSt.vx, 0, playerSt.vz);
+    const interceptX = playerSt.pos.x + playerVel.x * 1.5; const interceptZ = playerSt.pos.z + playerVel.z * 1.5;
+    const distToPlayer = Math.hypot(playerSt.pos.x - n.pos.x, playerSt.pos.z - n.pos.z);
+    npcWalk(n, faSteer(n, Math.atan2(interceptX - n.pos.x, interceptZ - n.pos.z), 2), Math.min(6.5, 3.2 + distToPlayer * 0.15), dt);
+    return;
+  }
   // his ute's been shoved off its spot: go and park it again
   if (!mmUteHome() && !v.coast && activeName !== 'ute' && !v.wrecked && !v.mp && MM.hostileT <= 0 && n.st !== 'toUte') { n.st = 'toUte'; n.t = 0; }
   if (n.st === 'toUte') {
