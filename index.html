@@ -11898,14 +11898,14 @@ function mmAimCheck(dt) {
    Built through the structures system so the farmer, machines, rays and the camera all treat it as solid; the scan's
    odd fence wire inside its footprint is trimmed. Door swings open when someone's at it; a warm bulb comes on when you're close.
    Madman sometimes rests inside or on the verandah, and heads here after a hunt; he lets you know if you barge in. */
-const DG = { x: 194, z: 45.5, yaw: 0, L: 6, W: 3, H: 2.55, fl: 0.14, du: 1.7, dw: 1.05, deck: 1.6, root: null, door: null, doorA: 0, light: null, bulb: null, gy: 0,
+const DG = { x: 194, z: 25, yaw: 0, L: 6, W: 3, H: 2.55, fl: 0.14, du: 1.7, dw: 1.05, deck: 1.6, root: null, door: null, doorA: 0, light: null, bulb: null, gy: 0,
   inT: 0, warnN: 0, warnT: 0, okSaid: false, restT: 120 + Math.random() * 120 };
 const DG_ST = ['dgGo', 'dgEnter', 'dgIn', 'dgOut', 'dgVer', 'dgLeave'];
 // local (u along the length, v across; +v is the front with the door) -> world
 function dgW(u, v) { const c = Math.cos(DG.yaw), s = Math.sin(DG.yaw); return [DG.x + u * c + v * s, DG.z - u * s + v * c]; }
 function dgL(x, z) { const c = Math.cos(DG.yaw), s = Math.sin(DG.yaw), dx = x - DG.x, dz = z - DG.z; return [dx * c - dz * s, dx * s + dz * c]; }
 // literal numbers: this runs while the scan is set up, before anything else here exists
-function dgCut(x, y, z) { const u = x - 194, v = z - 45.5; return y > 0.12 && Math.abs(u) < 3.6 && v > -2.1 && v < 3.6; }
+function dgCut(x, y, z) { const u = x - 194, v = z - 25; return y > 0.12 && Math.abs(u) < 3.6 && v > -2.1 && v < 3.6; }
 function dgInside(p) { const [u, v] = dgL(p.x, p.z); return Math.abs(u) < DG.L / 2 - 0.05 && Math.abs(v) < DG.W / 2 - 0.05; }
 function dgBuild() {
   structMats(); const gy = Math.max(...[[-3, -1.5], [3, -1.5], [-3, 1.5], [3, 1.5], [0, 0]].map(([u, v]) => { const [x, z] = dgW(u, v); return rawGround(x, z, 20); })); DG.gy = gy;
