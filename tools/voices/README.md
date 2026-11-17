@@ -22,3 +22,9 @@ about 2.6 semitones (formants too), with a heavy chest, the nasal band cut, a fa
 The backpackers are `ff_siwis`; Mathieu and Alexandre are pitched down.
 
 `phonemize.js` is adapted from kokoro-js (Apache-2.0); `kokoro-config.json` is from kokoro-onnx (MIT).
+
+## Recording Madman yourself
+
+`madman-lines.csv` lists every Madman recording (`mm_001` ... `mm_102`) with the situation, the mood and the
+line. Record each one to a file of that name (WAV or MP3) and they can replace the Kokoro clips: the
+`game_key` column is the line exactly as the game looks it up.
