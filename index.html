@@ -9298,7 +9298,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); saReset(); phReset();
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); saReset(); dmReset(); phReset();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -10783,20 +10783,17 @@ LAD_ON = true;
    Nothing here is meant as a dig at anyone: they are mates having a go.
    ================================================================ */
 const NPC = { list: [], ready: false, t: 0, told: {}, center: new THREE.Vector3(), anchor: [0, 0], shedT: 3, shedWait: 0, kickCD: 0 };
+const DIMA_L = {
+  idle: ["Is good day for lifting, da?", "You look weak. Come, I show you gym.", "In Russia, sauna is one hundred degrees. Here is cute.", "Protein shake is breakfast of champion.", "Madman says I am crazy. Madman has no muscles."],
+  talk: ["Sauna makes you strong like bear.", "First sweat, then cold water, then vodka. Is the way.", "I do two hundred push-ups before you wake up.", "Steam is good for soul, my friend."],
+  bye: ["Do svidaniya, my friend.", "Go. Eat more protein."],
+  start: ["Ha! You want sauna challenge? First, bring wood. Three piles."], wood: ["Good! Now light stove. Go, go!"], lit: ["Is getting hot! I am coming."],
+  sit: ["Sit. We stay one minute. No crying."], ask: ["Water on rocks! Now!", "More steam! Is not hot yet!"], more: ["You are sleeping? More water!"],
+  good: ["Da! Is beautiful!", "Yes! Like real Russian!"], plunge: ["Now cold water! Run, run!"], win: ["Ha! Not bad! You are little bit Russian now."],
+  fail: ["Pfft. Go home, little man."], faint: ["Ha! He sleeps like baby."], slow: ["Too slow! Cold water is best part!"],
+  hurt: ["Ha! Is tickle.", "You hit like pillow."], angry: ["Now you make Dima angry!", "Come here. I fold you like blanket."], ko: ["Ugh... lucky punch..."], win2: ["Stay down, little man."],
+};
 const NPC_L = {
-  saTalk: [['Le sauna, c’est la vie !', 'Sauna is life!'], ['Quatre-vingt-dix degrés, c’est le minimum.', 'Ninety degrees is the minimum.'], ['Tu transpires, tu vis !', 'You sweat, you live!'], ['J’ai appris ça en Finlande. Ça a changé ma vie.', 'I learned it in Finland. It changed my life.']],
-  saStart: [['Le défi du sauna ! Va chercher du bois !', 'The sauna challenge! Go get some wood!']],
-  saWood: [['Parfait ! Allume le poêle !', 'Perfect! Light the stove!']],
-  saLit: [['Ah, ça chauffe ! J’arrive !', 'Ah, it’s heating up! I’m coming!']],
-  saSit: [['Assieds-toi. On reste une minute.', 'Sit down. We stay one minute.']],
-  saAsk: [['De l’eau sur les pierres !', 'Water on the rocks!'], ['Löyly ! Vas-y !', 'Löyly! Go on!']],
-  saMore: [['Encore ! Plus chaud !', 'More! Hotter!']],
-  saGood: [['Ahhh, magnifique !', 'Ahhh, magnificent!'], ['Oui ! Comme ça !', 'Yes! Like that!']],
-  saPlunge: [['Maintenant, le bain froid ! Vite !', 'Now the cold bath! Quick!']],
-  saWin: [['Bravo ! Tu es un vrai Finlandais !', 'Bravo! You’re a true Finn!']],
-  saFail: [['Pff ! Amateur !', 'Pff! Amateur!']],
-  saFaint: [['Oh là là, il est tombé dans les pommes !', 'Oh dear, he passed out!']],
-  saSlow: [['Trop lent ! Le froid, c’est le meilleur moment !', 'Too slow! The cold is the best part!']],
   sass: [['Pff, n’importe quoi.', 'Pff, whatever.'], ['Oh, ça va, le vieux !', 'Oh, give it a rest, old man!'], ['Il est fou, celui-là.', 'That guy is crazy.']],
   enter: [['Oh, ça a l’air amusant !', 'Ooh, this looks fun!'], ['Je l’emprunte, d’accord ?', 'I’ll just borrow it, OK?'], ['Allez, on y va !', 'Right, off we go!']],
   drive: [['Wouhou ! Ça roule !', 'Woo-hoo! Look at it go!'], ['Oh là là, c’est génial !', 'Oh my, this is brilliant!'], ['Vive la France !', 'Long live France!'], ['Pardon, pardon !', 'Sorry, sorry!'], ['Je conduis comme un pro !', 'I drive like a pro!']],
@@ -10823,7 +10820,7 @@ function npcBubble(n) {
    Kokoro-82M (open-source TTS, Apache-2.0) and packed into voices-v1.bin, which loads once sound starts. Madman: two
    British male Kokoro voices blended, the vowels pushed hard toward broad Australian ("mite", "roit", "naow"),
    drawn out, then pitched down with a heavy chest, the nasal band cut and plenty of grit. The backpackers: Kokoro's French voice (Chloe
-   as is, the two blokes pitched down). A line that isn't in the pack just stays a speech bubble.
+   as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
 const VOX = { on: true, url: 'voices-v1.bin', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0 };
@@ -10856,13 +10853,13 @@ const voxNearMadman = () => { const n = MM.n; if (!n || !npcAlive(n)) return fal
 function voxSay(n, text) {
   if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return;
   if (!VOX.head) { voxLoad(); return; }                       // (the first line kicks off the download; it's said as a bubble)
-  const who = n.mm ? 'mm' : VOX_WHO[n.name]; if (!who) return;
+  const who = n.mm ? 'mm' : n.dima ? 'dm' : VOX_WHO[n.name]; if (!who) return;
   const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = activeName === 'foot' ? F.pos : S.pos, d = Math.hypot(p.x - me.x, p.z - me.z);
   if (d > 32) return;
   const now = AU.ctx.currentTime;
-  if (who !== 'mm' && (VOX.mmUntil > now || voxNearMadman())) return;          // no French chatter over Madman
+  if (who !== 'mm' && who !== 'dm' && (VOX.mmUntil > now || voxNearMadman())) return;          // no French chatter over Madman
   let parts;
-  if (who === 'mm') parts = voxSplit(text); else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
+  if (who === 'mm') parts = voxSplit(text); else if (who === 'dm') { const e = VOX.head.dm && VOX.head.dm[voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
   if (!parts || !parts.length) return;
   if (who === 'mm') { for (const k of Object.keys(VOX.cur)) voxStop(k); } else voxStop(who);
   const g = AU.ctx.createGain(); g.gain.value = THREE.MathUtils.clamp(1.25 - d / 26, 0.12, 1) * (who === 'mm' ? 1.15 : 0.95); g.connect(AU.master);
@@ -10877,7 +10874,7 @@ function voxSay(n, text) {
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
-  if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; }     // Madman never gets the backpackers' French: map to his own lines
+  if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; } if (n.dima) { dmSayNpc(n, line); return; }     // Madman never gets the backpackers' French: map to his own lines
   const [fr, en] = line, B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
   x.fillStyle = 'rgba(255,255,255,.96)'; x.strokeStyle = 'rgba(30,30,40,.8)'; x.lineWidth = 4; x.beginPath(); x.roundRect ? x.roundRect(6, 6, 628, 130, 26) : x.rect(6, 6, 628, 130); x.fill(); x.stroke();
   x.beginPath(); x.moveTo(300, 134); x.lineTo(320, 166); x.lineTo(340, 134); x.closePath(); x.fillStyle = 'rgba(255,255,255,.96)'; x.fill();
@@ -11107,7 +11104,7 @@ function npcPose(n, dt) {
       shLx = s * (0.45 + run * 0.6); shRx = -s * (0.45 + run * 0.6); elL = elR = -0.3 - run * 0.9; bodyY += Math.abs(c) * (0.035 + run * 0.06); torsoX = 0.05 + run * 0.2; torsoY = -s * 0.12;
     } else { headY = Math.sin(NPC.t * 0.4 + n.ph) * 0.3; }
   }
-  if (n.mm) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; mmPoseHook(n, Q, dt); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
+  if (n.mm || n.dima) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.mm ? mmPoseHook(n, Q, dt) : dmPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
   const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
   lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
   lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
@@ -11144,13 +11141,13 @@ function spawnShedPig(first) {
 function npcStep(dt) {
   if (!NPC.ready) { if (FA.ready && STRUCTS.ready && HOME.bmw && VEH.bmw && VEH.bmw.state) npcBuild(); else return; }
   dt = Math.min(dt, 0.05); NPC.t += dt;
-  for (const n of NPC.list) { if (n.mm) mmThink(n, dt); else if (saNpc(n, dt)) n.t += dt; else npcThink(n, dt); npcPose(n, dt); }
+  for (const n of NPC.list) { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) n.t += dt; else dmThink(n, dt); } else npcThink(n, dt); npcPose(n, dt); }
   shedFauna(dt);
 }
 function npcReset() {
   NPC.shedWait = 0; if (!NPC.ready) return;
-  for (const n of NPC.list) { if (n.mm) continue; if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; }
-  NPC.list.forEach((n, i) => { if (!n.mm) npcPlace(n, i); });
+  for (const n of NPC.list) { if (n.mm || n.dima) continue; if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; }
+  NPC.list.forEach((n, i) => { if (!n.mm && !n.dima) npcPlace(n, i); });
 }
 // guns and blasts work on them too
 function npcShot(n, d, dmg, P, head) {
@@ -11963,7 +11960,7 @@ function mmAimCheck(dt) {
 const DG = { x: 180.1, z: 53.5, yaw: Math.PI, kind: 'madman', L: 6, W: 3, H: 2.55, fl: 0.14, du: 1.7, dw: 1.05, deck: 1.6, root: null, door: null, doorA: 0, light: null, bulb: null, gy: 0,
   inT: 0, warnN: 0, warnT: 0, okSaid: false, restT: 120 + Math.random() * 120 };
 const DG_BLOCK = { x0: 169.7, x1: 183.4, z0: 39.4, z1: 55.1 };
-const DG_UNITS = [DG, { x: 173.3, z: 53.5, yaw: Math.PI, kind: 'rec' }, { x: 173.3, z: 41, yaw: 0, kind: 'bunk' }, { x: 180.1, z: 41, yaw: 0, kind: 'mess' }];
+const DG_UNITS = [DG, { x: 173.3, z: 53.5, yaw: Math.PI, kind: 'rec' }, { x: 173.3, z: 41, yaw: 0, kind: 'bunk' }, { x: 180.1, z: 41, yaw: 0, kind: 'dima' }];
 const DG_PAD = { x0: 160.2, x1: 169.0, z0: 39.6, z1: 53.6 };       // the gravel car park along the west side
 const DG_ST = ['dgGo', 'dgEnter', 'dgIn', 'dgOut', 'dgVer', 'dgLeave'];
 // local (u along the length, v across; +v is the front with the door) -> world
@@ -12105,7 +12102,7 @@ function dgUnit(U, gy, group) {
   const hinge = new THREE.Group(); hinge.position.set(du - dw / 2, fl, W / 2); root.add(hinge); U.door = hinge;
   const dm = new THREE.Mesh(new THREE.BoxGeometry(dw - 0.04, 2.02, 0.05), M.trim); dm.position.set(dw / 2, 1.02, 0); hinge.add(dm);
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), M.steel); knob.position.set(dw - 0.14, 1.0, 0.05); hinge.add(knob);
-  const sign = label({ madman: 'MADMAN\nKNOCK FIRST', rec: 'REC ROOM', bunk: 'BUNKS', mess: 'MESS' }[U.kind], 0.62, 0.3, '#2c3a33', '#f0e6c8', mm ? 30 : 40); sign.position.set(dw / 2, 1.55, 0.03); hinge.add(sign);
+  const sign = label({ madman: 'MADMAN\nKNOCK FIRST', rec: 'REC ROOM', bunk: 'BUNKS', dima: 'DIMA' }[U.kind], 0.62, 0.3, '#2c3a33', '#f0e6c8', mm ? 30 : 40); sign.position.set(dw / 2, 1.55, 0.03); hinge.add(sign);
   if (mm) {
     // the bed (far west end), with a swag of a blanket and a pillow
     box(1.95, 0.32, 0.95, M.wood, -L / 2 + 1.1, fl + 0.16, -W / 2 + 0.6); box(1.9, 0.14, 0.9, M.white, -L / 2 + 1.1, fl + 0.39, -W / 2 + 0.6);
@@ -12230,15 +12227,44 @@ function dgUnit(U, gy, group) {
     const pc = label('WINGFIELD\nBACKPACKERS', 0.6, 0.3, '#f4f1e6', '#3a3a3a', 26); pc.rotation.y = Math.PI; pc.position.set(0.3, fl + 1.75, W / 2 - 0.05); root.add(pc);
     box(0.13, 0.16, 0.3, M.boot, -0.9, fl + 0.08, W / 2 - 0.3); box(0.13, 0.16, 0.3, M.boot, -0.72, fl + 0.08, W / 2 - 0.27); box(0.13, 0.16, 0.3, M.boot, 0.4, fl + 0.08, W / 2 - 0.32, 0.4);
     box(1.3, 0.012, 0.8, M.blanket, 0.2, fl + 0.006, 0.45);
-  } else if (U.kind === 'mess') {
-    // kitchen bench with a sink, a microwave and a kettle; the tall fridge; a table and two chairs
-    box(2.5, 0.88, 0.6, M.white, -1.6, fl + 0.44, -W / 2 + 0.38); box(2.56, 0.04, 0.64, M.steel, -1.6, fl + 0.9, -W / 2 + 0.38); box(0.5, 0.02, 0.38, M.dark, -2.2, fl + 0.925, -W / 2 + 0.38);
-    box(0.5, 0.3, 0.36, M.dark, -0.75, fl + 1.07, -W / 2 + 0.32); box(0.3, 0.2, 0.02, M.glass, -0.8, fl + 1.07, -W / 2 + 0.505);
-    const k = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.22, 12), M.steel); k.position.set(-1.45, fl + 1.03, -W / 2 + 0.34); root.add(k);
-    box(0.64, 1.72, 0.64, M.white, L / 2 - 0.44, fl + 0.86, -W / 2 + 0.44); box(0.04, 0.5, 0.04, M.steel, L / 2 - 0.7, fl + 1.1, -W / 2 + 0.78);
-    box(1.2, 0.05, 0.75, M.wood, 0.3, fl + 0.74, 0.25); legs(0.3, 0.25, 0.54, 0.32, 0.72); chair(0.0, 0.95, 1); chair(0.6, -0.42, -1);
-    for (const [a, b, m] of [[0.05, 0.2, M.red], [0.5, 0.35, M.blue]]) { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.09, 10), m); o.position.set(a, fl + 0.81, b); root.add(o); }
-    const mn = label('SMOKO\n10 · 12:30 · 3', 0.5, 0.36, '#f4f1e6', '#3a3a3a', 30); mn.position.set(1.2, fl + 1.95, -W / 2 + 0.075); root.add(mn);
+  } else if (U.kind === 'dima') {
+    // Dima's: a bed, a dumbbell rack, a bench and bar, kettlebells, protein tubs and shakers everywhere, gym posters
+    const blk = DG.matIron || (DG.matIron = new THREE.MeshLambertMaterial({ color: 0x232527 })), chrome = M.steel;
+    box(1.95, 0.32, 0.95, M.wood, -L / 2 + 1.1, fl + 0.16, -W / 2 + 0.6); box(1.9, 0.14, 0.9, M.white, -L / 2 + 1.1, fl + 0.39, -W / 2 + 0.6); box(1.4, 0.05, 0.92, M.red, -L / 2 + 1.35, fl + 0.48, -W / 2 + 0.6); box(0.45, 0.1, 0.62, M.white, -L / 2 + 0.33, fl + 0.5, -W / 2 + 0.6);
+    box(2.3, 0.012, 1.4, blk, 0.9, fl + 0.006, 0.35);                                                                   // rubber mat
+    // bench press: bench, uprights, the bar loaded up
+    box(1.2, 0.08, 0.3, blk, 0.9, fl + 0.45, 0.3); for (const a of [-0.45, 0.45]) box(0.06, 0.42, 0.06, chrome, 0.9 + a, fl + 0.21, 0.3);
+    for (const a of [-0.55, 0.55]) box(0.05, 1.05, 0.05, chrome, 0.4, fl + 0.52, 0.3 + a);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.9, 8), chrome); bar.rotation.x = Math.PI / 2; bar.position.set(0.4, fl + 1.02, 0.3); root.add(bar);
+    for (const z of [-0.72, -0.62, 0.62, 0.72]) { const pl = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.05, 18), blk); pl.rotation.x = Math.PI / 2; pl.position.set(0.4, fl + 1.02, 0.3 + z); root.add(pl); }
+    // dumbbell rack along the back wall
+    box(1.3, 0.05, 0.32, chrome, 1.95, fl + 0.5, -W / 2 + 0.25); box(1.3, 0.05, 0.32, chrome, 1.95, fl + 0.22, -W / 2 + 0.25); for (const a of [-0.62, 0.62]) box(0.04, 0.55, 0.3, chrome, 1.95 + a, fl + 0.28, -W / 2 + 0.25);
+    for (let k = 0; k < 6; k++) for (const y of [0.22, 0.5]) { const x = 1.42 + k * 0.21, r = 0.045 + k * 0.008; for (const e of [-0.09, 0.09]) { const h = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.07, 10), blk); h.rotation.x = Math.PI / 2; h.position.set(x, fl + y + 0.07, -W / 2 + 0.25 + e); root.add(h); } }
+    // kettlebells
+    for (const [x, z, r] of [[-0.25, 0.9, 0.13], [0.05, 1.0, 0.11], [2.6, 0.9, 0.15]]) { const b = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), blk); b.position.set(x, fl + r, z); root.add(b); const h = new THREE.Mesh(new THREE.TorusGeometry(r * 0.6, 0.018, 6, 14, Math.PI), blk); h.position.set(x, fl + r * 1.7, z); root.add(h); }
+    // protein: big tubs, shakers on the shelf and the floor, one tub knocked over and spilling
+    const tub = (x, z, txt, col, y) => { const c = document.createElement('canvas'); c.width = 128; c.height = 128; const g = c.getContext('2d'); g.fillStyle = col; g.fillRect(0, 0, 128, 128); g.fillStyle = '#fff'; g.fillRect(0, 44, 128, 40); g.fillStyle = '#111'; g.font = '900 30px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 64, 65);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.3, 16), [new THREE.MeshLambertMaterial({ map: t }), new THREE.MeshLambertMaterial({ color: 0x111111 }), new THREE.MeshLambertMaterial({ color: 0x111111 })]); m.position.set(x, fl + (y || 0) + 0.15, z); m.rotation.y = x * 3; root.add(m); return m; };
+    tub(-0.1, -W / 2 + 0.28, 'WHEY', '#c62f2f'); tub(0.18, -W / 2 + 0.3, 'MASS', '#2f5fc6'); tub(0.45, -W / 2 + 0.26, 'WHEY', '#c62f2f'); tub(-L / 2 + 0.3, 0.9, 'BCAA', '#2c8a4a');
+    const fallen = tub(1.4, 0.95, 'WHEY', '#c62f2f'); fallen.rotation.set(0, 0.6, Math.PI / 2); fallen.position.y = fl + 0.11;
+    box(0.5, 0.01, 0.3, M.white, 1.65, fl + 0.006, 1.0, 0.4);                                                          // a spill of powder
+    for (const [x, z, y, m] of [[0.75, -W / 2 + 0.3, 0, M.blue], [2.85, 0.5, 0, M.red], [-0.4, 0.75, 0.48, M.blue], [1.1, 0.95, 0, M.white]]) { const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.22, 10), m); sh.position.set(x, fl + y + 0.11, z); root.add(sh); const cp = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.047, 0.04, 10), blk); cp.position.set(x, fl + y + 0.24, z); root.add(cp); }
+    // posters
+    const poster = (w, h, draw, x, y, z, ry) => { const c = document.createElement('canvas'); c.width = 256; c.height = Math.round(256 * h / w); const g = c.getContext('2d'); draw(g, 256, c.height); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: t })); m.position.set(x, y, z); m.rotation.y = ry || 0; root.add(m); };
+    const words = (g, t, x, y, px, col) => { g.fillStyle = col; g.font = `900 ${px}px system-ui,sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, x, y); };
+    const flexer = (g, x, y, k, col) => { g.fillStyle = col; g.beginPath(); g.arc(x, y - 70 * k, 16 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(x - 46 * k, y - 50 * k); g.lineTo(x + 46 * k, y - 50 * k); g.lineTo(x + 22 * k, y + 20 * k); g.lineTo(x - 22 * k, y + 20 * k); g.closePath(); g.fill();
+      for (const s of [-1, 1]) { g.beginPath(); g.ellipse(x + s * 62 * k, y - 52 * k, 20 * k, 11 * k, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(x + s * 74 * k, y - 80 * k, 11 * k, 22 * k, s * 0.2, 0, 7); g.fill(); g.beginPath(); g.ellipse(x + s * 72 * k, y - 66 * k, 14 * k, 12 * k, 0, 0, 7); g.fill(); }
+      g.fillRect(x - 20 * k, y + 18 * k, 16 * k, 60 * k); g.fillRect(x + 4 * k, y + 18 * k, 16 * k, 60 * k); };
+    const zb = -W / 2 + 0.076, zf = W / 2 - 0.05, xw = -L / 2 + 0.076, xe = L / 2 - 0.076;
+    poster(0.6, 0.85, (g, w, h) => { g.fillStyle = '#111'; g.fillRect(0, 0, w, h); flexer(g, 128, h * 0.55, 1.15, '#d6a23a'); words(g, 'NO PAIN', 128, 34, 34, '#fff'); words(g, 'NO GAIN', 128, h - 30, 34, '#d63a3a'); }, -1.0, fl + 1.55, zb);
+    poster(0.6, 0.85, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#5a0f0f'); gr.addColorStop(1, '#1a0606'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#ddd'; g.fillRect(40, h * 0.5 - 6, 176, 12); for (const x of [40, 56, 200, 216]) g.fillRect(x - 7, h * 0.5 - 40, 14, 80); words(g, 'BEAST', 128, 50, 48, '#fff'); words(g, 'MODE', 128, h - 50, 48, '#ffcc33'); }, 1.6, fl + 1.55, zb);
+    poster(0.55, 0.75, (g, w, h) => { g.fillStyle = '#f2ead6'; g.fillRect(0, 0, w, h); g.fillStyle = '#222'; g.beginPath(); g.arc(128, h * 0.55, 62, 0, 7); g.fill(); g.lineWidth = 14; g.strokeStyle = '#222'; g.beginPath(); g.arc(128, h * 0.55 - 70, 34, Math.PI, 0); g.stroke();
+      words(g, 'СИЛА', 128, 40, 44, '#b3261e'); words(g, 'STRENGTH', 128, h - 26, 22, '#222'); }, xw, fl + 1.6, 0.6, Math.PI / 2);
+    poster(0.6, 0.85, (g, w, h) => { g.fillStyle = '#1f3c88'; g.fillRect(0, 0, w, h); flexer(g, 128, h * 0.52, 1.2, '#f2c9a0'); words(g, 'MR SIBERIA', 128, 30, 30, '#fff'); words(g, '1998', 128, h - 28, 30, '#ffd76a'); }, -1.6, fl + 1.5, zf, Math.PI);
+    poster(0.7, 0.22, (g, w, h) => { g.fillStyle = '#d63a3a'; g.fillRect(0, 0, w, h); words(g, 'LEG DAY EVERY DAY', 128, h / 2, 22, '#fff'); }, 0.6, fl + 2.0, zf, Math.PI);
+    box(0.5, 0.012, 0.3, M.white, xe - 0.02, fl + 1.5, -0.4, Math.PI / 2);                                              // a training log pinned up
   } else {
     // rec room: a couch, the telly on a cabinet, a dartboard, a rug and an esky
     box(1.9, 0.38, 0.8, M.blanket, -L / 2 + 1.2, fl + 0.24, -W / 2 + 0.55); box(1.9, 0.5, 0.2, M.blanket, -L / 2 + 1.2, fl + 0.6, -W / 2 + 0.25);
@@ -12266,7 +12292,7 @@ function dgUnit(U, gy, group) {
    THE SAUNA (Nov 2026): the black tent-sauna lump on the pad east of the dongas, rebuilt as a little timber sauna
    you can walk into: two-tier bench, wood stove with a basket of rocks, steam, a thermometer, and an old bathtub of
    cold water outside for the plunge. Light the stove and it heats up over a minute or so; throw water on the rocks
-   (loyly) for a blast of steam. Stay in too long and you pass out. Mathieu is a sauna fanatic: he has his own
+   (loyly) for a blast of steam. Stay in too long and you pass out. Dima (next door) is a sauna fanatic: he has his own
    menu and a challenge (wood, stove, a minute of loyly with him, then the cold tub). Madman thinks they're all mad.
    ================================================================ */
 const SA = { x: 185.45, z: 50.85, W: 2.6, D: 2.2, H: 2.25, fl: 0.12, root: null, door: null, doorA: 0, gy: 0.55, lit: false, litT: 0, temp: 24, steam: 0, heat: 0,
@@ -12346,9 +12372,54 @@ function saBuild() {
   for (let k = 0; k < 16; k++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 })); sp.visible = false; scene.add(sp); SA.puffs.push({ sp, life: 0 }); }
   for (let k = 0; k < 10; k++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: stex, transparent: true, depthWrite: false, opacity: 0 })); sp.visible = false; scene.add(sp); SA.smoke.push({ sp, life: 0 }); }
 }
+/* ---------- DIMA: the big Russian in the north-east donga. Lifts, eats protein, lives for the sauna ---------- */
+const DM = { ready: false, n: null, talkT: 12, flexT: 0 };
+const DIMA_LOOK = { name: 'Dima', h: 0.95, w: 0.35, m: 1, skin: 1, hair: 'buzz', hc: 1, hat: 'none', hatc: 0, shirt: 'singlet', sc: 5, legs: 'long', lc: 2, shoes: 'boots', shc: 1, gl: 'none', fh: 1 };
+const dmUnit = () => DG_UNITS.find(U => U.kind === 'dima');
+const dmHome = () => dgW(DG.du + 0.9, DG.W / 2 + 1.1, dmUnit());
+function dmBuild() {
+  DM.ready = true; const L = lookFix(DIMA_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
+  const n = { npc: true, dima: true, name: 'Dima', P, root: P.root, pack: new THREE.Group(), look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'home', t: 0, hp: 160, max: 160, tilt: 0, gy: 0, gT: 0, ph: 0, side: 1, stuck: 0, tgt: null,
+    veh: null, vehT: 1e9, driveT: 1e9, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null, lookH: 0, angry: false };
+  npcBubble(n); DM.n = n; NPC.list.push(n); dmPlace();
+}
+function dmPlace() {
+  const n = DM.n; if (!n) return; const [x, z] = dmHome(); scene.attach(n.root); n.root.scale.setScalar(n.s);
+  n.pos.set(x, 0, z); n.gy = n.pos.y = groundAt(x, z, DG.gy + 1.5, DG.gy); n.yaw = Math.PI; n.st = 'home'; n.t = 0; n.tilt = 0; n.sp = 0; n.hp = n.max; n.angry = false; n.ko = false; n.atkPh = ''; n.bub.sp.visible = false; n.bub.time = 0;
+}
+// a line from Dima: a plain speech bubble (he speaks English, of a sort), voiced from the pack
+function dmSay(n, k, dur) { const L = DIMA_L[k]; if (!L || !n || !n.bub) return; const line = L[Math.floor(Math.random() * L.length)]; dur = dur || Math.max(2.6, Math.min(5.5, line.length * 0.07)); mmSayBub(n, line, dur); n.sayT = dur; }
+// on foot to a point near home: from round the sauna, back up the east side and in at the breezeway's east end
+function dmVia(px, pz, tx, tz) {
+  const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, band = (x, z) => x > B.x0 - 0.3 && x < B.x1 + 0.6 && Math.abs(z - zm) < 4.3;
+  if (band(px, pz)) return [tx, tz];
+  if (px > B.x1 - 0.1) { if (pz > 49.0) return px < 187.6 ? [188.0, Math.max(pz, 53.9)] : [188.0, 48.6]; return [B.x1 + 0.6, zm]; }
+  return dgVia(px, pz, tx, tz);
+}
+function dmThink(n, dt) {
+  n.t += dt; n.sayT -= dt;
+  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) {        // a scrap: the shared fight code, then home
+    npcThink(n, dt); if (n.st === 'wander') { n.st = 'home'; n.t = 0; n.angry = false; } return; }
+  const veh = FA.threats.find(t => t.kind === 'veh');
+  if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
+    if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
+  if (n.st !== 'home') { n.st = 'home'; n.t = 0; }
+  const [x, z] = dmHome(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
+  if (d > 0.5) { const [wx, wz] = dmVia(n.pos.x, n.pos.z, x, z); if (d < 3 && Math.abs(n.pos.z - z) < 3) dgMove(n, x, z, 1.4, dt); else npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 1.8 : 1.2, dt); return; }
+  n.sp *= 0.8; n.pos.x += (x - n.pos.x) * Math.min(1, dt * 3); n.pos.z += (z - n.pos.z) * Math.min(1, dt * 3);
+  const me = activeName === 'foot' ? F.pos : S.pos, dP = Math.hypot(me.x - n.pos.x, me.z - n.pos.z);
+  if (dP < 10) npcFace(n, me.x, me.z, 3, dt); else n.yaw += faAng(Math.PI - n.yaw) * Math.min(1, dt * 2);
+  DM.flexT -= dt; DM.talkT -= dt;
+  if (DM.talkT <= 0 && dP < 9 && !SA.q && !(SA.sheet && SA.sheet.classList.contains('show'))) { DM.talkT = 30 + Math.random() * 25; dmSay(n, 'idle'); DM.flexT = 2.2; }
+  else if (DM.flexT < -14 && Math.random() < dt * 0.15) DM.flexT = 1.8;        // and a flex now and then, for nobody in particular
+}
+// fights and hurts from the shared code come through npcSay with the backpackers' French: give him his own
+function dmSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) dmSay(n, m, 2.6); return; } }
+function dmPoseHook(n, Q) { if (DM.flexT > 0 && n.st === 'home') { Q.shLz = 1.5; Q.shRz = -1.5; Q.shLx = -0.15; Q.shRx = -0.15; Q.elL = -1.8; Q.elR = -1.8; Q.torsoX = -0.06; Q.headX = -0.1; } }
+function dmReset() { if (DM.n) dmPlace(); DM.talkT = 12; }
 // someone (or you) in there?
 function saOccupants() { const out = []; if (activeName === 'foot' && saInside(F.pos)) out.push('you'); for (const n of NPC.list) if (!n.veh && saInside(n.pos)) out.push(n.name); return out; }
-const saMathieu = () => NPC.list.find(n => n.name === 'Mathieu');
+const saDima = () => NPC.list.find(n => n.dima);
 // the menu and the HUD
 function saUI() {
   if (SA.sheet) return;
@@ -12364,26 +12435,26 @@ function saUI() {
   document.head.appendChild(st);
   const c = document.createElement('div'); c.id = 'saChip'; c.className = 'ui'; c.innerHTML = '<span>SAUNA</span><b></b><span class="bar"><i></i></span><span class="tm"></span>'; document.body.appendChild(c); SA.chip = c;
   const h = document.createElement('div'); h.id = 'saHaze'; document.body.appendChild(h); SA.haze = h;
-  const sh = document.createElement('div'); sh.id = 'saSheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.setAttribute('aria-label', 'Mathieu');
-  sh.innerHTML = '<div id="saCard"><div class="ch-head"><h2>Mathieu</h2><button id="saX" type="button" aria-label="Close">&times;</button></div><p id="saMood"></p><div id="saGrid">' +
+  const sh = document.createElement('div'); sh.id = 'saSheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.setAttribute('aria-label', 'Dima');
+  sh.innerHTML = '<div id="saCard"><div class="ch-head"><h2>Dima</h2><button id="saX" type="button" aria-label="Close">&times;</button></div><p id="saMood"></p><div id="saGrid">' +
     '<button type="button" class="w-card" data-sa="talk"><b>Talk</b><span>Ask about the sauna</span></button>' +
     '<button type="button" class="w-card" data-sa="quest"><b>Sauna challenge</b><span>Wood, stove, a minute of löyly, then the cold tub</span></button>' +
-    '<button type="button" class="w-card" data-sa="leave"><b>Leave</b><span>À plus</span></button></div></div>';
+    '<button type="button" class="w-card" data-sa="leave"><b>Leave</b><span>Do svidaniya</span></button></div></div>';
   document.body.appendChild(sh); SA.sheet = sh;
   sh.addEventListener('click', e => { if (e.target === sh || e.target.id === 'saX') { sh.classList.remove('show'); return; } const b = e.target.closest('[data-sa]'); if (b) saChoose(b.dataset.sa); });
 }
-function saTalkable() { const n = saMathieu(); return !!n && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air') && F.dead <= 0 && !n.veh && !n.angry && ['wander', 'saSit', 'saGo', 'saIn'].includes(n.st) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 3.2; }
+function saTalkable() { const n = saDima(); return !!n && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air') && F.dead <= 0 && !n.veh && !n.angry && ['home', 'saSit', 'saGo', 'saIn'].includes(n.st) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 3.2; }
 function saMenuOpen() {
-  saUI(); if (!saTalkable()) return; const n = saMathieu(), q = SA.q;
-  $('saMood').textContent = 'Sauna fanatic. ' + (SA.done ? 'Challenges done: ' + SA.done + (SA.best ? ' · best löyly: ' + SA.best : '') : 'He reckons you won’t last a minute.');
+  saUI(); if (!saTalkable()) return; const n = saDima(), q = SA.q;
+  $('saMood').textContent = 'Russian, enormous, sauna fanatic. ' + (SA.done ? 'Challenges done: ' + SA.done + (SA.best ? ' · best löyly: ' + SA.best : '') : 'He reckons you won’t last a minute.');
   const b = SA.sheet.querySelector('[data-sa="quest"]'), busy = !!q || MH.mode; b.setAttribute('aria-disabled', busy ? 'true' : 'false');
   b.querySelector('span').textContent = q ? 'Already on: ' + saStepText() : MH.mode ? 'Not while Madman’s out hunting' : 'Wood, stove, a minute of löyly, then the cold tub';
   SA.sheet.classList.add('show'); npcFace(n, F.pos.x, F.pos.z, 99, 1);
 }
 function saChoose(k) {
-  const n = saMathieu(); SA.sheet.classList.remove('show'); if (!n) return;
-  if (k === 'talk') npcSay(n, npcPick(NPC_L.saTalk), 3.6);
-  else if (k === 'leave') npcSay(n, ['À plus !', 'See ya!'], 2);
+  const n = saDima(); SA.sheet.classList.remove('show'); if (!n) return;
+  if (k === 'talk') dmSay(n, 'talk');
+  else if (k === 'leave') dmSay(n, 'bye');
   else if (k === 'quest' && !SA.q && !MH.mode) saQuestStart(n);
 }
 // ---- the challenge ----
@@ -12396,65 +12467,65 @@ function saQuestStart(n) {
     for (let k = 0; k < 5; k++) { const lg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 7), SA.mats.wood); lg.rotation.z = Math.PI / 2; lg.rotation.y = (k - 2) * 0.12; lg.position.set(0, 0.08 + (k % 2) * 0.12 + Math.floor(k / 3) * 0.12, (k % 3 - 1) * 0.14); g.add(lg); }
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 })); glow.scale.set(2.2, 2.2, 1); glow.position.y = 0.5; g.add(glow);
     SA.q.piles.push({ g, glow, x, z, got: false }); }
-  npcSay(n, npcPick(NPC_L.saStart), 3.4); saUI(); toast('Sauna challenge: grab three armfuls of firewood (the glowing piles)', 3);
+  dmSay(n, 'start'); saUI(); toast('Sauna challenge: grab three armfuls of firewood (the glowing piles)', 3);
 }
 function saStepText() { const q = SA.q; if (!q) return '';
   return q.step === 'wood' ? 'Firewood ' + q.wood + '/3' : q.step === 'light' ? 'Light the stove' : q.step === 'heat' ? 'Heating up… ' + Math.round(SA.temp) + '°C' : q.step === 'sweat' ? 'Sit it out · löyly ' + q.hits : q.step === 'plunge' ? 'Cold tub, quick!' : ''; }
 function saQuestEnd(win, why) {
-  const q = SA.q; if (!q) return; const n = saMathieu();
+  const q = SA.q; if (!q) return; const n = saDima();
   for (const p of q.piles) scene.remove(p.g);
-  if (n && npcAlive(n) && !n.angry) { npcSay(n, npcPick(win ? NPC_L.saWin : why === 'faint' ? NPC_L.saFaint : why === 'slow' ? NPC_L.saSlow : NPC_L.saFail), 3.4); }
+  if (n && npcAlive(n) && !n.angry) dmSay(n, win ? 'win' : why === 'faint' ? 'faint' : why === 'slow' ? 'slow' : 'fail');
   if (win) { SA.done++; SA.best = Math.max(SA.best, q.hits); try { localStorage.setItem('wfy.sauna', JSON.stringify({ best: SA.best, done: SA.done })); } catch (_) {}
     toast('Sauna challenge done! Löyly on cue: ' + q.hits + (q.hits >= SA.best ? ' (best)' : ''), 3.2); }
   else toast(why === 'faint' ? 'You passed out in the sauna' : why === 'left' ? 'You bailed out of the sauna early' : why === 'slow' ? 'Too slow to the cold tub' : why === 'time' ? 'Ran out of time' : 'Sauna challenge off', 2.6);
   SA.q = null; SA.litT = Math.min(SA.litT || 0, 90);
-  if (n && ['saGo', 'saIn', 'saSit'].includes(n.st)) { n.st = n.st === 'saGo' ? 'wander' : 'saOut'; n.t = 0; }      // (if he's already headed for the tub, he gets his dip)
+  if (n && ['saGo', 'saIn', 'saSit'].includes(n.st)) { n.st = n.st === 'saGo' ? 'home' : 'saOut'; n.t = 0; }      // (if he's already headed for the tub, he gets his dip)
 }
 function saQuestStep(dt) {
-  const q = SA.q; if (!q) return; const n = saMathieu(); q.t += dt;
+  const q = SA.q; if (!q) return; const n = saDima(); q.t += dt;
   if (!n || !npcAlive(n) || n.angry || n.veh) { saQuestEnd(false, 'mathieu'); return; }
   if (q.step === 'wood' || q.step === 'light') { q.left -= dt; if (q.left <= 0) { saQuestEnd(false, 'time'); return; } }
   if (q.step === 'wood') {
     for (const p of q.piles) { if (p.got) continue; p.glow.material.opacity = 0.55 + Math.sin(q.t * 3 + p.x) * 0.2;
       if (activeName === 'foot' && F.dead <= 0 && Math.hypot(F.pos.x - p.x, F.pos.z - p.z) < 1.6) { p.got = true; scene.remove(p.g); q.wood++; sfx('find'); toast('Firewood ' + q.wood + '/3', 1.2); } }
-    if (q.wood >= 3) { q.step = 'light'; npcSay(n, npcPick(NPC_L.saWood), 3); toast('Now light the stove in the sauna', 2.2); }
+    if (q.wood >= 3) { q.step = 'light'; dmSay(n, 'wood'); toast('Now light the stove in the sauna', 2.2); }
   } else if (q.step === 'heat') {
-    if (SA.temp >= 65 && n.st === 'saSit' && activeName === 'foot' && saInside(F.pos)) { q.step = 'sweat'; q.sweat = 60; q.askT = 6; npcSay(n, npcPick(NPC_L.saSit), 3); toast('Sit it out for a minute. Throw water on the rocks when Mathieu asks', 3); }
+    if (SA.temp >= 65 && n.st === 'saSit' && activeName === 'foot' && saInside(F.pos)) { q.step = 'sweat'; q.sweat = 60; q.askT = 6; dmSay(n, 'sit'); toast('Sit it out for a minute. Throw water on the rocks when Dima asks', 3); }
   } else if (q.step === 'sweat') {
     if (!(activeName === 'foot' && saInside(F.pos))) { saQuestEnd(false, 'left'); return; }
-    q.sweat -= dt; if (q.ask > 0) { q.ask -= dt; if (q.ask <= 0) npcSay(n, npcPick(NPC_L.saMore), 2.4); }
-    q.askT -= dt; if (q.askT <= 0 && q.ask <= 0) { q.askT = 9 + Math.random() * 5; q.ask = 5; q.asks++; npcSay(n, npcPick(NPC_L.saAsk), 2.6); }
-    if (q.sweat <= 0) { q.step = 'plunge'; q.plunge = 25; npcSay(n, npcPick(NPC_L.saPlunge), 3); toast('Out you get: jump in the cold tub!', 2.4); n.st = 'saOut'; n.t = 0; n.after = 'tub'; }
+    q.sweat -= dt; if (q.ask > 0) { q.ask -= dt; if (q.ask <= 0) dmSay(n, 'more'); }
+    q.askT -= dt; if (q.askT <= 0 && q.ask <= 0) { q.askT = 9 + Math.random() * 5; q.ask = 5; q.asks++; dmSay(n, 'ask'); }
+    if (q.sweat <= 0) { q.step = 'plunge'; q.plunge = 25; dmSay(n, 'plunge'); toast('Out you get: jump in the cold tub!', 2.4); n.st = 'saOut'; n.t = 0; n.after = 'tub'; }
   } else if (q.step === 'plunge') { q.plunge -= dt; if (q.plunge <= 0) saQuestEnd(false, 'slow'); }
 }
-// Mathieu's legs: to the sauna, onto the bench, out again, into the tub (true = handled this frame)
+// Dima's legs: to the sauna, onto the bench, out again, into the tub (true = handled this frame)
 function saNpc(n, dt) {
-  if (n.name !== 'Mathieu' || n.veh || n.angry || !npcAlive(n) || ['tumble', 'down', 'ko', 'getup', 'stag', 'flee'].includes(n.st)) return false;
+  if (!n.dima || n.veh || n.angry || !npcAlive(n) || ['tumble', 'down', 'ko', 'getup', 'stag', 'flee'].includes(n.st)) return false;
   const q = SA.q, want = (q && ['heat', 'sweat'].includes(q.step)) || SA.solo, R = (x, z, sp) => dgMove(n, x, z, sp, dt);
   if (want && !['saGo', 'saIn', 'saSit'].includes(n.st)) { n.st = 'saGo'; n.t = 0; }
-  if (n.st === 'saGo') { if (!want) { n.st = 'wander'; return false; } const [x, z] = saDoorOut(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
+  if (n.st === 'saGo') { if (!want) { n.st = 'home'; return false; } const [x, z] = saDoorOut(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
     if (d < 0.6 || n.t > 60) { if (d > 2) { n.pos.x = x; n.pos.z = z; } n.st = 'saIn'; n.t = 0; return true; } const [wx, wz] = saVia(n.pos.x, n.pos.z); npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 2.4 : 1.4, dt); return true; }
   if (n.st === 'saIn') { const [ix, iz] = saDoorIn(), [sx, sz] = saSeat(0); if (n.t < 1.2) R(ix, iz, 1.0); else if (R(sx, sz, 0.8) && n.t > 2) { n.st = 'saSit'; n.t = 0; } return true; }
   if (n.st === 'saSit') { const [sx, sz] = saSeat(0); n.pos.x = sx; n.pos.z = sz; n.pos.y = SA.gy + SA.fl + 0.93 - 0.702 * n.s + 0.06; n.yaw += faAng(0 - n.yaw) * Math.min(1, dt * 4); n.sp = 0;
     if (!want) { n.st = 'saOut'; n.t = 0; } return true; }
-  if (n.st === 'saOut') { const [ix, iz] = saDoorIn(), [ox, oz] = saDoorOut(); if (n.t < 0.6) { n.pos.y = SA.gy + SA.fl; R(saSeat(0)[0], iz - 0.4, 1.0); } else if (n.t < 2.2) R(ix, iz, 1.0); else if (R(ox, oz, 1.2) || n.t > 5) { n.st = n.after === 'tub' ? 'saTubGo' : 'wander'; n.after = null; n.t = 0; } return true; }
+  if (n.st === 'saOut') { const [ix, iz] = saDoorIn(), [ox, oz] = saDoorOut(); if (n.t < 0.6) { n.pos.y = SA.gy + SA.fl; R(saSeat(0)[0], iz - 0.4, 1.0); } else if (n.t < 2.2) R(ix, iz, 1.0); else if (R(ox, oz, 1.2) || n.t > 5) { n.st = n.after === 'tub' ? 'saTubGo' : 'home'; n.after = null; n.t = 0; } return true; }
   if (n.st === 'saTubGo') { const T = SA.tub; if (R(T.x - 0.3, T.z + 0.75, 2.2) || n.t > 8) { n.st = 'saTub'; n.t = 0; faSay(_w1.set(T.x, SA.tubM.position.y + 0.6, T.z), 'fa_splash', 0.8, 1.0, 14); } return true; }
   if (n.st === 'saTub') { const T = SA.tub; n.pos.set(T.x - 0.35, SA.tubM.position.y + 0.32 - 0.702 * n.s + 0.25, T.z); n.yaw += faAng(Math.PI / 2 - n.yaw) * Math.min(1, dt * 4); n.sp = 0;
-    if (n.t > 9) { n.pos.set(T.x - 0.3, SA.tubM.position.y, T.z + 0.9); n.gy = n.pos.y; n.st = 'wander'; n.t = 0; } return true; }
+    if (n.t > 9) { n.pos.set(T.x - 0.3, SA.tubM.position.y, T.z + 0.9); n.gy = n.pos.y; n.st = 'home'; n.t = 0; } return true; }
   return false;
 }
 // now and then he has one on his own (lights it himself), which is how Madman tends to catch him at it
 function saSoloTick(dt) {
-  const n = saMathieu(); if (!n || SA.q) return;
+  const n = saDima(); if (!n || SA.q) return;
   if (SA.solo) { SA.solo.t -= dt; if (SA.solo.t <= 0 || n.angry || n.veh) saSoloEnd(); return; }
   SA.soloT -= dt; if (SA.soloT > 0) return; SA.soloT = 150 + Math.random() * 120;
-  if (n.st !== 'wander' || n.angry || n.veh || Math.random() < 0.4) return;
-  SA.solo = { t: 45 + Math.random() * 25 }; SA.lit = true; SA.litT = Math.max(SA.litT, 90); npcSay(n, npcPick(NPC_L.saTalk), 3);
+  if (n.st !== 'home' || n.angry || n.veh || Math.random() < 0.4) return;
+  SA.solo = { t: 45 + Math.random() * 25 }; SA.lit = true; SA.litT = Math.max(SA.litT, 90); dmSay(n, 'talk');
 }
 function saSoloEnd() { SA.solo = null; }
 function saActions(items) {
   if (!SA.root) return;
-  if (saTalkable() && !seqBusy()) items.push({ id: 'sa:talk', label: 'Talk to Mathieu', cls: 'warn' });
+  if (saTalkable() && !seqBusy()) items.push({ id: 'sa:talk', label: 'Talk to Dima', cls: 'warn' });
   if (!(F.mode === 'walk' || F.mode === 'air') || F.dead > 0) return;
   if (saInside(F.pos)) {
     if (!SA.lit) items.push({ id: 'sa:light', label: SA.q && SA.q.step === 'wood' ? 'Need firewood (' + SA.q.wood + '/3)' : 'Light the stove', cls: 'warn' });
@@ -12463,16 +12534,16 @@ function saActions(items) {
   if (Math.hypot(F.pos.x - SA.tub.x, F.pos.z - SA.tub.z) < 1.7) items.push({ id: 'sa:tub', label: 'Jump in the cold tub', cls: 'warn' });
 }
 function saAct(id) {
-  const q = SA.q, n = saMathieu();
+  const q = SA.q, n = saDima();
   if (id === 'sa:talk') saMenuOpen();
   else if (id === 'sa:light') {
     if (q && q.step === 'wood') { toast('No wood. Grab the glowing piles first (' + q.wood + '/3)', 2); return; }
     SA.lit = true; SA.litT = Math.max(SA.litT, q ? 1e9 : 240); sfx('thud', _w1.set(SA.x + 0.85, SA.gy + 0.4, SA.z + 0.55), 0.6, 0.7, 6); toast('The stove’s going. Give it a minute to heat up', 2);
-    if (q && q.step === 'light') { q.step = 'heat'; if (n) npcSay(n, npcPick(NPC_L.saLit), 3); }
+    if (q && q.step === 'light') { q.step = 'heat'; if (n) dmSay(n, 'lit'); }
   } else if (id === 'sa:water') {
     SA.steam = 1; SA.temp = Math.min(100, SA.temp + 4); if (AU.buf.hiss) sfx('hiss', _w1.set(SA.x + 0.85, SA.gy + 0.8, SA.z + 0.55), 1, 0.75, 8);
     for (let k = 0; k < 6; k++) saPuff(true);
-    if (q && q.step === 'sweat' && q.ask > 0) { q.ask = 0; q.hits++; if (n) npcSay(n, npcPick(NPC_L.saGood), 2.4); }
+    if (q && q.step === 'sweat' && q.ask > 0) { q.ask = 0; q.hits++; if (n) dmSay(n, 'good'); }
   } else if (id === 'sa:tub') {
     faSay(_w1.set(SA.tub.x, SA.tubM.position.y + 0.6, SA.tub.z), 'fa_splash', 1, 0.9, 14); SA.heat = 0; camShake = Math.max(camShake, 0.15);
     if (q && q.step === 'plunge') saQuestEnd(true); else toast(SA.heat > 30 || (q && q.step === 'sweat') ? 'Brrrr!' : 'Brrrr! Freezing', 1.6);
@@ -12482,13 +12553,14 @@ function saPuff(burst) { const p = SA.puffs.find(p => p.life <= 0); if (!p) retu
   p.sp.position.set(SA.x + 0.85 + (Math.random() - 0.5) * 0.3, SA.gy + SA.fl + 0.75, SA.z + 0.55 + (Math.random() - 0.5) * 0.3); p.v = new THREE.Vector3((Math.random() - 0.5) * 0.5 - (burst ? 0.4 : 0.1), burst ? 0.9 : 0.35, (Math.random() - 0.5) * 0.5 - (burst ? 0.35 : 0.1)); p.burst = burst; p.sp.visible = true; }
 function saStep(dt) {
   if (!SA.root) return; dt = Math.min(dt, 0.05);
+  if (!DM.ready && NPC.ready && DG.root) dmBuild();
   if (SA.lit) { SA.litT -= dt; if (SA.litT <= 0 && !SA.q && !SA.solo) SA.lit = false; }
   SA.temp += ((SA.lit ? 86 : 24) - SA.temp) * Math.min(1, dt / (SA.lit ? 20 : 45)); SA.steam = Math.max(0, SA.steam - dt * 0.22);
   const feel = saFeel(), me = activeName === 'foot' && saInside(F.pos);
   SA.fire.material.color.setHex(SA.lit ? (Math.sin(performance.now() / 90) > 0.6 ? 0xff9a3a : 0xff7a22) : 0x241208); SA.bulb.visible = SA.lit || me;
   SA.mats.int.emissive.setRGB(SA.lit ? 0.12 : 0.04, SA.lit ? 0.07 : 0.03, SA.lit ? 0.03 : 0.01);
   // the door opens for whoever's at it
-  const [dx, dz] = saW(-0.55, SA.D / 2), near = (p) => Math.hypot(p.x - dx, p.z - dz) < 1.5, M = saMathieu();
+  const [dx, dz] = saW(-0.55, SA.D / 2), near = (p) => Math.hypot(p.x - dx, p.z - dz) < 1.5, M = saDima();
   const want = near(F.pos) || (M && near(M.pos)); SA.doorA += ((want ? 1 : 0) - SA.doorA) * Math.min(1, dt * 4); SA.door.rotation.y = 1.5 * SA.doorA;
   // steam inside, smoke out the chimney
   if (SA.lit && Math.random() < dt * (1.5 + SA.steam * 6)) saPuff(false);
@@ -12514,7 +12586,7 @@ function saStep(dt) {
 function saReset() {
   if (SA.q) { for (const p of SA.q.piles) scene.remove(p.g); SA.q = null; }
   SA.solo = null; SA.lit = false; SA.litT = 0; SA.temp = 24; SA.steam = 0; SA.heat = 0; if (SA.sheet) SA.sheet.classList.remove('show');
-  const n = saMathieu(); if (n && n.st && n.st.startsWith('sa')) { n.st = 'wander'; n.t = 0; }
+  const n = saDima(); if (n && n.st && n.st.startsWith('sa')) { n.st = 'home'; n.t = 0; }
 }
 // the drive grid keeps the ute off the block
 function dgDrvBlock() { const B = DG_BLOCK; for (let x = B.x0 - 1; x <= B.x1 + 1; x += 2) for (let z = B.z0 - 1; z <= B.z1 + 1; z += 2) { const [i, j] = drvIJ(x, z); if (i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ) DRVA[j * DRV.NX + i] = 0; }
@@ -12871,7 +12943,7 @@ function mmChatter(n, dt, dP) {
 /* ---------- Madman and the backpackers ----------
    He can't stand them: when one wanders close he has a dig (and sometimes gets one back). But if one of them has a go
    at you and he's about, he's on your side: he storms over and sorts them out. */
-const mmBackpackers = () => NPC.list.filter(b => !b.mm && !b.veh && npcAlive(b));
+const mmBackpackers = () => NPC.list.filter(b => !b.mm && !b.dima && !b.veh && npcAlive(b));
 function mmDefend(n, dt) {
   const calm = MM.hostileT <= 0 && F.dead <= 0 && npcAlive(n) && !['tumble', 'down', 'ko', 'getup', 'stag', 'chase', 'fight'].includes(n.st);
   if (n.st !== 'defend') {
@@ -14032,7 +14104,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { DM, DIMA_L, dmSay, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
