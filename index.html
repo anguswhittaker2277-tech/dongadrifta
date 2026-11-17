@@ -10787,6 +10787,49 @@ function npcBubble(n) {
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true, sizeAttenuation: true })); sp.scale.set(3.6, 0.95, 1); sp.renderOrder = 12; sp.visible = false; scene.add(sp);
   n.bub = { c, t, sp, time: 0 };
 }
+/* ================================================================
+   VOICES (Nov 2026): Madman and the backpackers say their lines out loud with the phone's own text-to-speech,
+   on top of the speech bubbles (which stay, as subtitles). Madman gets an Australian English voice where the
+   device has one (else British, else any English); the backpackers speak their French lines in a French voice,
+   each pitched a little differently. Louder the closer you are; nothing past ~32 m. Menu: Voices on/off.
+   Quality and the voices on offer depend on the device.
+   ================================================================ */
+const VOX = { on: true, ok: typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined', list: [], pick: {}, warm: false, who: null };
+try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
+const VOX_CAST = {
+  madman:    { langs: ['en-au', 'en-gb', 'en'], like: ['lee', 'gordon', 'russell', 'james', 'daniel', 'arthur', 'oliver', 'male'], avoid: ['karen', 'catherine', 'female', 'samantha', 'kate', 'serena', 'moira'], pitch: 0.72, rate: 1.04 },
+  Mathieu:   { langs: ['fr-fr', 'fr'], like: ['thomas', 'nicolas', 'daniel', 'paul', 'male'], avoid: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], pitch: 0.95, rate: 1.08 },
+  Alexandre: { langs: ['fr-fr', 'fr'], like: ['thomas', 'nicolas', 'daniel', 'paul', 'male'], avoid: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], pitch: 0.8, rate: 1.0 },
+  'Chloé':   { langs: ['fr-fr', 'fr'], like: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], avoid: ['thomas', 'nicolas', 'male'], pitch: 1.2, rate: 1.1 },
+};
+function voxLoad() { if (!VOX.ok) return; VOX.list = speechSynthesis.getVoices() || []; VOX.pick = {}; }
+if (VOX.ok) { voxLoad(); try { speechSynthesis.addEventListener ? speechSynthesis.addEventListener('voiceschanged', voxLoad) : (speechSynthesis.onvoiceschanged = voxLoad); } catch (_) {} }
+function voxVoice(key) {
+  if (key in VOX.pick) return VOX.pick[key];
+  const C = VOX_CAST[key], L = VOX.list; let best = null, bs = -1e9;
+  for (const v of L) { const lang = (v.lang || '').toLowerCase().replace('_', '-'), nm = (v.name || '').toLowerCase();
+    const li = C.langs.findIndex(l => lang === l || (l.length === 2 && lang.startsWith(l + '-')) || lang === l.slice(0, 2)); if (li < 0) continue;
+    let sc = -li * 10; if (C.like.some(w => nm.includes(w))) sc += 4; if (C.avoid.some(w => nm.includes(w))) sc -= 6; if (v.localService) sc += 1; if (/enhanced|premium|natural|neural/.test(nm)) sc += 2;
+    if (sc > bs) { bs = sc; best = v; } }
+  return (VOX.pick[key] = best);
+}
+// shouted capitals ("OI!", "OUT!") get read as words, not spelled out
+const voxClean = (t) => String(t).replace(/[’‘]/g, "'").replace(/\b([A-Z]{2,})\b/g, (m) => m.charAt(0) + m.slice(1).toLowerCase()).replace(/\s+/g, ' ').trim();
+function voxSay(n, text) {
+  if (!VOX.ok || !VOX.on || !text || (typeof AU !== 'undefined' && AU.on === false) || document.hidden) return;
+  const key = n.mm ? 'madman' : n.name; if (!VOX_CAST[key]) return;
+  const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = activeName === 'foot' ? F.pos : S.pos, d = Math.hypot(p.x - me.x, p.z - me.z);
+  if (d > 32) return;
+  const voice = voxVoice(key); if (!voice && VOX.list.length) return;          // no voice in that language on this device: bubble only
+  const C = VOX_CAST[key], u = new SpeechSynthesisUtterance(voxClean(text));
+  if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = C.langs[0];
+  u.pitch = C.pitch; u.rate = C.rate; u.volume = THREE.MathUtils.clamp(1.15 - d / 28, 0.15, 1);
+  try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); speechSynthesis.speak(u); VOX.who = key; } catch (_) {}
+}
+function voxStop() { if (VOX.ok) try { speechSynthesis.cancel(); } catch (_) {} }
+// iPhone only lets a page start speaking from a tap: say nothing, once, on the first one
+if (VOX.ok) addEventListener('pointerdown', () => { if (VOX.warm) return; VOX.warm = true; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (_) {} }, { capture: true });
+document.addEventListener('visibilitychange', () => { if (document.hidden) voxStop(); });
 function npcSay(n, line, dur = 3.2) {
   if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; }     // Madman never gets the backpackers' French: map to his own lines
   const [fr, en] = line, B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
@@ -10797,6 +10840,7 @@ function npcSay(n, line, dur = 3.2) {
   fs = 28; x.font = 'italic 600 ' + fs + 'px system-ui,sans-serif'; while (x.measureText(en).width > 590 && fs > 16) { fs -= 2; x.font = 'italic 600 ' + fs + 'px system-ui,sans-serif'; }
   x.fillStyle = '#5b5f66'; x.fillText(en, 320, 98);
   B.t.needsUpdate = true; B.sp.visible = true; B.time = dur; B.sp.material.opacity = 1;
+  voxSay(n, fr);
 }
 function npcBuild() {
   NPC.ready = true;
@@ -11641,9 +11685,11 @@ function stbUI() {
   // menu: steering style + drift assist
   const panel = $('menuPanel'); if (!panel) return;
   const row = document.createElement('div'); row.id = 'stbRow';
-  row.innerHTML = '<div class="t">Drift assist (drift mode)</div><div class="b" id="stbA"></div>';
+  row.innerHTML = '<div class="t">Voices</div><div class="b" id="stbV"></div><div class="t">Drift assist (drift mode)</div><div class="b" id="stbA"></div>';
   const help = $('helpbtn'); help ? panel.insertBefore(row, help) : panel.appendChild(row);
   const paint = () => {
+    const vb = $('stbV'); vb.innerHTML = ''; for (const [lbl, v] of [['On', true], ['Off', false]]) { const b = document.createElement('button'); b.type = 'button'; b.textContent = lbl; b.classList.toggle('on', VOX.on === v);
+      b.addEventListener('click', () => { VOX.on = v; try { localStorage.setItem('wfy.voices', v ? '1' : '0'); } catch (_) {} if (!v) voxStop(); paint(); toast(v ? (VOX.ok ? 'Voices on: Madman and the backpackers talk' : 'This browser can\u2019t speak, sorry') : 'Voices off: speech bubbles only', 1.8); }); vb.appendChild(b); }
     const a = $('stbA'); a.innerHTML = ''; DAS_N.forEach((n, i) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; b.classList.toggle('on', DAS.lvl === i);
       b.addEventListener('click', () => { DAS.lvl = i; try { localStorage.setItem('wfy.dassist', String(i)); } catch (_) {} paint(); toast('Drift assist: ' + n + (i === 0 ? ' (you catch every slide)' : i === 3 ? ' (the car catches it for you)' : ''), 1.8); }); a.appendChild(b); });
   };
@@ -12438,7 +12484,7 @@ function mmSayNpc(n, line, dur) {
   mmSay(key, Math.min(dur || 3, 3), force || key === 'hostile' && MM.sayT <= 0);
 }
 function mmSayBub(n, line, dur) {
-  if (typeof line !== 'string' || !line) return;
+  if (typeof line !== 'string' || !line) return; voxSay(n, line);
   const B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
   x.font = '800 38px system-ui,sans-serif'; const words = line.split(' '), rows = []; let cur = '';
   for (const w of words) { const t = cur ? cur + ' ' + w : w; if (x.measureText(t).width > 580 && cur) { rows.push(cur); cur = w; } else cur = t; } if (cur) rows.push(cur);
@@ -13736,7 +13782,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { VOX, voxVoice, voxClean, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
