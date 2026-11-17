@@ -5690,7 +5690,7 @@ function audioInit() {
     ...['drone', 'flyer', 'spray'].flatMap(name => [0, 1, 2].map(k => () => { (AU.rl[name] = AU.rl[name] || [])[k] = toBuf(rotorLoop(ROTCFG[name].bpf, 300 + k * 11 + (name === 'flyer' ? 50 : name === 'spray' ? 90 : 0), ROTCFG[name].big)); })
       .concat([() => { AU.rot[name] = makeRotorVoice(name); }])),
   ];
-  jobs.push(() => faSynthAll(), () => fa2Apply(), () => mmSynth(), () => wxSynth(), () => wpnSynth(), () => melSynth(), () => realApply());
+  jobs.push(() => faSynthAll(), () => fa2Apply(), () => mmSynth(), () => wxSynth(), () => wpnSynth(), () => melSynth(), () => realApply(), () => { if (VOX.on) voxLoad(); });
   jobs.push(() => { AU.buf.track = toBuf(synthTrackLoop()); AU.trk = makeTrackVoice(); AU.soil = makeSoilVoice(); });
   jobs.push(() => { AU.buf.jake = toBuf(synthJakeLoop()); AU.jakeV = makeJakeVoice(); }, () => { AU.buf.airhiss = toBuf(synthAirHiss()); },
     () => { AU.rl.gyroProp = toBuf(rotorLoop(113, 1300, false)); }, () => { AU.rl.gyroRotor = toBuf(rotorLoop(12.7, 1311, true)); AU.gyroV = makeGyroVoice(); }, () => { AU.racerV = makeRacerVoice(); });
@@ -10788,48 +10788,61 @@ function npcBubble(n) {
   n.bub = { c, t, sp, time: 0 };
 }
 /* ================================================================
-   VOICES (Nov 2026): Madman and the backpackers say their lines out loud with the phone's own text-to-speech,
-   on top of the speech bubbles (which stay, as subtitles). Madman gets an Australian English voice where the
-   device has one (else British, else any English); the backpackers speak their French lines in a French voice,
-   each pitched a little differently. Louder the closer you are; nothing past ~32 m. Menu: Voices on/off.
-   Quality and the voices on offer depend on the device.
+   VOICES (Nov 2026): Madman and the backpackers say their lines out loud. Every line, and every piece Madman's
+   made-up chatter is assembled from, was recorded offline with Kokoro-82M (open-source TTS, Apache-2.0) and packed
+   into voices-v1.bin, which loads the first time someone speaks. Madman: two British male Kokoro voices blended,
+   vowels shifted toward broad Australian, then pitched a touch lower with some grit. The backpackers: Kokoro's
+   French voice (Chloe as is, the two blokes pitched down). A line that isn't in the pack just stays a speech bubble.
+   The backpackers keep quiet while you're with Madman. Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, ok: typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined', list: [], pick: {}, warm: false, who: null };
+const VOX = { on: true, url: 'voices-v1.bin', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
-const VOX_CAST = {
-  madman:    { langs: ['en-au', 'en-gb', 'en'], like: ['lee', 'gordon', 'russell', 'james', 'daniel', 'arthur', 'oliver', 'male'], avoid: ['karen', 'catherine', 'female', 'samantha', 'kate', 'serena', 'moira'], pitch: 0.72, rate: 1.04 },
-  Mathieu:   { langs: ['fr-fr', 'fr'], like: ['thomas', 'nicolas', 'daniel', 'paul', 'male'], avoid: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], pitch: 0.95, rate: 1.08 },
-  Alexandre: { langs: ['fr-fr', 'fr'], like: ['thomas', 'nicolas', 'daniel', 'paul', 'male'], avoid: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], pitch: 0.8, rate: 1.0 },
-  'Chloé':   { langs: ['fr-fr', 'fr'], like: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], avoid: ['thomas', 'nicolas', 'male'], pitch: 1.2, rate: 1.1 },
-};
-function voxLoad() { if (!VOX.ok) return; VOX.list = speechSynthesis.getVoices() || []; VOX.pick = {}; }
-if (VOX.ok) { voxLoad(); try { speechSynthesis.addEventListener ? speechSynthesis.addEventListener('voiceschanged', voxLoad) : (speechSynthesis.onvoiceschanged = voxLoad); } catch (_) {} }
-function voxVoice(key) {
-  if (key in VOX.pick) return VOX.pick[key];
-  const C = VOX_CAST[key], L = VOX.list; let best = null, bs = -1e9;
-  for (const v of L) { const lang = (v.lang || '').toLowerCase().replace('_', '-'), nm = (v.name || '').toLowerCase();
-    const li = C.langs.findIndex(l => lang === l || (l.length === 2 && lang.startsWith(l + '-')) || lang === l.slice(0, 2)); if (li < 0) continue;
-    let sc = -li * 10; if (C.like.some(w => nm.includes(w))) sc += 4; if (C.avoid.some(w => nm.includes(w))) sc -= 6; if (v.localService) sc += 1; if (/enhanced|premium|natural|neural/.test(nm)) sc += 2;
-    if (sc > bs) { bs = sc; best = v; } }
-  return (VOX.pick[key] = best);
+const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
+// the same normalising the recording script used, so the game's text finds its clips
+const voxNorm = (t) => String(t).replace(/[’‘]/g, "'").toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/'/g, '');
+function voxLoad() {
+  if (VOX.head || VOX.loading || VOX.failed) return; VOX.loading = true;
+  fetch(VOX.url).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(ab => {
+    const n = new DataView(ab).getUint32(0, true); VOX.head = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 4, n))); VOX.data = ab; VOX.base = 4 + n;
+    VOX.mmKeys = new Set(Object.keys(VOX.head.mm)); VOX.maxW = Math.max(...[...VOX.mmKeys].map(k => k.split(' ').length));
+  }).catch(() => { VOX.failed = true; }).finally(() => { VOX.loading = false; });
 }
-// shouted capitals ("OI!", "OUT!") get read as words, not spelled out
-const voxClean = (t) => String(t).replace(/[’‘]/g, "'").replace(/\b([A-Z]{2,})\b/g, (m) => m.charAt(0) + m.slice(1).toLowerCase()).replace(/\s+/g, ' ').trim();
+function voxBuf(ent) {
+  const key = ent[0]; if (VOX.bufs.has(key)) return VOX.bufs.get(key);
+  const pr = new Promise((ok, bad) => { const b = VOX.data.slice(VOX.base + ent[0], VOX.base + ent[0] + ent[1]); const r = AU.ctx.decodeAudioData(b, ok, bad); if (r && r.catch) r.catch(bad); }).catch(() => null);
+  VOX.bufs.set(key, pr); return pr;
+}
+// split one of Madman's lines into recorded pieces, longest first; null if any of it isn't recorded
+function voxSplit(text) {
+  const w = voxNorm(text).split(' ').filter(Boolean), out = []; let i = 0;
+  while (i < w.length) { let hit = null; for (let n = Math.min(VOX.maxW, w.length - i); n > 0; n--) { const k = w.slice(i, i + n).join(' '); if (VOX.mmKeys.has(k)) { hit = k; i += n; break; } } if (!hit) return null; out.push(VOX.head.mm[hit]); }
+  return out;
+}
+function voxStop(who) { const c = VOX.cur[who]; if (c) { for (const s of c) try { s.stop(); } catch (_) {} VOX.cur[who] = null; } }
+const voxNearMadman = () => { const n = MM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos, p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z) < 14 || (MM.sheet && MM.sheet.classList.contains('show')); };
 function voxSay(n, text) {
-  if (!VOX.ok || !VOX.on || !text || (typeof AU !== 'undefined' && AU.on === false) || document.hidden) return;
-  const key = n.mm ? 'madman' : n.name; if (!VOX_CAST[key]) return;
+  if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return;
+  if (!VOX.head) { voxLoad(); return; }                       // (the first line kicks off the download; it's said as a bubble)
+  const who = n.mm ? 'mm' : VOX_WHO[n.name]; if (!who) return;
   const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = activeName === 'foot' ? F.pos : S.pos, d = Math.hypot(p.x - me.x, p.z - me.z);
   if (d > 32) return;
-  const voice = voxVoice(key); if (!voice && VOX.list.length) return;          // no voice in that language on this device: bubble only
-  const C = VOX_CAST[key], u = new SpeechSynthesisUtterance(voxClean(text));
-  if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = C.langs[0];
-  u.pitch = C.pitch; u.rate = C.rate; u.volume = THREE.MathUtils.clamp(1.15 - d / 28, 0.15, 1);
-  try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); speechSynthesis.speak(u); VOX.who = key; } catch (_) {}
+  const now = AU.ctx.currentTime;
+  if (who !== 'mm' && (VOX.mmUntil > now || voxNearMadman())) return;          // no French chatter over Madman
+  let parts;
+  if (who === 'mm') parts = voxSplit(text); else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
+  if (!parts || !parts.length) return;
+  if (who === 'mm') { for (const k of Object.keys(VOX.cur)) voxStop(k); } else voxStop(who);
+  const g = AU.ctx.createGain(); g.gain.value = THREE.MathUtils.clamp(1.25 - d / 26, 0.12, 1) * (who === 'mm' ? 1.15 : 0.95); g.connect(AU.master);
+  const total = parts.reduce((s, e) => s + e[2] + (e[3] ? 0.12 : 0.05), 0); if (who === 'mm') VOX.mmUntil = now + total + 0.2;
+  const tok = VOX.cur[who] = [];
+  Promise.all(parts.map(voxBuf)).then(bufs => {
+    if (VOX.cur[who] !== tok) return;                          // something newer started meanwhile
+    let t = Math.max(AU.ctx.currentTime, now) + 0.02;
+    bufs.forEach((b, i) => { if (!b) return; const s = AU.ctx.createBufferSource(); s.buffer = b; s.connect(g); s.start(t); tok.push(s); t += b.duration + (parts[i][3] ? 0.12 : 0.05); });
+    if (who === 'mm') VOX.mmUntil = t + 0.2;
+  });
 }
-function voxStop() { if (VOX.ok) try { speechSynthesis.cancel(); } catch (_) {} }
-// iPhone only lets a page start speaking from a tap: say nothing, once, on the first one
-if (VOX.ok) addEventListener('pointerdown', () => { if (VOX.warm) return; VOX.warm = true; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (_) {} }, { capture: true });
-document.addEventListener('visibilitychange', () => { if (document.hidden) voxStop(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
   if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; }     // Madman never gets the backpackers' French: map to his own lines
   const [fr, en] = line, B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
@@ -11689,7 +11702,7 @@ function stbUI() {
   const help = $('helpbtn'); help ? panel.insertBefore(row, help) : panel.appendChild(row);
   const paint = () => {
     const vb = $('stbV'); vb.innerHTML = ''; for (const [lbl, v] of [['On', true], ['Off', false]]) { const b = document.createElement('button'); b.type = 'button'; b.textContent = lbl; b.classList.toggle('on', VOX.on === v);
-      b.addEventListener('click', () => { VOX.on = v; try { localStorage.setItem('wfy.voices', v ? '1' : '0'); } catch (_) {} if (!v) voxStop(); paint(); toast(v ? (VOX.ok ? 'Voices on: Madman and the backpackers talk' : 'This browser can\u2019t speak, sorry') : 'Voices off: speech bubbles only', 1.8); }); vb.appendChild(b); }
+      b.addEventListener('click', () => { VOX.on = v; try { localStorage.setItem('wfy.voices', v ? '1' : '0'); } catch (_) {} if (!v) for (const k of Object.keys(VOX.cur)) voxStop(k); else voxLoad(); paint(); toast(v ? 'Voices on: Madman and the backpackers talk' : 'Voices off: speech bubbles only', 1.8); }); vb.appendChild(b); }
     const a = $('stbA'); a.innerHTML = ''; DAS_N.forEach((n, i) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; b.classList.toggle('on', DAS.lvl === i);
       b.addEventListener('click', () => { DAS.lvl = i; try { localStorage.setItem('wfy.dassist', String(i)); } catch (_) {} paint(); toast('Drift assist: ' + n + (i === 0 ? ' (you catch every slide)' : i === 3 ? ' (the car catches it for you)' : ''), 1.8); }); a.appendChild(b); });
   };
@@ -13782,7 +13795,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { VOX, voxVoice, voxClean, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
