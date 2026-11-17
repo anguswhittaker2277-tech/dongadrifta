@@ -2423,22 +2423,22 @@ SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 
    fw = share of weight on the front, h = height of the centre of mass (m), drv = driven axle(s).
    ================================================================ */
 const HND = {
-  x5:      { g: 1.12, cs: 16, fw: 0.52, h: 0.62, drv: 'a' }, bmw:     { g: 1.15, cs: 17, fw: 0.52, h: 0.6, drv: 'a' },
-  suv:     { g: 1.02, cs: 14, fw: 0.53, h: 0.74, drv: 'a' }, ute:     { g: 1.02, cs: 14, fw: 0.56, h: 0.72, drv: 'r' },
-  trophy:  { g: 1.06, cs: 12, fw: 0.5, h: 0.85, drv: 'r' },  tractor: { g: 0.78, cs: 9, fw: 0.42, h: 1.1, drv: 'a' },
-  tele:    { g: 0.78, cs: 9, fw: 0.5, h: 1.2, drv: 'a' },    truck:   { g: 0.7, cs: 8.5, fw: 0.45, h: 1.3, drv: 'r' },
-  combine: { g: 0.68, cs: 8.5, fw: 0.6, h: 1.6, drv: 'f' },  def:     { g: 0.92, cs: 11, fw: 0.5, h: 0.8, drv: 'a' } };
+  x5:      { g: 1.2, cs: 18, fw: 0.52, h: 0.62, drv: 'a' },  bmw:     { g: 1.24, cs: 19, fw: 0.52, h: 0.6, drv: 'a' },
+  suv:     { g: 1.1, cs: 16, fw: 0.53, h: 0.74, drv: 'a' },  ute:     { g: 1.1, cs: 16, fw: 0.56, h: 0.72, drv: 'r' },
+  trophy:  { g: 1.14, cs: 14, fw: 0.5, h: 0.85, drv: 'r' },  tractor: { g: 0.82, cs: 10, fw: 0.42, h: 1.1, drv: 'a' },
+  tele:    { g: 0.82, cs: 10, fw: 0.5, h: 1.2, drv: 'a' },   truck:   { g: 0.72, cs: 9, fw: 0.45, h: 1.3, drv: 'r' },
+  combine: { g: 0.7, cs: 9, fw: 0.6, h: 1.6, drv: 'f' },     def:     { g: 0.98, cs: 12, fw: 0.5, h: 0.8, drv: 'a' } };
 const tyreCurve = (x) => x / Math.sqrt(1 + x * x);          // rises straight, then leans over to the limit: no cliff to fall off
 function carMotion(dt, throttle, steerIn, braking, handbrake) {
   const H = HND[activeName] || HND.def, DS = V.drift || (activeName === 'suv' ? DRIFT : null), dm = DMG.v[activeName];
-  const m = VEH_MASS[activeName] || 1500, wb = V.wb, a = wb * (1 - H.fw), b = wb - a, g = 9.8, Iz = m * a * b * 1.1;
+  const m = VEH_MASS[activeName] || 1500, wb = V.wb, a = wb * (1 - H.fw), b = wb - a, g = 9.8, Iz = m * a * b * 0.95;
   const top = DS ? DS.top : V.top, rev = DS ? DS.rev : V.rev, pull = DS ? DS.drive : V.accel, loose = DRIFTM && !!DS;
   const MU = H.g * WX.grip * slideGm() * (dm && dm.s0 ? V.grip / dm.s0.grip : 1) * (loose ? 0.88 : 1), rearK = loose ? 0.72 : 1;
   // the wheel eases toward the stick (quicker coming off than going on); the lock shrinks with speed
   // (keys are all-or-nothing so they get eased; a stick or the steering buttons are already smooth, so they go nearly straight through)
-  const sn0 = S.steerN || 0, off = Math.abs(steerIn) < Math.abs(sn0) || steerIn * sn0 < 0, sr = (input.kx ? (off ? 11 : 7.5) : 20) * dt;
+  const sn0 = S.steerN || 0, off = Math.abs(steerIn) < Math.abs(sn0) || steerIn * sn0 < 0, sr = (input.kx ? (off ? 12 : 9.5) : 24) * dt;
   S.steerN = sn0 + THREE.MathUtils.clamp(steerIn - sn0, -sr, sr);
-  const sp0 = Math.hypot(S.vx, S.vz), lock = Math.min(V.steer, Math.atan(wb * H.g * g * 1.25 / Math.max(sp0 * sp0, 16)) + (loose ? 3.2 : 2.5) / H.cs);      // the turn the tyres can hold, plus the slip it takes to get there
+  const sp0 = Math.hypot(S.vx, S.vz), lock = Math.min(V.steer, Math.atan(wb * H.g * g * 1.5 / Math.max(sp0 * sp0, 16)) + (loose ? 3.4 : 3.0) / H.cs);      // the turn the tyres can hold, plus the slip it takes to get there
   const n = Math.max(2, Math.ceil(dt / 0.005)), h = dt / n;
   // the machine's origin is its rear axle; the sums are done at its centre of mass, b ahead of that, so it turns about its middle
   let yaw = S.yaw, r = S.r || 0, vx = S.vx + r * b * Math.cos(yaw), vz = S.vz - r * b * Math.sin(yaw), x = S.pos.x + b * Math.sin(yaw), z = S.pos.z + b * Math.cos(yaw), vF = 0, vL = 0, axF = S.axF || 0, d = 0, slipR = 0, spin = false;
@@ -11542,7 +11542,7 @@ andUI();
        short handbrake tap kicks the tail out, and counter-steer assist is ON by default and adjustable: players
        say switching it off makes cars twitchy, so beginners keep it on and turn it down as they improve.
    Here:
-     - steering: ◀ ▶ buttons by default on touch screens for the cars (the thumb stick is still in the menu).
+     - steering: ◀ ▶ buttons on touch screens for the cars.
        The wheel winds on quicker at low speed and slower at speed, and springs back fast when you let go;
        in a drift, letting go hands the slide to the counter-steer assist, as CarX's buttons do.
      - Drift assist: Off / Low / Medium / High (Medium = how drift mode has always felt). Grip mode keeps its own.
@@ -11552,7 +11552,7 @@ andUI();
 var STB = { on: true, L: false, R: false, x: 0, act: false };
 var DAS = { lvl: 2 };                     // 0 off, 1 low, 2 medium, 3 high
 const DAS_K = [0, 0.55, 1, 1.6], DAS_N = ['Off', 'Low', 'Medium', 'High'];
-try { const v = localStorage.getItem('wfy.steerbtn'); if (v !== null) STB.on = v === '1'; const a = localStorage.getItem('wfy.dassist'); if (a !== null && !isNaN(+a)) DAS.lvl = Math.min(3, Math.max(0, +a)); } catch (_) {}
+try { const a = localStorage.getItem('wfy.dassist'); if (a !== null && !isNaN(+a)) DAS.lvl = Math.min(3, Math.max(0, +a)); } catch (_) {}
 const STB_TOUCH = (navigator.maxTouchPoints || 0) > 0 && matchMedia('(pointer: coarse)').matches;
 function dasK() { return DAS_K[DAS.lvl]; }
 // called every frame before the car is stepped: turn the two buttons into a smooth steering value
@@ -11563,9 +11563,9 @@ function stbStep(dt) {
   if (!STB.act) { if (was) { STB.L = STB.R = false; STB.x = 0; input.x = 0; } return; }
   const want = (STB.R ? 1 : 0) - (STB.L ? 1 : 0), spd = Math.abs(S.v);
   let rate;
-  if (want === 0) rate = 7;                                                     // self-centre
-  else if (Math.sign(want) !== Math.sign(STB.x) && Math.abs(STB.x) > 0.05) rate = 9;   // flick the other way: fast, for catching slides
-  else rate = THREE.MathUtils.lerp(DRIFTM ? 6 : 4.5, DRIFTM ? 3.6 : 2.2, THREE.MathUtils.clamp(spd / 28, 0, 1));
+  if (want === 0) rate = 10;                                                    // self-centre
+  else if (Math.sign(want) !== Math.sign(STB.x) && Math.abs(STB.x) > 0.05) rate = 14;  // flick the other way: fast, for catching slides
+  else rate = THREE.MathUtils.lerp(DRIFTM ? 9 : 8, DRIFTM ? 6 : 5, THREE.MathUtils.clamp(spd / 28, 0, 1));
   STB.x += THREE.MathUtils.clamp(want - STB.x, -rate * dt, rate * dt);
   input.x = STB.x;
 }
@@ -11625,11 +11625,9 @@ function stbUI() {
   // menu: steering style + drift assist
   const panel = $('menuPanel'); if (!panel) return;
   const row = document.createElement('div'); row.id = 'stbRow';
-  row.innerHTML = '<div class="t">Car steering</div><div class="b" id="stbS"></div><div class="t">Drift assist (drift mode)</div><div class="b" id="stbA"></div>';
+  row.innerHTML = '<div class="t">Drift assist (drift mode)</div><div class="b" id="stbA"></div>';
   const help = $('helpbtn'); help ? panel.insertBefore(row, help) : panel.appendChild(row);
   const paint = () => {
-    const s = $('stbS'); s.innerHTML = ''; for (const [lbl, v] of [['◀ ▶ buttons', true], ['Thumb stick', false]]) { const b = document.createElement('button'); b.type = 'button'; b.textContent = lbl; b.classList.toggle('on', STB.on === v);
-      b.addEventListener('click', () => { STB.on = v; try { localStorage.setItem('wfy.steerbtn', v ? '1' : '0'); } catch (_) {} paint(); toast(v ? 'Steering: ◀ ▶ buttons' : 'Steering: thumb stick', 1.4); }); s.appendChild(b); }
     const a = $('stbA'); a.innerHTML = ''; DAS_N.forEach((n, i) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; b.classList.toggle('on', DAS.lvl === i);
       b.addEventListener('click', () => { DAS.lvl = i; try { localStorage.setItem('wfy.dassist', String(i)); } catch (_) {} paint(); toast('Drift assist: ' + n + (i === 0 ? ' (you catch every slide)' : i === 3 ? ' (the car catches it for you)' : ''), 1.8); }); a.appendChild(b); });
   };
