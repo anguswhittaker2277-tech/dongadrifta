@@ -2423,11 +2423,11 @@ SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 
    fw = share of weight on the front, h = height of the centre of mass (m), drv = driven axle(s).
    ================================================================ */
 const HND = {
-  x5:      { g: 1.2, cs: 18, fw: 0.52, h: 0.62, drv: 'a' },  bmw:     { g: 1.24, cs: 19, fw: 0.52, h: 0.6, drv: 'a' },
-  suv:     { g: 1.1, cs: 16, fw: 0.53, h: 0.74, drv: 'a' },  ute:     { g: 1.1, cs: 16, fw: 0.56, h: 0.72, drv: 'r' },
-  trophy:  { g: 1.14, cs: 14, fw: 0.5, h: 0.85, drv: 'r' },  tractor: { g: 0.82, cs: 10, fw: 0.42, h: 1.1, drv: 'a' },
-  tele:    { g: 0.82, cs: 10, fw: 0.5, h: 1.2, drv: 'a' },   truck:   { g: 0.72, cs: 9, fw: 0.45, h: 1.3, drv: 'r' },
-  combine: { g: 0.7, cs: 9, fw: 0.6, h: 1.6, drv: 'f' },     def:     { g: 0.98, cs: 12, fw: 0.5, h: 0.8, drv: 'a' } };
+  x5:      { g: 1.55, cs: 20, fw: 0.52, h: 0.62, drv: 'a', lk: 1.2 }, bmw:     { g: 1.6, cs: 21, fw: 0.52, h: 0.6, drv: 'a', lk: 1.2 },
+  suv:     { g: 1.42, cs: 18, fw: 0.53, h: 0.74, drv: 'a', lk: 1.2 }, ute:     { g: 1.42, cs: 18, fw: 0.56, h: 0.72, drv: 'r', lk: 1.2 },
+  trophy:  { g: 1.45, cs: 16, fw: 0.5, h: 0.85, drv: 'r', lk: 1.15 },  tractor: { g: 1.0, cs: 11, fw: 0.42, h: 1.1, drv: 'a', lk: 1.1 },
+  tele:    { g: 1.0, cs: 11, fw: 0.5, h: 1.2, drv: 'a', lk: 1.1 },     truck:   { g: 0.85, cs: 10, fw: 0.45, h: 1.3, drv: 'r', lk: 1.1 },
+  combine: { g: 0.8, cs: 10, fw: 0.6, h: 1.6, drv: 'f', lk: 1 },       def:     { g: 1.25, cs: 14, fw: 0.5, h: 0.8, drv: 'a', lk: 1.1 } };
 const tyreCurve = (x) => x / Math.sqrt(1 + x * x);          // rises straight, then leans over to the limit: no cliff to fall off
 function carMotion(dt, throttle, steerIn, braking, handbrake) {
   const H = HND[activeName] || HND.def, DS = V.drift || (activeName === 'suv' ? DRIFT : null), dm = DMG.v[activeName];
@@ -2438,7 +2438,7 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
   // (keys are all-or-nothing so they get eased; a stick or the steering buttons are already smooth, so they go nearly straight through)
   const sn0 = S.steerN || 0, off = Math.abs(steerIn) < Math.abs(sn0) || steerIn * sn0 < 0, sr = (input.kx ? (off ? 12 : 9.5) : 24) * dt;
   S.steerN = sn0 + THREE.MathUtils.clamp(steerIn - sn0, -sr, sr);
-  const sp0 = Math.hypot(S.vx, S.vz), lock = Math.min(V.steer, Math.atan(wb * H.g * g * 1.5 / Math.max(sp0 * sp0, 16)) + (loose ? 3.4 : 3.0) / H.cs);      // the turn the tyres can hold, plus the slip it takes to get there
+  const sp0 = Math.hypot(S.vx, S.vz), lock = Math.min(V.steer * (H.lk || 1), Math.atan(wb * H.g * g * 1.5 / Math.max(sp0 * sp0, 16)) + (loose ? 3.4 : 3.0) / H.cs);      // the turn the tyres can hold, plus the slip it takes to get there
   const n = Math.max(2, Math.ceil(dt / 0.005)), h = dt / n;
   // the machine's origin is its rear axle; the sums are done at its centre of mass, b ahead of that, so it turns about its middle
   let yaw = S.yaw, r = S.r || 0, vx = S.vx + r * b * Math.cos(yaw), vz = S.vz - r * b * Math.sin(yaw), x = S.pos.x + b * Math.sin(yaw), z = S.pos.z + b * Math.cos(yaw), vF = 0, vL = 0, axF = S.axF || 0, d = 0, slipR = 0, spin = false;
@@ -2448,7 +2448,7 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
     vF = vx * fx + vz * fz; vL = vx * lx + vz * lz;
     const speed = Math.hypot(vF, vL), beta = Math.atan2(vL, Math.max(Math.abs(vF), 0.5));
     d = -S.steerN * lock;
-    if (loose && vF > 3 && !handbrake) d = THREE.MathUtils.clamp(d + (0.42 + 0.55 * (1 - Math.abs(steerIn))) * dasK() * THREE.MathUtils.clamp(beta, -0.6, 0.6), -V.steer, V.steer);   // drift mode's counter-steer assist
+    if (loose && vF > 3 && !handbrake) d = THREE.MathUtils.clamp(d + (0.42 + 0.55 * (1 - Math.abs(steerIn))) * dasK() * THREE.MathUtils.clamp(beta, -0.6, 0.6), -V.steer * (H.lk || 1), V.steer * (H.lk || 1));   // drift mode's counter-steer assist
     // weight on each axle: braking loads the front, power the rear
     const shift = THREE.MathUtils.clamp(m * axF * H.h / wb * 0.32, -0.2 * m * g, 0.2 * m * g), Nf = m * g * b / wb - shift, Nr = m * g * a / wb + shift;
     const Nd = H.drv === 'a' ? Nf + Nr : H.drv === 'f' ? Nf : Nr;
@@ -2467,11 +2467,11 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
     const slipF = Math.atan2(vyf * cd - vF * sd, Math.max(Math.abs(vF * cd + vyf * sd), 2.5)); slipR = Math.atan2(vL - r * b, den);
     // power through an axle uses up some of its cornering grip (rear-drive cars step out, front-drive push; all-wheel drive only in drift mode)
     const used = Math.min(1, Math.abs(Fd) * (loose && H.drv === 'a' ? 0.8 * (Nf + Nr) / Nr : 1) / Math.max(1, grip)), ck = loose ? 1 : 0.55, cut = Math.sqrt(Math.max(0.2, 1 - ck * used * used));
-    const capF = MU * Nf * (H.drv === 'f' ? cut : 1), capR = MU * rearK * Nr * (H.drv === 'r' || (loose && H.drv === 'a') ? cut : 1) * (handbrake ? (loose ? 0.1 : 0.22) : 1);
+    const capF = MU * Nf * (H.drv === 'f' ? cut : 1), capR = MU * rearK * Nr * (H.drv === 'r' || (loose && H.drv === 'a') ? cut : 1) * (handbrake ? (loose ? 0.12 : 0.3) : 1);
     const Fyf = -capF * tyreCurve(H.cs * Nf * slipF / Math.max(1, capF)), Fyr = -capR * tyreCurve(H.cs * Nr * slipR / Math.max(1, capR));
     const aF = (Fx - Fyf * sd) / m + grade + vL * r, aL = (Fyf * cd + Fyr) / m - vF * r;
     let torque = a * Fyf * cd - b * Fyr - (0.8 + 0.035 * speed) * r * Iz;                       // (plus the damping a real chassis has)
-    if (handbrake && Math.abs(steerIn) > 0.15 && speed > 5) torque += -steerIn * (loose ? 2.2 : 1.6) * Iz * Math.min(1, speed / 10);      // a handbrake flick swings the tail
+    if (handbrake && Math.abs(steerIn) > 0.15 && speed > 5) torque += -steerIn * (loose ? 1.8 : 1.0) * Iz * Math.min(1, speed / 10);      // a handbrake flick swings the tail
     S.hbT = handbrake ? 0.8 : Math.max(0, (S.hbT || 0) - h);
     const lim = loose ? 0.72 : S.hbT > 0 ? 0.85 : 0.3; if (speed > 4 && vF > 0 && Math.abs(beta) > lim) torque += Math.sign(beta) * (Math.abs(beta) - lim) * (loose ? 26 : 30) * Iz;   // past a big slide angle it pulls itself back into line
     vF += aF * h; vL += aL * h; r += torque / Iz * h;
@@ -4039,7 +4039,7 @@ function shedParking() {
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
   HOME.farmer = { x: 172.5, z: 41.1, yaw: 1.05, indoors: true };   // you wake up in the bunks, facing the door
-  HOME.ute = { x: 163, z: 50.4, yaw: Math.PI / 2 };   // on the gravel beside the BMW, tailgate to the open ground   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
+  HOME.ute = { x: 166.3, z: 50.4, yaw: -Math.PI / 2 };   // on the gravel beside the BMW, nose out to the open ground (tailgate to the dongas)   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
 
 /* ---------- Dazza's one-liners: hooks for each moment, lines left empty for now.
@@ -4805,9 +4805,10 @@ function groundVehicleHit(nx, nz, yaw) {
 }
 function snapshotS() {
   return { pos: S.pos.clone(), yaw: S.yaw, v: S.v, steer: S.steer, pitch: S.pitch, roll: S.roll, bodyRoll: S.bodyRoll, bodyPitch: S.bodyPitch,
-           vx: S.vx, vz: S.vz, r: S.r, sus: S.sus, susV: S.susV, gVel: S.gVel, prevV: S.prevV, steerN: S.steerN || 0, axF: S.axF || 0, rollV: S.rollV || 0, bpV: S.bpV || 0 };
+           vx: S.vx, vz: S.vz, r: S.r, sus: S.sus, susV: S.susV, gVel: S.gVel, prevV: S.prevV, steerN: S.steerN || 0, axF: S.axF || 0, rollV: S.rollV || 0, bpV: S.bpV || 0,
+           air: !!S.air, vy: S.vy || 0, airT: S.airT || 0, pitchV: S.pitchV || 0, launch: S.launch };      // (airborne state too, or anyone else driving grounds you mid-jump)
 }
-function loadS(st) { const p = S.pos; S.steerN = S.axF = S.rollV = S.bpV = 0; Object.assign(S, st); S.pos = p; S.pos.copy(st.pos); S.shake = 0; S.air = false; S.vy = 0; S.pitchV = 0; }
+function loadS(st) { const p = S.pos; S.steerN = S.axF = S.rollV = S.bpV = 0; Object.assign(S, st); S.pos = p; S.pos.copy(st.pos); S.shake = 0; S.air = !!st.air && !!st.launch; S.vy = st.vy || 0; S.pitchV = st.pitchV || 0; S.airT = st.airT || 0; }
 function engineOff(v) { if (v.model.halo) { v.model.halo.material.opacity = 0; v.model.dome.material.color.setRGB(0.55, 0.32, 0.05); } }
 
 function setActive(name, opts = {}) {
@@ -13184,12 +13185,12 @@ const DRVX = new Set();   // cells found blocked while driving (cleared each hun
 const drvOk = (i, j) => i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ && DRVA[j * DRV.NX + i] === 1 && !DRVX.has(j * DRV.NX + i);
 const drvIJ = (x, z) => [Math.floor((x - DRV.X0) / DRV.C), Math.floor((z - DRV.Z0) / DRV.C)];
 const drvXZ = (i, j) => [DRV.X0 + (i + 0.5) * DRV.C, DRV.Z0 + (j + 0.5) * DRV.C];
-const drvOkXZ = (x, z) => { const [i, j] = drvIJ(x, z); return drvOk(i, j); };
+const drvOkXZ = (x, z) => { if (!DRVA) drvInit(); const [i, j] = drvIJ(x, z); return drvOk(i, j); };
 function drvNear(x, z, maxR = 8) { drvInit(); const [i0, j0] = drvIJ(x, z); if (drvOk(i0, j0)) return [i0, j0];
   for (let r = 1; r <= maxR; r++) { let best = null, bd = 1e9; for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue; if (drvOk(i0 + di, j0 + dj)) { const d = di * di + dj * dj; if (d < bd) { bd = d; best = [i0 + di, j0 + dj]; } } } if (best) return best; }
   return null; }
 function drvClear(i, j) { let n = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) if (!drvOk(i + di, j + dj)) n++; return n; }
-function drvLOS(ax, az, bx, bz) { const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 1.5), px = -(bz - az) / (L || 1), pz = (bx - ax) / (L || 1);
+function drvLOS(ax, az, bx, bz) { drvInit(); const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 1.5), px = -(bz - az) / (L || 1), pz = (bx - ax) / (L || 1);
   for (let k = 0; k <= n; k++) { const u = k / Math.max(1, n), x = ax + (bx - ax) * u, z = az + (bz - az) * u; if (!drvOkXZ(x, z) || !drvOkXZ(x + px * 1.3, z + pz * 1.3) || !drvOkXZ(x - px * 1.3, z - pz * 1.3)) return false; } return true; }
 // A* over 4 m cells, 8-connected, a little extra cost next to obstacles so it keeps off fences and sheds
 function drvPath(x0, z0, x1, z1) {
