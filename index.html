@@ -10812,11 +10812,13 @@ function voxBuf(ent) {
   const pr = new Promise((ok, bad) => { const b = VOX.data.slice(VOX.base + ent[0], VOX.base + ent[0] + ent[1]); const r = AU.ctx.decodeAudioData(b, ok, bad); if (r && r.catch) r.catch(bad); }).catch(() => null);
   VOX.bufs.set(key, pr); return pr;
 }
-// split one of Madman's lines into recorded pieces, longest first; null if any of it isn't recorded
+// split one of Madman's lines into recorded pieces (longest pieces first, backing off if that strands the rest); null if any of it isn't recorded
 function voxSplit(text) {
-  const w = voxNorm(text).split(' ').filter(Boolean), out = []; let i = 0;
-  while (i < w.length) { let hit = null; for (let n = Math.min(VOX.maxW, w.length - i); n > 0; n--) { const k = w.slice(i, i + n).join(' '); if (VOX.mmKeys.has(k)) { hit = k; i += n; break; } } if (!hit) return null; out.push(VOX.head.mm[hit]); }
-  return out;
+  const w = voxNorm(text).split(' ').filter(Boolean), memo = new Map();
+  const go = (i) => { if (i === w.length) return []; if (memo.has(i)) return memo.get(i); let r = null;
+    for (let n = Math.min(VOX.maxW, w.length - i); n > 0 && !r; n--) { const k = w.slice(i, i + n).join(' '); if (VOX.mmKeys.has(k)) { const rest = go(i + n); if (rest) r = [VOX.head.mm[k], ...rest]; } }
+    memo.set(i, r); return r; };
+  return w.length ? go(0) : null;
 }
 function voxStop(who) { const c = VOX.cur[who]; if (c) { for (const s of c) try { s.stop(); } catch (_) {} VOX.cur[who] = null; } }
 const voxNearMadman = () => { const n = MM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos, p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z) < 14 || (MM.sheet && MM.sheet.classList.contains('show')); };
