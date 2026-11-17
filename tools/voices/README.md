@@ -17,8 +17,8 @@ Rebuild it after changing any of their lines (`MM_L`, `MH_L`, `NPC_L` in `index.
 6. `python3 pack.py voices-v1.bin` adds the effects with ffmpeg and packs the MP3s.
 
 Madman is `bm_lewis` and `bm_george` blended 60/40 at 0.86 speed, with the vowels pushed toward broad Australian
-(FACE "mite", PRICE "roit", GOAT "naow", MOUTH "neow", raised TRAP, flapped t, open final schwa), then pitched up
-about 1.6 semitones with a strong nasal EQ and some soft clipping for gravel.
+(FACE "mite", PRICE "roit", GOAT "naow", MOUTH "neow", raised TRAP, flapped t, open final schwa), then pitched down
+about 2.6 semitones (formants too), with a heavy chest, the nasal band cut, a fast flutter and hard soft clipping for growl.
 The backpackers are `ff_siwis`; Mathieu and Alexandre are pitched down.
 
 `phonemize.js` is adapted from kokoro-js (Apache-2.0); `kokoro-config.json` is from kokoro-onnx (MIT).

@@ -2,8 +2,9 @@
 import json, subprocess, os, struct, sys, concurrent.futures as cf
 TRIM = "silenceremove=start_periods=1:start_threshold=-48dB,areverse,silenceremove=start_periods=1:start_threshold=-48dB,areverse"
 FX = {
-  # Madman: broad Aussie bloke: pitched up (with the formants) into a higher, whinier register, strongly nasal, drawn out, with gravel
-  'mm': TRIM + ",asetrate=24000*1.1,aresample=24000,atempo=0.95,equalizer=f=180:t=q:w=1:g=2,equalizer=f=1700:t=q:w=1.1:g=6,equalizer=f=2600:t=q:w=1.5:g=3,volume=2.6,asoftclip=type=tanh,lowpass=f=7000",
+  # Madman: a big rough bloke: pitched down (formants too, so he sounds bigger), chest and low-mid weight, the nasal band
+  # cut, some bite up top, driven hard into soft clipping with a fast flutter for gravel
+  'mm': TRIM + ",asetrate=24000*0.86,aresample=24000,atempo=1.12,equalizer=f=140:t=q:w=0.9:g=5,equalizer=f=420:t=q:w=1:g=2,equalizer=f=1500:t=q:w=1.2:g=-4,equalizer=f=3200:t=q:w=1.4:g=2,tremolo=f=28:d=0.18,volume=4.5,asoftclip=type=tanh,lowpass=f=6200",
   # the backpackers off one French voice: Chloe as recorded, the two blokes pitched down (formants and all, so they sound bigger)
   'C': TRIM, 'M': TRIM + ",asetrate=24000*0.82,aresample=24000,atempo=1.2195", 'A': TRIM + ",asetrate=24000*0.77,aresample=24000,atempo=1.2987",
 }

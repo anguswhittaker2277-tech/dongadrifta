@@ -10791,7 +10791,7 @@ function npcBubble(n) {
    VOICES (Nov 2026): Madman and the backpackers say their lines out loud. Every line was recorded offline with
    Kokoro-82M (open-source TTS, Apache-2.0) and packed into voices-v1.bin, which loads once sound starts. Madman: two
    British male Kokoro voices blended, the vowels pushed hard toward broad Australian ("mite", "roit", "naow"),
-   drawn out, pitched up into a nasal ocker register with some gravel. The backpackers: Kokoro's French voice (Chloe
+   drawn out, then pitched down with a heavy chest, the nasal band cut and plenty of grit. The backpackers: Kokoro's French voice (Chloe
    as is, the two blokes pitched down). A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman. Menu: Voices on/off.
    ================================================================ */
@@ -12822,7 +12822,7 @@ function mmMenuOpen() {
   const ms = mhMenuState(), sub = { solo: 'He takes the ute and the dogs', hunt: 'Ride shotgun, shoot out the window \u00b7 5 pigs' };
   for (const k of ['solo', 'hunt']) { const b = sh.querySelector('[data-mm="' + k + '"]'); b.setAttribute('aria-disabled', ms[k] ? 'true' : 'false'); b.querySelector('span').textContent = ms[k] || sub[k]; }
   const S_ = MH.stats; if (S_.g || S_.s) $('mmMood').textContent += ' Hunts: ' + (S_.g + S_.s) + ' \u00b7 pigs: ' + S_.k + (S_.best ? ' \u00b7 best ' + fmtT(S_.best) : '');
-  sh.classList.add('show'); MM.n.lookH = 0; mmSay(cross ? 'annoyed' : 'greet', 2.2, true);
+  sh.classList.add('show'); MM.n.lookH = 0; MM.sayT = Math.max(MM.sayT, 1.5);      // (he waits for you to pick something rather than piping up)
 }
 function mmMenuClose() { if (MM.sheet) MM.sheet.classList.remove('show'); }
 function mmMenuStep() { if (MM.sheet && MM.sheet.classList.contains('show') && !mmTalkable()) mmMenuClose(); }
