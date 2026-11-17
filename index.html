@@ -2490,12 +2490,32 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
   return { yaw, vx: vx - r * b * cy, vz: vz + r * b * sy, r, x: x - b * sy, z: z - b * cy, vF, vL: vL - r * b, ax: axF };
 }
 
+/* NPC / coasting vehicle steps run the same physics in a sandbox: their own throttle and steering, none of the
+   player's keys, touch steering, buttons or HUD, and every bit of the player's vehicle and handling state put back
+   exactly as it was afterwards (even if the step throws). SIM.npc > 0 while one is running. */
+var SIM = { npc: 0 };
+function simSaveS() { const o = {}; for (const k in S) { const v = S[k]; o[k] = v && v.isVector3 ? v.clone() : v; } return o; }
+function simLoadS(o) { for (const k of Object.keys(S)) if (!(k in o)) delete S[k]; for (const k in o) { const v = o[k]; if (v && v.isVector3 && S[k] && S[k].isVector3) S[k].copy(v); else S[k] = v; } }
+function simVeh(v, thr, str, body) {
+  const keepS = simSaveS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepM = { ...MOTO }, keepCS = camShake, keepPS = prevShake;
+  SIM.npc++;
+  try {
+    for (const k in input) { const t = typeof input[k]; if (t === 'number') input[k] = 0; else if (t === 'boolean') input[k] = false; }
+    input.x = str; input.y = thr;
+    activeName = v.name; T = v.model; V = v.spec; drift.on = false;
+    return body();
+  } finally {
+    SIM.npc--;
+    activeName = keepA; T = keepT; V = keepV; drift.on = keepD; simLoadS(keepS); Object.assign(input, keepIn);
+    for (const k of Object.keys(MOTO)) if (!(k in keepM)) delete MOTO[k]; Object.assign(MOTO, keepM); camShake = keepCS; prevShake = keepPS;
+  }
+}
 const drift = { on: false, chain: 0, mult: 1, chainTime: 0, since: 0, total: 0, best: 0, angle: 0, flashT: 0 };
 try { drift.best = +localStorage.getItem('wingfield-drift-best') || 0; } catch (_) {}
 
 function step(dt) {
   dt = Math.max(dt, 1e-4);            // Safari's coarse timer can report two frames at the same instant
-  readKeys(); stbStep(dt);           // the steering buttons wind the wheel on and off
+  if (!SIM.npc) { readKeys(); stbStep(dt); }           // the steering buttons wind the wheel on and off (the player's step only)
   let throttle, steerIn, braking;
   const handbrake = drift.on && (input.hb || input.kb);
   if (drift.on) {
@@ -4721,15 +4741,13 @@ function bailGround(v) {
 }
 // a vehicle nobody is driving still rolls to a stop (its own physics with the controls let go)
 function coastStep(v, dt) {
-  const keepS = snapshotS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepK = [...keys];
-  keys.clear(); input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
-  activeName = v.name; T = v.model; V = v.spec; drift.on = false; loadS(v.state);
-  step(dt);
-  S.v -= Math.sign(S.v) * Math.min(Math.abs(S.v), 2.2 * dt);         // nobody on the pedals: it scrubs off speed
-  S.vx = Math.sin(S.yaw) * S.v; S.vz = Math.cos(S.yaw) * S.v;
-  v.state = snapshotS();
-  const sp = Math.hypot(S.vx, S.vz), vx = S.vx, vz = S.vz;
-  activeName = keepA; T = keepT; V = keepV; drift.on = keepD; loadS(keepS); Object.assign(input, keepIn); keepK.forEach(k => keys.add(k));
+  const { sp, vx, vz } = simVeh(v, 0, 0, () => {
+    loadS(v.state); step(dt);
+    S.v -= Math.sign(S.v) * Math.min(Math.abs(S.v), 2.2 * dt);         // nobody on the pedals: it scrubs off speed
+    S.vx = Math.sin(S.yaw) * S.v; S.vz = Math.cos(S.yaw) * S.v;
+    v.state = snapshotS();
+    return { sp: Math.hypot(S.vx, S.vz), vx: S.vx, vz: S.vz };
+  });
   if (sp < 0.05) { v.coast = false; engineOff(v); return; }
   // knocks him flying if it rolls into him
   if (sp > 3 && (F.mode === 'walk' || F.mode === 'air')) {
@@ -5121,7 +5139,7 @@ function resetAll() {
     T = v.model; V = v.spec; drift.on = name === 'suv' || !!V.drift; activeName = name;
     S.pos.set(h.x, 0, h.z); S.yaw = h.yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; S.steerN = S.axF = S.rollV = S.bpV = 0; S.shake = 0; S.sus = S.susV = S.gVel = 0; S.prevV = 0; S.air = false; S.vy = 0; S.pitchV = 0;
     S.pos.y = homeY(h.x, h.z); S.pitch = S.roll = S.bodyRoll = S.bodyPitch = 0;
-    for (let i = 0; i < 40; i++) step(1 / 60);
+    SIM.npc++; try { for (let i = 0; i < 40; i++) step(1 / 60); } finally { SIM.npc--; }     // settling, not the player driving: leave the controls alone
     v.state = snapshotS(); engineOff(v);
   }
   if (!TIP.model) TIP.model = buildTipper();
@@ -8386,12 +8404,12 @@ function airLand(gH, tPitch) {
   if (activeName !== 'foot') { if (verdict === 'Crash') dmgLanding(activeName, vn, true); else if (vn > 6.5) dmgLanding(activeName, vn, vn > 9); }
   S.v *= k; S.vx *= k; S.vz *= k;
   S.pitch = S.pitch * 0.4 + slope * 0.6;
-  if (airT > 0.4 && activeName !== 'foot') {
+  if (airT > 0.4 && activeName !== 'foot' && !SIM.npc) {
     const best = airT > MOTO.bestAir + 0.05 && verdict !== 'Crash';
     if (best) { MOTO.bestAir = airT; try { STORE.set('wfy.bestair', airT); } catch (_) {} }
     motoPop(`<b>${airT.toFixed(1)} s</b> air &middot; ${Math.round(dist)} m &middot; ${high.toFixed(1)} m high &middot; <span class="v">${verdict}</span>${best && airT > 1 ? ' &middot; best' : ''}`, 2.6, verdict === 'Clean' ? 'ok' : verdict === 'Crash' ? 'bad' : 'meh');
   }
-  if (moto) fmxLanded(verdict, airT);
+  if (moto && !SIM.npc) fmxLanded(verdict, airT);
   if (verdict === 'Crash') { S.shake = 0; prevShake = 0; MOTO.crash = activeVeh(); }
 }
 // wheelies: lean back on the gas (the old auto-wheelie is gone)
@@ -10834,13 +10852,11 @@ function npcEnter(n, v) {
 const NPC_MODES = ['zig', 'donut', 'rampage', 'reverse', 'stopgo', 'rampage'];
 // drive a machine with the sticks: same trick as a machine rolling to a stop, but with the controls held
 function npcDrive(v, dt, thr, str) {
-  const keepS = snapshotS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepK = [...keys];
-  keys.clear(); input.x = str; input.y = thr; input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
-  activeName = v.name; T = v.model; V = v.spec; drift.on = false; loadS(v.state);
-  step(dt);
-  const vx = S.vx, vz = S.vz, sp = Math.hypot(vx, vz), vF = S.v;
-  v.state = snapshotS();
-  activeName = keepA; T = keepT; V = keepV; drift.on = keepD; loadS(keepS); Object.assign(input, keepIn); keepK.forEach(k => keys.add(k));
+  const { vx, vz, sp, vF } = simVeh(v, thr, str, () => {
+    loadS(v.state); step(dt);
+    const o = { vx: S.vx, vz: S.vz, sp: Math.hypot(S.vx, S.vz), vF: S.v };
+    v.state = snapshotS(); return o;
+  });
   // run into someone on foot and they go flying
   if (sp > 3 && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air')) {
     const o = vehicleOBB(v), dx = F.pos.x - o.cx, dz = F.pos.z - o.cz;
@@ -11438,7 +11454,7 @@ function bmwLoopsLoad() {
 /* Driver alerts: say what just broke (which tyre, which panel, how bad), not just that something did. */
 const DMGA = { txt: '', at: 0 };
 // no damage text while Madman's doing the driving
-function dmgQuiet() { return (typeof MM !== 'undefined' && MM.npcDriving) || (typeof MH !== 'undefined' && MH.pax); }
+function dmgQuiet() { return SIM.npc > 0 || (typeof MM !== 'undefined' && MM.npcDriving) || (typeof MH !== 'undefined' && MH.pax); }
 function dmgAlert(msg) { if (dmgQuiet()) return; const n = performance.now(); DMGA.txt = n - DMGA.at < 800 ? DMGA.txt + ' · ' + msg : msg; DMGA.at = n; toast(DMGA.txt, 3.4); }
 function dmgTyreMsg(st, ty, t) {
   if (st.nPop === ty.length) return 'All tyres gone';
@@ -12779,13 +12795,15 @@ function mmFixUte() {
 // settle the ute on its home spot, the way Reset parks every machine
 function mmParkHome() {
   const v = mmUte(), h = HOME.ute; if (activeName === 'ute' || v.npc) return;
-  const keepS = snapshotS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepK = [...keys];
-  keys.clear(); input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
-  activeName = 'ute'; T = v.model; V = v.spec; drift.on = false; MM.npcDriving = true;
-  S.pos.set(h.x, homeY(h.x, h.z), h.z); S.yaw = h.yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; S.shake = 0; S.sus = S.susV = S.gVel = 0; S.prevV = 0; S.air = false; S.vy = 0; S.pitchV = 0; S.pitch = S.roll = S.bodyRoll = S.bodyPitch = 0;
-  try { for (let i = 0; i < 40; i++) step(1 / 60); } finally { MM.npcDriving = false; }
-  v.state = snapshotS(); v.coast = false;
-  activeName = keepA; T = keepT; V = keepV; drift.on = keepD; loadS(keepS); Object.assign(input, keepIn); keepK.forEach(k => keys.add(k));
+  simVeh(v, 0, 0, () => {
+    MM.npcDriving = true;
+    try {
+      S.pos.set(h.x, homeY(h.x, h.z), h.z); S.yaw = h.yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; S.shake = 0; S.sus = S.susV = S.gVel = 0; S.prevV = 0; S.air = false; S.vy = 0; S.pitchV = 0; S.pitch = S.roll = S.bodyRoll = S.bodyPitch = 0;
+      for (let i = 0; i < 40; i++) step(1 / 60);
+      v.state = snapshotS();
+    } finally { MM.npcDriving = false; }
+  });
+  v.coast = false;
   MM.rest = null;
 }
 
