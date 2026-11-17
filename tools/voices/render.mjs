@@ -24,7 +24,7 @@ async function phon(text, lang) {
 }
 function wav(f32, sr) { const n = f32.length, b = Buffer.alloc(44 + n * 2); b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(sr, 24); b.writeUInt32LE(sr * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
   for (let i = 0; i < n; i++) b.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(f32[i] * 32767))), 44 + i * 2); return b; }
-const clips = JSON.parse(fs.readFileSync('clips.json'))[which], keys = Object.keys(clips).slice(0, limit), dir = 'out_' + which; fs.mkdirSync(dir, { recursive: true });
+const clips = JSON.parse(fs.readFileSync(process.env.CLIPS || 'clips.json'))[which], keys = Object.keys(clips).slice(0, limit), dir = process.env.OUT || ('out_' + which); fs.mkdirSync(dir, { recursive: true });
 const idx = {}; let i = 0, skipped = [];
 for (const k of keys) { const text = clips[k], ph = await phon(text, which === 'fr' ? 'fr' : 'en');
   const ids = [...ph].map(c => vocab[c]).filter(x => x !== undefined); if (!ids.length) { skipped.push(k); continue; }

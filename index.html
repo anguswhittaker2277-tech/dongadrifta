@@ -2404,7 +2404,7 @@ SPECS.ute = Object.assign({}, SPECS.x5, { top: 150 / 3.6, rev: 22 / 3.6, accel: 
   rF: UTE_META.R, rR: UTE_META.R, step: 0.3, trackR: 0.78, trackF: 0.78, roll: 0.013, rollMax: 0.065, grip: 7.5, susK: 140, susC: 9,
   camBack: 9.4, camUp: 3.8, camPivot: 1.5, look: 2.6, lookH: 1.1 });
 SPECS.x5.drift = Object.assign({}, DRIFT, { m: 2200, Iz: 3600, a: 1.5, Cf: 74000, Cr: 68000, mu: 0.95, drive: 7.2, top: 200 / 3.6, rev: 24 / 3.6, steer: 0.56, steerFast: 0.22, kick: 2.2 });
-SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 7.8, Cf: 76000, Cr: 70000, mu: 0.97 });
+SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 11.5, top: 235 / 3.6, Cf: 76000, Cr: 70000, mu: 0.97 });      // the M-car: a lot more go
 SPECS.ute.drift = Object.assign({}, SPECS.x5.drift, { m: 2300, Iz: 4300, a: 1.62, Cf: 70000, Cr: 63000, mu: 0.9, drive: 6.0, top: 150 / 3.6, rev: 22 / 3.6, steer: 0.54, steerFast: 0.2, kick: 2.0 });
 SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 70000, Cr: 64000, mu: 0.9, drive: 8.6, top: 165 / 3.6, rev: 25 / 3.6, steer: 0.58, steerFast: 0.3, kick: 2.8 });
 /* ================================================================
@@ -2597,7 +2597,7 @@ function step(dt) {
   side.set(fwd.z, 0, -fwd.x);                     // +X local (left)
 
   // collisions: rays from the middle of the vehicle out along the direction of travel, at several heights and lanes
-  let blocked = false, hitN = null, impact = 0, sHit = null;
+  let blocked = false, hitN = null, impact = 0, sHit = null, vHit = null;
   if (dist > 1e-4 && !step.bench) {            // (step.bench: the handling test rig drives on open ground with nothing to hit)
     const midZ = (V.front - V.rear) / 2;
     const along = moveX * fwd.x + moveZ * fwd.z, across = moveX * side.x + moveZ * side.z;
@@ -2641,8 +2641,8 @@ function step(dt) {
       }
     }
     // the other vehicles parked around the yard
-    if (!blocked) { const hv = groundVehicleHit(nx, nz, newYaw);
-      if (hv && !(moveX * hv.x + moveZ * hv.y > 0.2 && groundVehicleHit(S.pos.x, S.pos.z, S.yaw))) { blocked = true; hitN = hv; } }      // (already tangled up with one: pulling away from it is allowed)
+    if (!blocked) { const hv = groundVehicleHit(nx, nz, newYaw), hveh = groundVehicleHit.veh;
+      if (hv && !(moveX * hv.x + moveZ * hv.y > 0.2 && groundVehicleHit(S.pos.x, S.pos.z, S.yaw))) { blocked = true; hitN = hv; vHit = hveh; } }      // (already tangled up with one: pulling away from it is allowed)
   }
   if (blocked) {
     if (slip) {
@@ -2665,6 +2665,7 @@ function step(dt) {
       const sgn = (moveX * fwd.x + moveZ * fwd.z) >= 0 ? 1 : -1;
       if (res.through || res.keep > 0) { S.v = sgn * impact * (res.through ? res.keep : res.keep); if (slip) { S.vx = fwd.x * S.v; S.vz = fwd.z * S.v; } }
     }
+    if (vHit && impact > 1.8 && activeName !== 'foot') dmgRammed(vHit, hitN, impact);
     if (impact > 1.8 && activeName !== 'foot') dmgCrash(activeName, hitN, impact, !!(sHit && sHit.struct && ['tree', 'wall', 'roof', 'gable'].includes(sHit.struct.kind)));
   } else {
     S.pos.x = nx; S.pos.z = nz; S.yaw = newYaw;
@@ -4817,9 +4818,24 @@ function groundVehicleHit(nx, nz, yaw) {
       const rb = b.hl * Math.abs(b.fx * ax + b.fz * az) + b.hw * Math.abs(b.lx * ax + b.lz * az);
       if (Math.abs(dx * ax + dz * az) > ra + rb) { sep = true; break; }
     }
-    if (!sep) { const l = Math.hypot(dx, dz) || 1; return new THREE.Vector2(-dx / l, -dz / l); }
+    if (!sep) { const l = Math.hypot(dx, dz) || 1; groundVehicleHit.veh = veh; return new THREE.Vector2(-dx / l, -dz / l); }
   }
   return null;
+}
+// you've driven into another machine: it takes a dent and some damage too, and gets shunted (and Madman hears about it if it's his ute)
+function dmgRammed(veh, hitN, impact) {
+  if (!veh || veh.kind !== 'ground' || !veh.state || veh.npc && veh.npc.mm && MM.npcDriving) return; const D = WPN.VD[veh.name]; if (D && D.wrecked) return;
+  const st = veh.state, m1 = VEH_MASS[activeName] || 1500, m2 = VEH_MASS[veh.name] || 1500, mEff = Math.min(m1, 3500), E = 0.5 * mEff * impact * impact / 1000;
+  if (E < 6) return;
+  const ix = -hitN.x, iz = -hitN.y, o = vehicleOBB(veh), wp = new THREE.Vector3(S.pos.x + ix * ((V.front + V.rear) / 2 + 0.2), st.pos.y + 0.7, S.pos.z + iz * ((V.front + V.rear) / 2 + 0.2));
+  if (o) { const dx = wp.x - o.cx, dz = wp.z - o.cz, f = THREE.MathUtils.clamp(dx * o.fx + dz * o.fz, -o.hl, o.hl), l = THREE.MathUtils.clamp(dx * o.lx + dz * o.lz, -o.hw, o.hw); wp.set(o.cx + o.fx * f + o.lx * l, st.pos.y + 0.7, o.cz + o.fz * f + o.lz * l); }
+  if (!DMG_NODENT.has(veh.name) && m2 > 500) dmgDent(veh.name, wp, new THREE.Vector3(ix, 0, iz), E * m1 / (m1 + m2) * 1.6);
+  wpnVehDamage(veh, Math.max(0, E - 10) * 0.15 * m1 / (m1 + m2) * 2, new THREE.Vector3(ix, 0, iz), 'crash', false);
+  metalSound(wp, Math.min(1, E / 80), 0.75);
+  // shunt it along: a little shove now, the rest as roll along its own axis
+  const share = m1 / (m1 + m2), push = Math.min(0.7, impact * share * 0.08), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
+  st.pos.x += ix * push; st.pos.z += iz * push; st.v = (ix * fx + iz * fz) * impact * share * 0.7; st.vx = fx * st.v; st.vz = fz * st.v; if (!veh.npc && !veh.mp) veh.coast = true;
+  if (veh.name === 'ute' && typeof MM !== 'undefined' && MM.ready && !(MM.ramT > MM.t)) { MM.ramT = MM.t + 4; MM.shotSaidT = MM.t + 4; mmSay('ram', 2.4, true); mmOffend('ram', 25, true); for (const d of MM.dogs) d.alert = 3; }
 }
 function snapshotS() {
   return { pos: S.pos.clone(), yaw: S.yaw, v: S.v, steer: S.steer, pitch: S.pitch, roll: S.roll, bodyRoll: S.bodyRoll, bodyPitch: S.bodyPitch,
@@ -10767,6 +10783,7 @@ LAD_ON = true;
    ================================================================ */
 const NPC = { list: [], ready: false, t: 0, told: {}, center: new THREE.Vector3(), anchor: [0, 0], shedT: 3, shedWait: 0, kickCD: 0 };
 const NPC_L = {
+  sass: [['Pff, n’importe quoi.', 'Pff, whatever.'], ['Oh, ça va, le vieux !', 'Oh, give it a rest, old man!'], ['Il est fou, celui-là.', 'That guy is crazy.']],
   enter: [['Oh, ça a l’air amusant !', 'Ooh, this looks fun!'], ['Je l’emprunte, d’accord ?', 'I’ll just borrow it, OK?'], ['Allez, on y va !', 'Right, off we go!']],
   drive: [['Wouhou ! Ça roule !', 'Woo-hoo! Look at it go!'], ['Oh là là, c’est génial !', 'Oh my, this is brilliant!'], ['Vive la France !', 'Long live France!'], ['Pardon, pardon !', 'Sorry, sorry!'], ['Je conduis comme un pro !', 'I drive like a pro!']],
   kicked: [['Eh ! Mais qu’est-ce que tu fais ?!', 'Hey! What are you doing?!'], ['C’est ma voiture !', 'That’s my car!'], ['Espèce d’abruti !', 'You absolute idiot!'], ['Tu es fou, toi !', 'You’re mad!']],
@@ -10793,7 +10810,7 @@ function npcBubble(n) {
    British male Kokoro voices blended, the vowels pushed hard toward broad Australian ("mite", "roit", "naow"),
    drawn out, then pitched down with a heavy chest, the nasal band cut and plenty of grit. The backpackers: Kokoro's French voice (Chloe
    as is, the two blokes pitched down). A line that isn't in the pack just stays a speech bubble.
-   The backpackers keep quiet while you're with Madman. Menu: Voices on/off.
+   The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
 const VOX = { on: true, url: 'voices-v1.bin', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
@@ -10821,7 +10838,7 @@ function voxSplit(text) {
   return w.length ? go(0) : null;
 }
 function voxStop(who) { const c = VOX.cur[who]; if (c) { for (const s of c) try { s.stop(); } catch (_) {} VOX.cur[who] = null; } }
-const voxNearMadman = () => { const n = MM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos, p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z) < 14 || (MM.sheet && MM.sheet.classList.contains('show')); };
+const voxNearMadman = () => { const n = MM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos, p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z) < 5 || (MM.sheet && MM.sheet.classList.contains('show')); };
 function voxSay(n, text) {
   if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return;
   if (!VOX.head) { voxLoad(); return; }                       // (the first line kicks off the download; it's said as a bubble)
@@ -11064,7 +11081,7 @@ function npcPose(n, dt) {
     if (n.st === 'tumble' || n.st === 'down' || n.st === 'ko') { shLz = 1.3; shRz = -1.3; shLx = shRx = -0.3; hipL = 0.1; hipR = -0.15; elL = elR = -0.2; if (n.st === 'tumble') { shLx = -2.2 + Math.sin(NPC.t * 15) * 0.5; shRx = -2.2 - Math.sin(NPC.t * 15) * 0.5; hipL = -0.5; hipR = -0.2; kneeL = kneeR = 0.8; } }
     else if (n.st === 'getup') { hipL = hipR = -1.0; kneeL = kneeR = 1.6; shLx = shRx = -0.6; }
     else if (n.st === 'stag') { torsoX = -0.35; shLx = -0.8; shRx = -0.6; elL = elR = -1.2; headX = -0.25; }
-    else if (n.st === 'fight' || (n.st === 'chase' && sp < 2) ) {
+    else if (n.st === 'fight' || (n.st === 'chase' && sp < 2) || (n.st === 'defend' && sp < 2)) {
       shLx = -1.15; shRx = -1.0; shLz = 0.25; shRz = -0.25; elL = -1.8; elR = -1.7; torsoX = 0.12; hipL = -0.15; hipR = 0.15; kneeL = 0.2; kneeR = 0.25;
       const bob = Math.sin(NPC.t * 6 + n.ph) * 0.06; bodyY += bob * 0.5; torsoY = Math.sin(NPC.t * 3 + n.ph) * 0.1;
       if (n.atkPh === 'wind') { const k = Math.min(1, n.t / 0.4); shRx = -0.6 + k * 0.9; elR = -1.9; torsoY = 0.5 * k; }
@@ -12372,6 +12389,9 @@ const MM_L = {
   sip: [],
   aimed: ["Get that bloody gun off me!", "Point that somewhere else, ya drongo!"],
   donga: ["Oi! Get outta me donga!", "Who said you could come in here?!"],
+  frog: ["Oi, Pepé. That’s my esky, not yours.", "Backpackers. Eat all me bread and call it a baguette.", "Speak English, ya croissant.", "Righto, Frenchie. Go pick some fruit or somethin’.", "Ooh la la. Wash ya socks, mate."],
+  defend: ["Oi! Leave him alone, ya frog!", "Pick on someone ya own size, Frenchie!", "Back off, ya baguette! He’s with me!"],
+  defended: ["And stay down, Pierre.", "Bloody backpackers."],
   dongaOk: ["Come in, mate. Mind the mess."],
 };
 const MM = { ready: false, n: null, dogs: [], t: 0, anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, idleT: 14, sayT: 0, told: {}, last: {},
@@ -12502,6 +12522,7 @@ function mmThink(n, dt) {
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (typeof dgStuckIn === 'function' && dgStuckIn(n, dt)) return;
   if (MH.mode && mhMadman(n, dt)) return;
+  if (!n.veh && !MH.mode && mmDefend(n, dt)) return;
   if (n.st === 'drive') { if (n.veh !== v) mmPursue(n, dt); else if (MH.mode) mhDriveThink(n, dt); else mmDriveThink(n, dt); return; }
   // you're in his ute: he comes for you, on foot or in whatever he can get his hands on, and drags you out
   if (activeName === 'ute' && n.st !== 'toDoor' && n.st !== 'yank' && n.st !== 'toRide') { MM.gawpT = n.st === 'lean' || n.st === 'home' ? 1.2 : 0; n.st = 'toDoor'; n.t = 0; MM.lostT = 0; }
@@ -12576,6 +12597,43 @@ function mmChatter(n, dt, dP) {
   if (MM.dogs.some(d => d.barkN > 0) && !(MM.dogSaidT > MM.t) && Math.random() < dt * 0.4) { MM.dogSaidT = MM.t + 30; mmSay('dogs'); }
   // idle chat while you're about
   MM.idleT -= dt; if (MM.idleT <= 0) { MM.idleT = 22 + Math.random() * 26; if (dP < 26 && MM.anger < 30) mmSay('idle'); else if (dP < 26) mmSay('annoyed'); }
+}
+/* ---------- Madman and the backpackers ----------
+   He can't stand them: when one wanders close he has a dig (and sometimes gets one back). But if one of them has a go
+   at you and he's about, he's on your side: he storms over and sorts them out. */
+const mmBackpackers = () => NPC.list.filter(b => !b.mm && !b.veh && npcAlive(b));
+function mmDefend(n, dt) {
+  const calm = MM.hostileT <= 0 && F.dead <= 0 && npcAlive(n) && !['tumble', 'down', 'ko', 'getup', 'stag', 'chase', 'fight'].includes(n.st);
+  if (n.st !== 'defend') {
+    if (!calm || !(['lean', 'home', 'toUte', 'wander'].includes(n.st) || DG_ST.includes(n.st))) return false;
+    const b = mmBackpackers().find(b => b.angry && (b.st === 'chase' || b.st === 'fight') && Math.hypot(b.pos.x - n.pos.x, b.pos.z - n.pos.z) < 35);
+    if (!b) return false;
+    n.st = 'defend'; n.t = 0; n.def = b; n.defT = 0; n.atkPh = ''; n.atk = 0.3; mmSay('defend', 2.4, true); return true;
+  }
+  const b = n.def; n.defT += dt;
+  const done = !b || !calm || b.st === 'ko' || !b.angry || n.defT > 30 || F.dead > 0;
+  if (done) { if (b && (b.st === 'ko' || b.st === 'down')) mmSay('defended', 2.4, true); n.def = null; n.atkPh = ''; n.st = 'home'; n.t = 0; return true; }
+  const dx = b.pos.x - n.pos.x, dz = b.pos.z - n.pos.z, d = Math.hypot(dx, dz);
+  if (['tumble', 'down', 'getup'].includes(b.st)) { npcFace(n, b.pos.x, b.pos.z, 8, dt); n.sp *= 0.85; n.atkPh = ''; return true; }      // on the ground: he stands over him
+  if (d > 1.7 && n.atkPh === '') { mmRun(n, b.pos.x, b.pos.z, d > 4 ? 5.6 : 3.2, dt, false); return true; }
+  npcFace(n, b.pos.x, b.pos.z, 12, dt); n.sp *= 0.8;
+  if (n.atkPh === '') { n.atk -= dt; if (n.atk <= 0) { n.atkPh = 'wind'; n.t = 0; } }
+  else if (n.atkPh === 'wind') { if (n.t > 0.35) { n.atkPh = 'hit'; n.t = 0;
+      if (d < 2.1) { const k = 1 / (d || 1); npcLaunch(b, dx * k * 4.5, dz * k * 4.5, 24); if (typeof sfx === 'function') sfx('m_punch', b.pos, 1, 0.75, 9); camShake = Math.max(camShake, 0.2 * Math.max(0, 1 - faCamD(b.pos) / 25)); }
+      else if (typeof sfx === 'function') sfx('m_swish', n.pos, 0.5, 1.0, 5); } }
+  else if (n.atkPh === 'hit') { if (n.t > 0.3) { n.atkPh = ''; n.atk = 0.6 + Math.random() * 0.4; } }
+  return true;
+}
+// a dig at a backpacker who's wandered too close (and maybe one back)
+function mmBanter(n, dt) {
+  MM.frogT = (MM.frogT === undefined ? 20 : MM.frogT) - dt;
+  if (MM.frogBack && MM.t > MM.frogBack.t) { const b = MM.frogBack.b; MM.frogBack = null; if (npcAlive(b) && !b.veh && !b.angry) { npcFace(b, n.pos.x, n.pos.z, 99, 1); npcSay(b, npcPick(NPC_L.sass), 2.6); } }
+  if (MM.frogT > 0 || MM.hostileT > 0 || MH.mode || n.veh || !['lean', 'home', 'dgVer'].includes(n.st) || MM.sayT > 0) return;
+  if (MM.sheet && MM.sheet.classList.contains('show')) return;
+  const me = activeName === 'foot' ? F.pos : S.pos; if (Math.hypot(me.x - n.pos.x, me.z - n.pos.z) > 30) return;       // nobody to hear it
+  const b = mmBackpackers().find(b => !b.angry && (b.st === 'wander' || b.st === 'toVeh') && Math.hypot(b.pos.x - n.pos.x, b.pos.z - n.pos.z) < 9);
+  if (!b) return;
+  MM.frogT = 35 + Math.random() * 30; mmSay('frog', 3, true); if (Math.random() < 0.65) MM.frogBack = { b, t: MM.t + 3.2 };
 }
 // drag you out of the driver's seat and shove you in the dirt
 function mmYank(n) {
@@ -12743,6 +12801,7 @@ function mmStep(dt) {
     if (MM.wreckT > 60 && far && activeName !== 'ute') mmFixUte();
   } else MM.wreckT = 0;
   for (const d of MM.dogs) if (d.mode === 'tray') mmDogStep(d, dt);
+  if (n) mmBanter(n, dt);
   mmMenuStep();
 }
 // a mate brings the ute back, patched up
@@ -13695,7 +13754,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
