@@ -4853,7 +4853,7 @@ function updateActions() {
     ladderActions(items); npcActions(items); mmActions(items); mhActions(items);
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
-      if (wpnLockerNear()) items.push({ id: 'locker', label: 'Open the gun locker', cls: 'warn' });
+      if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
       const v = nearestVehicle();
       if (v) {
         const far = isRemote(v) ? F.pos.distanceTo(v.st.pos) : 0;
@@ -5912,7 +5912,6 @@ const PICKUPS = [
   [58, 29, 'grenade'], [-30, 30, 'pistol'], [-45, -62, 'rpg', 'roof'],
   [50, 2, 'flamer'], [-36, 2, 'grenade'], [52, 112, 'rifle'], [98, 82, 'flamer'],
   [-30, -12, 'shotgun'], [2, 47, 'pistol'], [35, 66, 'sticky'], [-10, -40, 'molotov'], [55, -28, 'rifle'],
-  [178.15, 52.55, 'rifle', 'in'], [178.15, 53.3, 'shotgun', 'in'],        // Madman's gun locker
 ];
 const PICK_BACK = 60;
 const HUNT_ST = { items: [], fx: [] };
@@ -5920,13 +5919,12 @@ function buildHunt() {
   const tex = { gun: radialTex([255, 214, 110], true), boom: radialTex([255, 150, 70], true), fire: radialTex([255, 90, 50], true) };
   for (const [x, z, id, where] of PICKUPS) {
     const W = WEAPONS[id], cls = W.kind === 'gun' ? 'gun' : W.kind === 'flame' || id === 'molotov' ? 'fire' : 'boom';
-    const y = where === 'in' ? groundAt(x, z, DG.gy + 1.5, 0) : groundAt(x, z, where ? 25 : 6, 0);
+    const y = groundAt(x, z, where ? 25 : 6, 0);
     const root = new THREE.Group(); root.position.set(x, y, z); scene.add(root);
     const m = new THREE.Group(), g = wpnGunModel(id); g.scale.setScalar(W.kind === 'throw' ? 3 : 1.5); g.rotation.set(0, 0, W.kind === 'throw' ? 0 : 0.35); m.add(g); root.add(m);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex[cls], color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 }));
     glow.scale.set(2.4, 2.4, 1); glow.position.y = 0.55; root.add(glow);
-    if (where === 'in') { glow.scale.set(1.1, 1.1, 1); g.scale.setScalar(1.1); }             // indoors: smaller, and you have to walk right up to it
-    HUNT_ST.items.push({ id, root, m, glow, y, ph: Math.random() * 6, got: false, back: 0, flyT: 0, inside: where === 'in' });
+    HUNT_ST.items.push({ id, root, m, glow, y, ph: Math.random() * 6, got: false, back: 0, flyT: 0 });
   }
 }
 function huntUpdate(dt) {
@@ -5943,7 +5941,7 @@ function huntUpdate(dt) {
     if (near) { const pop = Math.min(1, it.ph * 3); it.root.scale.setScalar(pop); it.m.position.y = 0.45 + Math.sin(it.ph * 2) * 0.1; it.m.rotation.y += dt * 1.6; it.glow.material.opacity = 0.55 + Math.sin(it.ph * 3) * 0.2; }
     // on foot, or drive over it in a ground machine (not from the air)
     const p = it.root.position; let got = false;
-    if (!v) { if (F.mode !== 'seq' && F.dead <= 0 && Math.hypot(F.pos.x - p.x, F.pos.z - p.z) < (it.inside ? 0.9 : 1.6) && Math.abs(F.pos.y - p.y) < 2.6) got = true; }
+    if (!v) { if (F.mode !== 'seq' && F.dead <= 0 && Math.hypot(F.pos.x - p.x, F.pos.z - p.z) < 1.6 && Math.abs(F.pos.y - p.y) < 2.6) got = true; }
     else if (v.kind !== 'air') { const o = vehicleOBB(v), dx = p.x - o.cx, dz = p.z - o.cz;
       const d = Math.hypot(Math.max(0, Math.abs(dx * o.fx + dz * o.fz) - o.hl), Math.max(0, Math.abs(dx * o.lx + dz * o.lz) - o.hw)); if (d < 0.8 && p.y < o.top + 1 && p.y > o.bottom - 1.5) got = true; }
     if (got) collect(it);
@@ -9789,12 +9787,15 @@ function wpnReload(instant) {
   if (WPN.reloadT > 0) return; WPN.reloadT = W.reload; sfx('g_reload', F.pos, 0.6, 1, 5);
 }
 function wpnTake(id) { const W = WEAPONS[id]; WPN.owned[id] = true; WPN.ammo[id] = Math.max(WPN.ammo[id] || 0, W.give); if (W.kind === 'gun') { if (WPN.mag[id] == null) WPN.mag[id] = 0; } }
-function wpnLockerNear() { return WPN.locker && activeName === 'foot' && F.dead <= 0 && Math.hypot(F.pos.x - LOCKER.x, F.pos.z - LOCKER.z) < 2.6; }
-function wpnOpenLocker() { wpnSheet(); $('wSheet').classList.add('show'); }
+// Madman's own locker, in his donga: the same menu, but all he keeps in it is the rifle and the shotgun
+const MM_LOCKER = ['shotgun', 'rifle'];
+function wpnMmLockerNear() { if (typeof DG === 'undefined' || !DG.root || activeName !== 'foot' || F.dead > 0 || !dgInside(F.pos)) return false; const [x, z] = dgW(DG.L / 2 - 0.3, 0.75); return Math.hypot(F.pos.x - x, F.pos.z - z) < 1.9; }
+function wpnLockerNear() { return wpnMmLockerNear() || (WPN.locker && activeName === 'foot' && F.dead <= 0 && Math.hypot(F.pos.x - LOCKER.x, F.pos.z - LOCKER.z) < 2.6); }
+function wpnOpenLocker() { WPN.lockerSet = wpnMmLockerNear() ? MM_LOCKER : WPN_ORDER; $('wSheet').querySelector('h2').textContent = WPN.lockerSet === MM_LOCKER ? 'Madman\u2019s gun locker' : 'Gun locker'; wpnSheet(); $('wSheet').classList.add('show'); }
 function wpnSheet() {
   const box = $('wGrid'); if (!box) return;
   const kinds = { gun: 'Gun', throw: 'Throw', rocket: 'Rocket', flame: 'Fire' };
-  box.innerHTML = WPN_ORDER.map(id => { const W = WEAPONS[id], own = WPN.owned[id], amt = (WPN.ammo[id] || 0) + (WPN.mag[id] || 0);
+  box.innerHTML = (WPN.lockerSet || WPN_ORDER).map(id => { const W = WEAPONS[id], own = WPN.owned[id], amt = (WPN.ammo[id] || 0) + (WPN.mag[id] || 0);
     return `<button type="button" class="w-card${own ? ' own' : ''}" data-w="${id}"><b>${W.label}</b><span>${kinds[W.kind]}${W.kind === 'flame' ? ' · fuel' : ''}</span><i>${own ? (amt >= W.give ? 'Full' : 'Top up → ' + W.give) : 'Take'}</i></button>`; }).join('');
 }
 function wpnHud(force) {
@@ -9937,7 +9938,7 @@ function wpnSynth() {
   $('wDraw').addEventListener('click', () => { const d = WPN.last && WPN.owned[WPN.last] ? WPN.last : WPN_ORDER.find(i => WPN.owned[i]); if (d) wpnSelect(d); });
   $('wSheet').addEventListener('click', e => { if (e.target.id === 'wSheet' || e.target.id === 'wX') { $('wSheet').classList.remove('show'); return; }
     const c = e.target.closest('.w-card'); if (c) { wpnTake(c.dataset.w); sfx('g_reload', F.pos, 0.5, 1, 5); wpnSheet(); if (!WPN.cur) wpnSelect(c.dataset.w); wpnHud(true); }
-    if (e.target.id === 'wAll') { WPN_ORDER.forEach(wpnTake); sfx('g_reload', F.pos, 0.6, 1, 5); wpnSheet(); if (!WPN.cur) wpnSelect('rifle'); wpnHud(true); $('wSheet').classList.remove('show'); toast('Loaded up. Tap the weapon name to switch', 2.2); } });
+    if (e.target.id === 'wAll') { (WPN.lockerSet || WPN_ORDER).forEach(wpnTake); sfx('g_reload', F.pos, 0.6, 1, 5); wpnSheet(); if (!WPN.cur) wpnSelect('rifle'); wpnHud(true); $('wSheet').classList.remove('show'); toast('Loaded up. Tap the weapon name to switch', 2.2); } });
   addEventListener('keydown', e => { if (e.repeat || !e.key) return; const k = e.key.toLowerCase();
     if (k === 'r' && wpnArmed()) wpnReload(); if (k === 'g') { const own = WPN_ORDER.filter(i => WPN.owned[i]); if (own.length) { const i = own.indexOf(WPN.cur); wpnSelect(i + 1 < own.length ? own[i + 1] : null); } }
     if (k === 'v' && wpnArmed()) { const W = WEAPONS[WPN.cur]; if (W.scope) WPN.scope = !WPN.scope; else if (WPN.cur === 'sticky') wpnDetonate(); } });
@@ -10820,7 +10821,9 @@ function npcPickVehicle(n) {
   for (const name of ['x5', 'bmw', 'tractor', 'suv', 'tele', 'dozer', 'trophy', 'truck']) {
     const v = VEH[name]; if (!v || v.coast || v.mp || v.npc || name === activeName || (WPN.VD[name] && WPN.VD[name].wrecked) || !v.state || !v.state.pos) continue;
     if (name === 'tractor' && typeof IMPL !== 'undefined' && IMPL.hooked) continue;
-    const d = Math.hypot(v.state.pos.x - n.pos.x, v.state.pos.z - n.pos.z); if (d < bd) { bd = d; best = v; }
+    if (name === 'bmw' && !(n.grudgeT > NPC.t)) continue;                 // the BMW's yours: they leave it alone unless you've had a go at them
+    const d = Math.hypot(v.state.pos.x - n.pos.x, v.state.pos.z - n.pos.z); if (name === 'bmw' && d < 60) return v;          // ...and then it's the first thing they go for
+    if (d < bd) { bd = d; best = v; }
   }
   return best;
 }
@@ -10915,6 +10918,7 @@ function npcLaunch(n, vx, vz, dmg) {
   npcSay(n, npcPick(n.hp <= 0 ? NPC_L.ko : NPC_L.hurt), 2.6); if (typeof sfx === 'function') sfx('thud', n.pos, 0.8, 0.8, 8);
 }
 function npcThink(n, dt) {
+  if (n.angry && !n.mm) { if (!(n.grudgeT > NPC.t)) n.vehT = Math.min(n.vehT, 12); n.grudgeT = NPC.t + 240; }      // provoked: for the next few minutes your BMW is fair game
   n.t += dt; const hostile = n.angry && n.hp > 0 && F.dead <= 0;
   const dpx = F.pos.x - n.pos.x, dpz = F.pos.z - n.pos.z, dP = Math.hypot(dpx, dpz);
   if (n.st === 'drive') { if (n.veh) npcDriveAI(n, dt); else n.st = 'wander'; return; }
@@ -12026,23 +12030,23 @@ function dgBuild() {
   solid(tx, 0.42, tz, 1.0, 0.38, 0.45);
   const cyl = (r, h, m, x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), m); o.position.set(x, y, z); root.add(o); return o; };
   cyl(0.033, 0.12, M.tin, tx - 0.3, 0.87, tz + 0.1); cyl(0.033, 0.12, M.tin, tx + 0.45, 0.87, tz - 0.2); box(0.3, 0.02, 0.22, M.white, tx + 0.1, 0.82, tz + 0.05);
-  // the barbie and its gas bottle, by the east posts
-  const bx = B.x1 - 1.3, bz = zS - 1.2; box(1.2, 0.3, 0.6, M.dark, bx, 0.95, bz); box(1.24, 0.05, 0.64, M.steel, bx, 1.12, bz); box(0.5, 0.03, 0.5, M.wood, bx + 0.88, 0.98, bz);
+  // the barbie and its gas bottle, along the north side between the bunks' door and the mess door
+  const bx = cx + 1.2, bz = zN + 0.75; box(1.2, 0.3, 0.6, M.dark, bx, 0.95, bz); box(1.24, 0.05, 0.64, M.steel, bx, 1.12, bz); box(0.5, 0.03, 0.5, M.wood, bx + 0.88, 0.98, bz);
   for (const [a, b] of [[-0.52, -0.24], [0.52, -0.24], [-0.52, 0.24], [0.52, 0.24]]) box(0.05, 0.8, 0.05, M.dark, bx + a, 0.44, bz + b);
   cyl(0.16, 0.5, M.white, bx - 0.15, 0.29, bz); cyl(0.06, 0.1, M.steel, bx - 0.15, 0.59, bz); solid(bx, 0.57, bz, 0.62, 0.57, 0.32);
   // wheelie bins by the west end, an esky, boots by the doors
   for (const [k, m] of [[0, M.red], [1, M.yellow]]) { const x = B.x0 + 0.7 + k * 0.75, z = zS - 0.75; box(0.56, 0.92, 0.6, M.green, x, 0.52, z); box(0.6, 0.07, 0.66, m, x, 1.01, z); solid(x, 0.52, z, 0.29, 0.52, 0.31); }
   box(0.62, 0.36, 0.38, M.blue, tx + 1.7, 0.22, tz + 1.5, 0.3); box(0.64, 0.06, 0.4, M.white, tx + 1.7, 0.43, tz + 1.5, 0.3);
-  // the dogs' cages along the north side, between the bunks' door and the mess door: weldmesh on a steel frame, a bed and a bowl in each
+  // the dogs' cages right outside Madman's room, off the edge of his deck: weldmesh on a steel frame, a bed and a bowl in each
   DG.matMesh = DG.matMesh || new THREE.MeshLambertMaterial({ color: 0x3a3f42, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
-  [['TANK', cx + 0.35, M.red], ['DUSTY', cx + 2.05, M.blue]].forEach(([nm, x, bed]) => { const z = zN + 0.62, w = 1.5, dp = 1.05, hh = 1.05;
+  [['TANK', DG.x + 0.2, M.red], ['DUSTY', DG.x + 1.9, M.blue]].forEach(([nm, x, bed]) => { const z = zS - 0.62, w = 1.5, dp = 1.05, hh = 1.05;
     box(w, 0.04, dp, M.steel, x, 0.06, z); box(w * 0.7, 0.07, dp * 0.6, bed, x - 0.12, 0.115, z + 0.05); cyl(0.11, 0.06, M.steel, x + 0.5, 0.11, z - 0.28);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.04, hh, 0.04, M.dark, x + sx * w / 2, 0.04 + hh / 2, z + sz * dp / 2);
     for (const sz of [-1, 1]) { box(w, 0.04, 0.04, M.dark, x, 0.04 + hh, z + sz * dp / 2); box(w, hh, 0.012, DG.matMesh, x, 0.04 + hh / 2, z + sz * dp / 2); for (let k = -3; k <= 3; k++) box(0.015, hh, 0.015, M.dark, x + k * w / 7, 0.04 + hh / 2, z + sz * dp / 2); }
     for (const sx of [-1, 1]) { box(0.04, 0.04, dp, M.dark, x + sx * w / 2, 0.04 + hh, z); box(0.012, hh, dp, DG.matMesh, x + sx * w / 2, 0.04 + hh / 2, z); for (let k = -2; k <= 2; k++) box(0.015, hh, 0.015, M.dark, x + sx * w / 2, 0.04 + hh / 2, z + k * dp / 5); }
     box(w, 0.03, dp, M.steel, x, 0.06 + hh, z);
     const tag = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 40; const g = c.getContext('2d'); g.fillStyle = '#e9e2c8'; g.fillRect(0, 0, 128, 40); g.fillStyle = '#2a2a2a'; g.font = '900 26px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(nm, 64, 21);
-      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.125), new THREE.MeshLambertMaterial({ map: t })); })(); tag.position.set(x, 0.92, z + dp / 2 + 0.03); root.add(tag);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.125), new THREE.MeshLambertMaterial({ map: t })); })(); tag.rotation.y = Math.PI; tag.position.set(x, 0.92, z - dp / 2 - 0.03); root.add(tag);
     solid(x, 0.56, z, w / 2, 0.56, dp / 2); });
   root.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== M.bulb; o.receiveShadow = true; } });
   // the gravel car park where the scanned utes were: a slab of gravel laid to the fall of the ground round it
@@ -12111,7 +12115,6 @@ function dgUnit(U, gy, group) {
       x.fillStyle = '#e8e8e4'; x.fillRect(40, 58, 110, 26); x.fillRect(58, 44, 46, 18); x.fillStyle = '#222'; for (const cx of [62, 128]) { x.beginPath(); x.arc(cx, 86, 11, 0, 7); x.fill(); } x.fillStyle = '#6a4a2a'; x.fillRect(150, 74, 14, 10);
       x.strokeStyle = '#5a3b22'; x.lineWidth = 10; x.strokeRect(0, 0, 192, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.34), new THREE.MeshLambertMaterial({ map: t })); })();
     ph.position.set(-L / 2 + 1.1, fl + 1.45, -W / 2 + 0.075); root.add(ph);
-    const cal = label('WINGFIELD\nNOV 2026', 0.4, 0.5, '#f4f1e6', '#3a3a3a', 26); cal.position.set(-0.5, fl + 1.5, -W / 2 + 0.075); root.add(cal);
     for (const [k, nm] of [[0, 'TANK'], [1, 'DUSTY']]) { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.11, 0.07, 12), k ? M.blanket : M.trim); o.position.set(du + 0.75 + k * 0.32, fl + 0.035, W / 2 - 0.3); root.add(o); }
     box(0.13, 0.16, 0.3, M.boot, du - 0.85, fl + 0.08, W / 2 - 0.3); box(0.13, 0.16, 0.3, M.boot, du - 0.68, fl + 0.08, W / 2 - 0.28);
     // the walls: pig posters, pin-ups, a beer sign, the dogs
@@ -12144,6 +12147,23 @@ function dgUnit(U, gy, group) {
       words(g, 'FERAL PIG', 128, 286, 32, '#3a2a1c', 'Georgia,serif'); words(g, 'ROOTS UP PADDOCKS · EATS LAMBS', 128, 316, 12, '#3a2a1c'); words(g, 'REWARD: A COLD ONE', 128, 338, 16, '#8a2a20'); }, 0.75, fl + 1.5, zb);
     poster(0.6, 0.84, (g, w, h) => blonde(g, w, h, { sky: ['#4aa3e0', '#bfe6f5'], ground: '#e6d39a', top: '#d8362e', sun: true, sunnies: true, title: 'SURF’S UP', sub: 'GOLD COAST · SUMMER ’98' }), 1.6, fl + 1.5, zb);
     poster(0.56, 0.8, (g, w, h) => blonde(g, w, h, { sky: ['#f29b4c', '#f7d98c'], ground: '#a8632e', top: '#3b6cb0', hat: true, title: 'MISS UTE MUSTER', sub: 'DENILIQUIN 2026' }), -1.2, fl + 1.5, zb);
+    // the calendar: a girl in a bikini on the beach, the month underneath
+    poster(0.5, 0.78, (g, w, h) => { const ph = h * 0.66, gr = g.createLinearGradient(0, 0, 0, ph); gr.addColorStop(0, '#3fa0e6'); gr.addColorStop(0.55, '#aee3f2'); gr.addColorStop(0.56, '#2f86c8'); gr.addColorStop(0.72, '#58b0d8'); gr.addColorStop(0.73, '#ecd9a0'); gr.addColorStop(1, '#e2c888'); g.fillStyle = gr; g.fillRect(0, 0, w, ph);
+      g.fillStyle = '#ffe9a0'; g.beginPath(); g.arc(205, 40, 22, 0, 7); g.fill();
+      const x = 118, sk = '#e3ab84', hair = '#f0cf52', bk = '#e0304a';
+      g.fillStyle = hair; g.beginPath(); g.ellipse(x, 62, 30, 44, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(x - 22, 96, 13, 34, 0.2, 0, 7); g.fill(); g.beginPath(); g.ellipse(x + 22, 96, 13, 34, -0.2, 0, 7); g.fill();
+      g.fillStyle = sk; g.beginPath(); g.ellipse(x, 52, 17, 21, 0, 0, 7); g.fill(); g.fillRect(x - 6, 70, 12, 14);
+      g.beginPath(); g.moveTo(x - 30, 84); g.lineTo(x + 30, 84); g.lineTo(x + 22, 132); g.lineTo(x + 30, 168); g.lineTo(x - 30, 168); g.lineTo(x - 22, 132); g.closePath(); g.fill();           // torso and hips
+      g.fillRect(x - 40, 86, 11, 62); g.fillRect(x + 29, 86, 11, 62);                                                                                                              // arms
+      g.beginPath(); g.moveTo(x - 30, 166); g.lineTo(x - 2, 166); g.lineTo(x - 8, ph); g.lineTo(x - 26, ph); g.closePath(); g.fill(); g.beginPath(); g.moveTo(x + 2, 166); g.lineTo(x + 30, 166); g.lineTo(x + 26, ph); g.lineTo(x + 8, ph); g.closePath(); g.fill();
+      g.fillStyle = bk; g.beginPath(); g.moveTo(x - 26, 100); g.lineTo(x - 3, 96); g.lineTo(x - 6, 118); g.lineTo(x - 25, 116); g.closePath(); g.fill(); g.beginPath(); g.moveTo(x + 26, 100); g.lineTo(x + 3, 96); g.lineTo(x + 6, 118); g.lineTo(x + 25, 116); g.closePath(); g.fill();
+      g.fillRect(x - 3, 104, 6, 3); g.strokeStyle = bk; g.lineWidth = 2; g.beginPath(); g.moveTo(x - 20, 100); g.lineTo(x - 5, 80); g.moveTo(x + 20, 100); g.lineTo(x + 5, 80); g.stroke();
+      g.beginPath(); g.moveTo(x - 30, 156); g.lineTo(x + 30, 156); g.lineTo(x + 6, 180); g.lineTo(x - 6, 180); g.closePath(); g.fill();                                                 // bikini bottoms
+      g.fillStyle = hair; g.beginPath(); g.ellipse(x - 3, 34, 21, 11, -0.2, 0, 7); g.fill(); g.fillStyle = '#1a1a1a'; g.fillRect(x - 13, 47, 11, 6); g.fillRect(x + 2, 47, 11, 6); g.fillRect(x - 2, 48, 4, 2);
+      g.strokeStyle = '#b03040'; g.lineWidth = 2.5; g.beginPath(); g.arc(x, 58, 7, 0.3, Math.PI - 0.3); g.stroke();
+      g.fillStyle = '#f6f2e6'; g.fillRect(0, ph, w, h - ph); words(g, 'NOVEMBER 2026', 128, ph + 17, 19, '#b3261e'); g.fillStyle = '#3a3a3a'; g.font = '700 11px system-ui,sans-serif'; g.textAlign = 'center';
+      for (let d = 1; d <= 30; d++) { const c = (d - 1) % 7, r2 = Math.floor((d - 1) / 7); g.fillText(String(d), 30 + c * 33, ph + 42 + r2 * 18); }
+      g.strokeStyle = '#b3261e'; g.lineWidth = 2; g.beginPath(); g.arc(30 + 1 * 33, ph + 42 + 2 * 18, 9, 0, 7); g.stroke(); }, -0.5, fl + 1.5, zb);
     poster(0.56, 0.3, (g, w, h) => { g.fillStyle = '#12161c'; g.fillRect(0, 0, w, h); g.shadowColor = '#ffb03a'; g.shadowBlur = 16; words(g, 'COLD BEER', 128, h * 0.42, 40, '#ffc04a'); g.shadowBlur = 0; words(g, 'ALWAYS', 128, h * 0.82, 16, '#e8504a'); }, 2.4, fl + 2.05, zb);
     poster(1.0, 0.68, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#e87a2a'); gr.addColorStop(0.6, '#f3c060'); gr.addColorStop(1, '#5a3a1c'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
       g.fillStyle = '#3a2412'; g.fillRect(0, h * 0.78, w, h); pig(g, 110, h * 0.56, 1.0, '#1c1410'); words(g, 'BOAR SEASON', 128, 22, 26, '#fff4d8'); words(g, 'NEVER CLOSES', 128, h - 14, 16, '#ffd76a'); }, xw, fl + 1.72, -0.25, Math.PI / 2);
@@ -12153,7 +12173,7 @@ function dgUnit(U, gy, group) {
       for (const [dx, col] of [[78, '#6a4a2c'], [176, '#a8562a']]) { g.fillStyle = col; g.beginPath(); g.ellipse(dx, h * 0.6, 40, 22, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(dx + 36, h * 0.44, 20, 17, 0, 0, 7); g.fill(); g.fillRect(dx - 30, h * 0.66, 9, 34); g.fillRect(dx + 20, h * 0.66, 9, 34);
         g.beginPath(); g.moveTo(dx + 26, h * 0.36); g.lineTo(dx + 30, h * 0.2); g.lineTo(dx + 40, h * 0.36); g.fill(); g.fillStyle = '#111'; g.beginPath(); g.arc(dx + 42, h * 0.42, 3, 0, 7); g.fill(); }
       g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(0, h - 30, w, 30); words(g, 'TANK & DUSTY', 128, h - 14, 20, '#fff'); }, 2.62, fl + 1.5, zf, Math.PI);
-    // the gun locker against the east wall: door hanging open, the rifle and the shotgun stood in the rack (walk up to take them)
+    // the gun locker against the east wall: door hanging open, the rifle and the shotgun stood in the rack (walk up and open it, like the locker by the diesel tank)
     { const lx = L / 2 - 0.3, lz = 0.75, g1 = DG.matGun || (DG.matGun = new THREE.MeshLambertMaterial({ color: 0x47503a })), wd = DG.matStock || (DG.matStock = new THREE.MeshLambertMaterial({ color: 0x5a3a20 }));
       box(0.44, 1.8, 0.04, g1, lx, fl + 0.9, lz - 0.5); box(0.44, 1.8, 0.04, g1, lx, fl + 0.9, lz + 0.5); box(0.04, 1.8, 1.0, g1, lx + 0.2, fl + 0.9, lz); box(0.44, 0.04, 1.04, g1, lx, fl + 1.82, lz); box(0.44, 0.04, 1.0, g1, lx, fl + 0.02, lz);
       box(0.4, 0.03, 0.96, M.dark, lx, fl + 1.35, lz); box(0.06, 0.03, 0.96, M.dark, lx - 0.12, fl + 0.75, lz);
