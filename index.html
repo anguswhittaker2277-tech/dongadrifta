@@ -11975,19 +11975,19 @@ function dgBlockWalk(x, z) {
   const cx = (B.x0 + B.x1) / 2, cz = (DG_UNITS[2].z + DG.z) / 2; if (Math.abs(x - (cx - 0.6)) < 1.5 && Math.abs(z - (cz + 0.2)) < 1.4) return 0;
   return x > B.x0 - 0.3 && x < B.x1 + 0.3 && z > DG_UNITS[2].z && z < DG.z ? 1 : null;
 }
-// the way round to a point for someone on foot: the breezeway is entered from its west end, by the car park
+// the way round to a point for someone on foot: in and out of the breezeway only through its west end (its mouth, by the
+// car park), round the outside corners of the block if you're north or south of it
 function dgVia(px, pz, tx, tz) {
-  const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, lane = B.x0 - 2.6;
-  const inB = (x, z) => x > B.x0 - 1.4 && x < B.x1 + 0.6 && Math.abs(z - zm) < 4.6, mid = (z) => Math.abs(z - zm) < 3;
-  const pin = inB(px, pz), tin = inB(tx, tz); if (pin && tin) return [tx, tz];
-  if (pin) return [lane, zm];                                                                // out the west end first
-  if (tin) {
-    if (px > lane + 1 && !mid(pz)) return [lane, pz > zm ? Math.max(pz, B.z1 + 1.6) : Math.min(pz, B.z0 - 1.6)];      // along the outside to the corner
-    return mid(pz) ? [tx, tz] : [lane, zm]; }
-  // both outside: don't cut the corner of the block coming out of the car park
-  if (px < B.x0 - 1 && pz > B.z0 && pz < B.z1 + 0.8 && tx > B.x0 - 1 && tz > B.z1) return [lane, B.z1 + 1.8];
-  if (px < B.x0 - 1 && pz > B.z0 - 0.8 && pz < B.z1 && tx > B.x0 - 1 && tz < B.z0) return [lane, B.z0 - 1.8];
-  return [tx, tz];
+  const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, mx = B.x0 + 0.2;
+  const band = (x, z) => x > B.x0 - 0.3 && x < B.x1 + 0.6 && Math.abs(z - zm) < 4.3;          // (the breezeway out to both rows of doors)
+  const corner = (x, z) => (x > B.x0 - 0.6 && (z > B.z1 + 0.3 || z < B.z0 - 0.3)) ? [B.x0 - 1.2, z > zm ? B.z1 + 1.8 : B.z0 - 1.8] : null;
+  const pin = band(px, pz), tin = band(tx, tz);
+  if (pin && tin) return [tx, tz];
+  if (pin) return px > mx + 1 ? [mx, zm] : (corner(tx, tz) && Math.hypot(px - mx, pz - zm) < 1.5 ? corner(tx, tz) : [tx, tz]);      // leaving: out the mouth first
+  if (tin) return Math.hypot(px - mx, pz - zm) < 1 ? [tx, tz] : (corner(px, pz) || [mx, zm]);                                     // coming in: round the corner, then the mouth
+  // both outside: don't cut across the block
+  if (px < B.x0 - 1 && tx > B.x0 - 1 && (tz > B.z1 || tz < B.z0) && pz > B.z0 - 0.8 && pz < B.z1 + 0.8) return [B.x0 - 1.2, tz > zm ? B.z1 + 1.8 : B.z0 - 1.8];
+  return corner(px, pz) && (tx < B.x0 - 1) ? corner(px, pz) : [tx, tz];
 }
 function dgInside(p) { const [u, v] = dgL(p.x, p.z); return Math.abs(u) < DG.L / 2 - 0.05 && Math.abs(v) < DG.W / 2 - 0.05; }
 function dgBuild() {
@@ -12260,7 +12260,6 @@ function dgFace(n, yaw, dt) { n.yaw += faAng(yaw - n.yaw) * Math.min(1, dt * 4);
 // his donga routine (inside: drink at the table; verandah: stand out front with a tinnie). true = handled this frame
 function dgThink(n, dt, dP) {
   if (!DG.root) { n.st = 'home'; return true; }
-  const night = (() => { const h = new Date().getHours(); return h >= 21 || h < 6; })();
   MM.dgT = (MM.dgT || 0) - dt;
   if (n.st === 'dgGo') { const [x, z] = dgPt(MM.dgWant === 'ver' ? 'ver' : 'door'), d = Math.hypot(x - n.pos.x, z - n.pos.z);
     if (d < 0.5 || n.t > 75) { if (n.t > 75) { n.pos.x = x; n.pos.z = z; } n.st = MM.dgWant === 'ver' ? 'dgVer' : 'dgEnter'; n.t = 0; MM.dgT = MM.dgStay || 40; return true; }
@@ -12274,15 +12273,14 @@ function dgThink(n, dt, dP) {
   if (n.st === 'dgVer') { const [x, z] = dgPt('ver'); if (dgMove(n, x, z, 1.0, dt)) dgFace(n, DG.yaw, dt);
     MM.sipT -= dt; if (MM.sipT <= 0) { MM.sip = 1.6; MM.sipT = 7 + Math.random() * 9; } if (MM.sip > 0) MM.sip -= dt;
     mmChatter(n, dt, dP);
-    if (MM.dgT <= 0) { if (night) { MM.dgWant = 'in'; n.st = 'dgGo'; MM.dgT = 1e9; } else n.st = 'home'; n.t = 0; } return true; }
+    if (MM.dgT <= 0) { n.st = 'home'; n.t = 0; } return true; }
   return false;
 }
-// from the lean spot: now and then he wanders over to the donga; at night he turns in. true = he's off
+// from the lean spot: now and then he wanders over to the donga (no night-time routine yet). true = he's off
 function dgRestTick(n, dt) {
-  const h = new Date().getHours(), night = h >= 21 || h < 6;
-  DG.restT -= dt; if (!night && DG.restT > 0) return false; DG.restT = 150 + Math.random() * 150;
-  if (!night && Math.random() < 0.45) return false;
-  dgSend(n, night ? 'in' : Math.random() < 0.5 ? 'ver' : 'in', night ? 1e9 : 40 + Math.random() * 40); return true;
+  DG.restT -= dt; if (DG.restT > 0) return false; DG.restT = 150 + Math.random() * 150;
+  if (Math.random() < 0.45) return false;
+  dgSend(n, Math.random() < 0.5 ? 'ver' : 'in', 40 + Math.random() * 40); return true;
 }
 function dgSend(n, want, stay) { MM.dgWant = want; MM.dgT = stay; MM.dgStay = stay; MM.dgNext = want === 'in' && Math.random() < 0.5 ? 'ver' : null; n.st = 'dgGo'; n.t = 0; }
 // if something pulled him out of the routine while he was inside, get him out the door before anything else
