@@ -2,8 +2,8 @@
 import json, subprocess, os, struct, sys, concurrent.futures as cf
 TRIM = "silenceremove=start_periods=1:start_threshold=-48dB,areverse,silenceremove=start_periods=1:start_threshold=-48dB,areverse"
 FX = {
-  # Madman: a touch deeper and older, chesty and a bit nasal, with some gravel
-  'mm': TRIM + ",asetrate=24000*0.93,aresample=24000,atempo=1.075,equalizer=f=200:t=q:w=1:g=3,equalizer=f=1350:t=q:w=1.3:g=4,volume=2.4,asoftclip=type=tanh,lowpass=f=6800",
+  # Madman: broad Aussie bloke: pitched up (with the formants) into a higher, whinier register, strongly nasal, drawn out, with gravel
+  'mm': TRIM + ",asetrate=24000*1.1,aresample=24000,atempo=0.95,equalizer=f=180:t=q:w=1:g=2,equalizer=f=1700:t=q:w=1.1:g=6,equalizer=f=2600:t=q:w=1.5:g=3,volume=2.6,asoftclip=type=tanh,lowpass=f=7000",
   # the backpackers off one French voice: Chloe as recorded, the two blokes pitched down (formants and all, so they sound bigger)
   'C': TRIM, 'M': TRIM + ",asetrate=24000*0.82,aresample=24000,atempo=1.2195", 'A': TRIM + ",asetrate=24000*0.77,aresample=24000,atempo=1.2987",
 }

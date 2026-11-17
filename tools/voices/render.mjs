@@ -7,8 +7,16 @@ const voice = (n) => new Float32Array(fs.readFileSync(n + '.bin').buffer.slice(0
 const mix = (a, b, k) => a.map((x, i) => x * k + b[i] * (1 - k));
 const VOX = { mm: mix(voice('bm_lewis'), voice('bm_george'), 0.6), fr: voice('ff_siwis') };
 const sess = await ort.InferenceSession.create('model_q8.onnx', { intraOpNumThreads: 4 });
-// broad Australian on top of British English: FACE, PRICE, GOAT and MOUTH vowels shifted, FLEECE slightly diphthonged
-const ocker = (p) => p.replace(/eɪ/g, 'æɪ').replace(/aɪ/g, 'ɒɪ').replace(/əʊ/g, 'ɐʊ').replace(/aʊ/g, 'æʊ').replace(/iː/g, 'ɪi');
+// broad Australian on top of British English (the vowels that give it away, a raised TRAP, flapped t, open final schwa)
+const VW = 'aeiouyæɐɑɒɔəɛɜɪʊʌøœ';
+const ocker = (p) => p
+  .replace(/eɪ/g, 'aɪ@').replace(/aɪ(?!@)/g, 'ɔɪ').replace(/aɪ@/g, 'aɪ')          // FACE -> "mite", PRICE -> "roit"
+  .replace(/əʊ/g, 'æʊ').replace(/aʊ/g, 'ɛʊ')                                     // GOAT -> "naow", MOUTH -> "neow"
+  .replace(/iː/g, 'əɪ').replace(/uː/g, 'ɪu')                                     // FLEECE -> "sə-ee", GOOSE fronted
+  .replace(/ɑː/g, 'aː').replace(/ɜː/g, 'øː')                                     // START "caah", NURSE rounded
+  .replace(/a(?![ɪʊː])/g, 'ɛ')                                                   // TRAP raised: "ket"
+  .replace(new RegExp(`([${VW}]ː?)t(?=[${VW}])`, 'g'), '$1ɾ')                    // flapped t between vowels: "budder"
+  .replace(/ə(?=[ ,.!?;:]|$)/g, 'ɐ');                                            // final schwa opens: "mate-ah"
 const prep = (t) => t.replace(/[’‘]/g, "'").replace(/\bG'day\b/gi, 'Gidday').replace(/XXXX/g, 'four ex').replace(/'(em|ere)\b/g, '$1').replace(/\.\.\./g, ', ').replace(/(\w)in'(?=\W|$)/g, '$1ing');
 async function phon(text, lang) {
   if (lang === 'fr') return FRPH[text];          // French phonemes come from espeak-ng's own French (fr_ph.py)
@@ -21,7 +29,7 @@ const idx = {}; let i = 0, skipped = [];
 for (const k of keys) { const text = clips[k], ph = await phon(text, which === 'fr' ? 'fr' : 'en');
   const ids = [...ph].map(c => vocab[c]).filter(x => x !== undefined); if (!ids.length) { skipped.push(k); continue; }
   const tok = [0, ...ids.slice(0, 500), 0], V = VOX[which], row = Math.min(ids.length, 509), style = V.slice(row * 256, row * 256 + 256);
-  const out = await sess.run({ input_ids: new ort.Tensor('int64', BigInt64Array.from(tok.map(BigInt)), [1, tok.length]), style: new ort.Tensor('float32', style, [1, 256]), speed: new ort.Tensor('float32', new Float32Array([which === 'mm' ? 0.9 : 1.0]), [1]) });
+  const out = await sess.run({ input_ids: new ort.Tensor('int64', BigInt64Array.from(tok.map(BigInt)), [1, tok.length]), style: new ort.Tensor('float32', style, [1, 256]), speed: new ort.Tensor('float32', new Float32Array([which === 'mm' ? 0.86 : 1.0]), [1]) });
   const f = 'c' + (i++) + '.wav'; fs.writeFileSync(dir + '/' + f, wav(out.waveform.data, 24000)); idx[k] = { f, text, ph };
   if (i % 40 === 0) console.log(i, '/', keys.length, text, '=>', ph); }
 fs.writeFileSync(dir + '/index.json', JSON.stringify(idx, null, 0)); console.log('done', i, 'skipped', skipped);
