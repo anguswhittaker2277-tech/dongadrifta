@@ -1,0 +1,116 @@
+file,situation,mood,line,game_key
+mm_001,First time you meet him,"friendly, sizing you up",Oi! You must be the new fella. Name's Madman. Don't touch the ute.,oi you must be the new fella names madman dont touch the ute
+mm_002,You walk up to him,friendly,G'day mate!,gday mate
+mm_003,You walk up to him,friendly,Oi oi! How ya goin'?,oi oi how ya goin
+mm_004,You walk up to him,friendly,"Ow ya goin', ya mad bastard?",ow ya goin ya mad bastard
+mm_005,"Muttering to himself, leaning on the ute","relaxed, half to himself","Strewth, she's a warm one today.",strewth shes a warm one today
+mm_006,"Muttering to himself, leaning on the ute","relaxed, half to himself",Could murder a pie right now.,could murder a pie right now
+mm_007,"Muttering to himself, leaning on the ute","relaxed, half to himself","Saw a boar down the channel last night. Size of a Corolla, fair dinkum.",saw a boar down the channel last night size of a corolla fair dinkum
+mm_008,"Muttering to himself, leaning on the ute","relaxed, half to himself","Beer o'clock somewhere, mate.",beer oclock somewhere mate
+mm_009,"Muttering to himself, leaning on the ute","relaxed, half to himself",Bloody flies. Every year.,bloody flies every year
+mm_010,"Muttering to himself, leaning on the ute","relaxed, half to himself","Strewth, I'm dry as a dead dingo's donger.",strewth im dry as a dead dingos donger
+mm_011,"You pick ""Have a yarn""","chatty, storytelling",Pigs got into the sorghum again. Rooted half the headland. Little bastards.,pigs got into the sorghum again rooted half the headland little bastards
+mm_012,"You pick ""Have a yarn""","chatty, storytelling","Fuck me dead, mate, the price of diesel. Daylight robbery.",fuck me dead mate the price of diesel daylight robbery
+mm_013,"You pick ""Have a yarn""","chatty, storytelling",Don't touch the ute. That's rule one. There is no rule two.,dont touch the ute thats rule one there is no rule two
+mm_014,"You pick ""Have a yarn""","chatty, storytelling","Yeah nah, I don't do the city. Too many people, not enough pigs.",yeah nah i dont do the city too many people not enough pigs
+mm_015,"You pick ""Have a yarn""","chatty, storytelling",Had a sow charge the ute last week. Dented the bullbar. Dented the sow more.,had a sow charge the ute last week dented the bullbar dented the sow more
+mm_016,"You pick ""Leave""",friendly,Catch ya.,catch ya
+mm_017,"You pick ""Leave""",friendly,Hooroo!,hooroo
+mm_018,"You pick ""Leave""",friendly,Don't do anything I wouldn't do.,dont do anything i wouldnt do
+mm_019,Telling the dogs off,"yelling at the dogs, annoyed","Settle down, ya mongrels!",settle down ya mongrels
+mm_020,Telling the dogs off,"yelling at the dogs, annoyed",Tank! Sit! ...Tank!,tank sit tank
+mm_021,Telling the dogs off,"yelling at the dogs, annoyed","Shut ya traps, the pair of ya!",shut ya traps the pair of ya
+mm_022,Pigs nearby,excited,"Look at that! Bloody pigs, bold as brass.",look at that bloody pigs bold as brass
+mm_023,Pigs nearby,excited,"Fuck me dead, they're right on the doorstep!",fuck me dead theyre right on the doorstep
+mm_024,Pigs nearby,excited,"Cheeky buggers, aren't they?",cheeky buggers arent they
+mm_025,You lean on or climb on his ute,"warning, getting cross",Oi! Mitts off the ute!,oi mitts off the ute
+mm_026,You lean on or climb on his ute,"warning, getting cross",Get off the bloody ute!,get off the bloody ute
+mm_027,You lean on or climb on his ute,"warning, getting cross","You scratch her, you're payin'.",you scratch her youre payin
+mm_028,You get in his ute,"shouting, outraged",OI! Get outta me ute!,oi get outta me ute
+mm_029,You get in his ute,"shouting, outraged",Fuck me dead! Outta the bloody ute!,fuck me dead outta the bloody ute
+mm_030,You get in his ute,"shouting, outraged",Whaddaya reckon you're doin'?! OUT!,whaddaya reckon youre doin out
+mm_031,He drags you out of the ute,"rough, shoving",Out ya get!,out ya get
+mm_032,He drags you out of the ute,"rough, shoving","Go on, rack off!",go on rack off
+mm_033,You get out before he reaches you,smug,And stay out!,and stay out
+mm_034,You get out before he reaches you,smug,Too right.,too right
+mm_035,You drive off in his ute,"yelling, furious",OI! That's me bloody ute! Bring her back!,oi thats me bloody ute bring her back
+mm_036,You drive off in his ute,"yelling, furious","Fuck me dead, he's nicked the ute! Get back 'ere!",fuck me dead hes nicked the ute get back ere
+mm_037,He grabs another car to chase you,"determined, menacing",Right. Two can play at that.,right two can play at that
+mm_038,He grabs another car to chase you,"determined, menacing","Not gettin' away that easy, ya rat!",not gettin away that easy ya rat
+mm_039,Chasing you in a car,yelling out the window,"Pull over, ya mongrel!",pull over ya mongrel
+mm_040,Chasing you in a car,yelling out the window,I'll run ya off the bloody road!,ill run ya off the bloody road
+mm_041,Chasing you in a car,yelling out the window,That's MY ute!,thats my ute
+mm_042,You hit his ute with a car,outraged,OI! Watch the bloody ute!,oi watch the bloody ute
+mm_043,You hit his ute with a car,outraged,Ya galah! That's me ute!,ya galah thats me ute
+mm_044,You shoot his ute,outraged,Are you shootin' at me ute?!,are you shootin at me ute
+mm_045,You shoot his ute,outraged,"That's a fifty grand ute, ya drongo!",thats a fifty grand ute ya drongo
+mm_046,You point a gun at him,"tense, warning",Get that bloody gun off me!,get that bloody gun off me
+mm_047,You point a gun at him,"tense, warning","Point that somewhere else, ya drongo!",point that somewhere else ya drongo
+mm_048,You fire a gun near him,warning,Careful where you point that thing!,careful where you point that thing
+mm_049,You fire a gun near him,warning,"Strewth, mind the dogs!",strewth mind the dogs
+mm_050,You talk to him while he's cross,"grumpy, short","Yeah nah, not in the mood, mate.",yeah nah not in the mood mate
+mm_051,You talk to him while he's cross,"grumpy, short",Rack off for a bit.,rack off for a bit
+mm_052,He loses it and comes at you,"furious, threatening",Right! That's it! You're gettin' a hidin'!,right thats it youre gettin a hidin
+mm_053,He loses it and comes at you,"furious, threatening","Come 'ere, ya little rat!",come ere ya little rat
+mm_054,He loses it and comes at you,"furious, threatening",I'll knock ya into next week!,ill knock ya into next week
+mm_055,He calms down after a fight,"grudging, settling",Righto. We're square. Don't touch me ute again.,righto were square dont touch me ute again
+mm_056,He calms down after a fight,"grudging, settling","Fair enough. Water under the bridge, eh.",fair enough water under the bridge eh
+mm_057,You hit him,"pained, angry",Ow! Ya bastard!,ow ya bastard
+mm_058,You hit him,"pained, angry",Strewth!,strewth
+mm_059,You hit him,"pained, angry","Fuck me dead, that hurt!",fuck me dead that hurt
+mm_060,He beats you in a fight,gloating,Ha! Don't mess with the ute.,ha dont mess with the ute
+mm_061,He beats you in a fight,gloating,"Stay down, ya galah.",stay down ya galah
+mm_062,You knock him out,"groggy, dazed",Cheap shot...,cheap shot
+mm_063,You knock him out,"groggy, dazed",Strewth... me head...,strewth me head
+mm_064,His ute gets wrecked,"devastated, furious",ME UTE! You've wrecked me bloody ute!,me ute youve wrecked me bloody ute
+mm_065,His ute gets wrecked,"devastated, furious",Fuck me dead... she's cooked.,fuck me dead shes cooked
+mm_066,His ute comes back repaired,grumpy,Mate's towed her back and patched her up. No thanks to you.,mates towed her back and patched her up no thanks to you
+mm_067,Thrown out of a vehicle,"pained, angry",Oi! Me own bloody ute!,oi me own bloody ute
+mm_068,Thrown out of a vehicle,"pained, angry",Ya mongrel!,ya mongrel
+mm_069,You barge into his donga,"shouting, cross",Oi! Get outta me donga!,oi get outta me donga
+mm_070,You barge into his donga,"shouting, cross",Who said you could come in here?!,who said you could come in here
+mm_071,You come into his donga while he's relaxed,welcoming,"Come in, mate. Mind the mess.",come in mate mind the mess
+mm_072,You ask for a hunt too soon,apologetic,"Not today, mate. Dogs are still sore from Tuesday.",not today mate dogs are still sore from tuesday
+mm_073,You ask for a hunt in multiplayer,apologetic,Not with all your mates about. Dogs get confused.,not with all your mates about dogs get confused
+mm_074,Pig hunt: you hop in,"keen, excited","Righto, hop in! Grab ya gun, shoot out the window.",righto hop in grab ya gun shoot out the window
+mm_075,Pig hunt: you hop in,"keen, excited","Let's go get some pork, mate!",lets go get some pork mate
+mm_076,Pig hunt: he hands you a rifle,matter-of-fact,"Here, have me spare rifle. Don't point it at the dogs.",here have me spare rifle dont point it at the dogs
+mm_077,Pig hunt: driving,shouting over the engine,Hang on to somethin'!,hang on to somethin
+mm_078,Pig hunt: driving,shouting over the engine,Keep ya eyes peeled.,keep ya eyes peeled
+mm_079,Pig hunt: pigs spotted,"excited, urgent","There they are! Dogs, GO!",there they are dogs go
+mm_080,Pig hunt: pigs spotted,"excited, urgent","Fuck me dead, look at the size of that one! Go on dogs!",fuck me dead look at the size of that one go on dogs
+mm_081,Pig hunt: dogs have a pig held,"urgent, shouting",Dogs have got one bailed! Take the shot!,dogs have got one bailed take the shot
+mm_082,Pig hunt: dogs have a pig held,"urgent, shouting",He's held up! Shoot!,hes held up shoot
+mm_083,Pig hunt: dog grabs a pig,"urgent, shouting",Tank's got one! Shoot it!,tanks got one shoot it
+mm_084,Pig hunt: you shoot a pig,cheering,Got him!,got him
+mm_085,Pig hunt: you shoot a pig,cheering,"Fuck me dead, what a shot!",fuck me dead what a shot
+mm_086,Pig hunt: you shoot a pig,cheering,Ripper!,ripper
+mm_087,Pig hunt: you miss,mocking,"Strewth, aim at the pig, not the dirt!",strewth aim at the pig not the dirt
+mm_088,Pig hunt: pigs got away,resigned,"They've bolted. Dogs, in! Next mob.",theyve bolted dogs in next mob
+mm_089,Pig hunt: you shoot near a dog,"sharp, angry",Oi! Watch it!,oi watch it
+mm_090,Pig hunt: you got all five,"happy, proud",That's five! Beers on me. Home we go.,thats five beers on me home we go
+mm_091,Pig hunt: you got all five,"happy, proud","Ripper hunt, mate. Back to the dongas.",ripper hunt mate back to the dongas
+mm_092,Pig hunt: out of time,resigned,"Yeah nah, they've gone to ground. Home time.",yeah nah theyve gone to ground home time
+mm_093,Pig hunt: you bail out,grumpy,"Fine, walk then!",fine walk then
+mm_094,You ask for a hunt while the dogs rest,easy-going,Dogs are knackered. Give 'em a minute.,dogs are knackered give em a minute
+mm_095,He heads off hunting without you,cheery,Righto. Back in a bit. Don't touch anything.,righto back in a bit dont touch anything
+mm_096,He's back from hunting alone,"pleased, a bit tired",Got one of the buggers. Dogs did all the work.,got 1 of the buggers dogs did all the work
+mm_097,He's back from hunting alone,"pleased, a bit tired",Got two of the buggers. Dogs did all the work.,got 2 of the buggers dogs did all the work
+mm_098,He's back from hunting alone,"pleased, a bit tired",Got three of the buggers. Dogs did all the work.,got 3 of the buggers dogs did all the work
+mm_099,He's back from hunting alone,"pleased, a bit tired",Got four of the buggers. Dogs did all the work.,got 4 of the buggers dogs did all the work
+mm_100,He's back from hunting alone,"pleased, a bit tired",Got five of the buggers. Dogs did all the work.,got 5 of the buggers dogs did all the work
+mm_101,He's back from hunting alone,"pleased, a bit tired",Got six of the buggers. Dogs did all the work.,got 6 of the buggers dogs did all the work
+mm_102,He's back with no pigs,disappointed,Not a bloody one. They heard us comin'.,not a bloody one they heard us comin
+mm_103,Having a dig at a backpacker who's wandered close,"passive-aggressive, muttering","Oi, Pepé. That's my esky, not yours.",oi pep thats my esky not yours
+mm_104,Having a dig at a backpacker who's wandered close,"passive-aggressive, muttering",Backpackers. Eat all me bread and call it a baguette.,backpackers eat all me bread and call it a baguette
+mm_105,Having a dig at a backpacker who's wandered close,"passive-aggressive, muttering","Speak English, ya croissant.",speak english ya croissant
+mm_106,Having a dig at a backpacker who's wandered close,"passive-aggressive, muttering","Righto, Frenchie. Go pick some fruit or somethin'.",righto frenchie go pick some fruit or somethin
+mm_107,Having a dig at a backpacker who's wandered close,"passive-aggressive, muttering","Ooh la la. Wash ya socks, mate.",ooh la la wash ya socks mate
+mm_108,A backpacker is having a go at you: he steps in,"shouting, protective","Oi! Leave him alone, ya frog!",oi leave him alone ya frog
+mm_109,A backpacker is having a go at you: he steps in,"shouting, protective","Pick on someone ya own size, Frenchie!",pick on someone ya own size frenchie
+mm_110,A backpacker is having a go at you: he steps in,"shouting, protective","Back off, ya baguette! He's with me!",back off ya baguette hes with me
+mm_111,He has sorted the backpacker out,"smug, dismissive","And stay down, Pierre.",and stay down pierre
+mm_112,He has sorted the backpacker out,"smug, dismissive",Bloody backpackers.,bloody backpackers
+mm_113,Someone is in the sauna,"incredulous, mocking","Sittin' in a hot box on purpose? You're mad, the lot of ya!",sittin in a hot box on purpose youre mad the lot of ya
+mm_114,Someone is in the sauna,"incredulous, mocking",Strewth! It's forty degrees out and you's are cookin' yaselves in a shed!,strewth its forty degrees out and yous are cookin yaselves in a shed
+mm_115,Someone is in the sauna,"incredulous, mocking","Oi! Come out of there before ya cook, ya bloody lunatics!",oi come out of there before ya cook ya bloody lunatics

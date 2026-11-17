@@ -2404,7 +2404,7 @@ SPECS.ute = Object.assign({}, SPECS.x5, { top: 150 / 3.6, rev: 22 / 3.6, accel: 
   rF: UTE_META.R, rR: UTE_META.R, step: 0.3, trackR: 0.78, trackF: 0.78, roll: 0.013, rollMax: 0.065, grip: 7.5, susK: 140, susC: 9,
   camBack: 9.4, camUp: 3.8, camPivot: 1.5, look: 2.6, lookH: 1.1 });
 SPECS.x5.drift = Object.assign({}, DRIFT, { m: 2200, Iz: 3600, a: 1.5, Cf: 74000, Cr: 68000, mu: 0.95, drive: 7.2, top: 200 / 3.6, rev: 24 / 3.6, steer: 0.56, steerFast: 0.22, kick: 2.2 });
-SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 7.8, Cf: 76000, Cr: 70000, mu: 0.97 });
+SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 11.5, top: 235 / 3.6, Cf: 76000, Cr: 70000, mu: 0.97 });      // the M-car: a lot more go
 SPECS.ute.drift = Object.assign({}, SPECS.x5.drift, { m: 2300, Iz: 4300, a: 1.62, Cf: 70000, Cr: 63000, mu: 0.9, drive: 6.0, top: 150 / 3.6, rev: 22 / 3.6, steer: 0.54, steerFast: 0.2, kick: 2.0 });
 SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 70000, Cr: 64000, mu: 0.9, drive: 8.6, top: 165 / 3.6, rev: 25 / 3.6, steer: 0.58, steerFast: 0.3, kick: 2.8 });
 /* ================================================================
@@ -2597,7 +2597,7 @@ function step(dt) {
   side.set(fwd.z, 0, -fwd.x);                     // +X local (left)
 
   // collisions: rays from the middle of the vehicle out along the direction of travel, at several heights and lanes
-  let blocked = false, hitN = null, impact = 0, sHit = null;
+  let blocked = false, hitN = null, impact = 0, sHit = null, vHit = null;
   if (dist > 1e-4 && !step.bench) {            // (step.bench: the handling test rig drives on open ground with nothing to hit)
     const midZ = (V.front - V.rear) / 2;
     const along = moveX * fwd.x + moveZ * fwd.z, across = moveX * side.x + moveZ * side.z;
@@ -2641,8 +2641,8 @@ function step(dt) {
       }
     }
     // the other vehicles parked around the yard
-    if (!blocked) { const hv = groundVehicleHit(nx, nz, newYaw);
-      if (hv && !(moveX * hv.x + moveZ * hv.y > 0.2 && groundVehicleHit(S.pos.x, S.pos.z, S.yaw))) { blocked = true; hitN = hv; } }      // (already tangled up with one: pulling away from it is allowed)
+    if (!blocked) { const hv = groundVehicleHit(nx, nz, newYaw), hveh = groundVehicleHit.veh;
+      if (hv && !(moveX * hv.x + moveZ * hv.y > 0.2 && groundVehicleHit(S.pos.x, S.pos.z, S.yaw))) { blocked = true; hitN = hv; vHit = hveh; } }      // (already tangled up with one: pulling away from it is allowed)
   }
   if (blocked) {
     if (slip) {
@@ -2665,6 +2665,7 @@ function step(dt) {
       const sgn = (moveX * fwd.x + moveZ * fwd.z) >= 0 ? 1 : -1;
       if (res.through || res.keep > 0) { S.v = sgn * impact * (res.through ? res.keep : res.keep); if (slip) { S.vx = fwd.x * S.v; S.vz = fwd.z * S.v; } }
     }
+    if (vHit && impact > 1.8 && activeName !== 'foot') dmgRammed(vHit, hitN, impact);
     if (impact > 1.8 && activeName !== 'foot') dmgCrash(activeName, hitN, impact, !!(sHit && sHit.struct && ['tree', 'wall', 'roof', 'gable'].includes(sHit.struct.kind)));
   } else {
     S.pos.x = nx; S.pos.z = nz; S.yaw = newYaw;
@@ -4817,9 +4818,24 @@ function groundVehicleHit(nx, nz, yaw) {
       const rb = b.hl * Math.abs(b.fx * ax + b.fz * az) + b.hw * Math.abs(b.lx * ax + b.lz * az);
       if (Math.abs(dx * ax + dz * az) > ra + rb) { sep = true; break; }
     }
-    if (!sep) { const l = Math.hypot(dx, dz) || 1; return new THREE.Vector2(-dx / l, -dz / l); }
+    if (!sep) { const l = Math.hypot(dx, dz) || 1; groundVehicleHit.veh = veh; return new THREE.Vector2(-dx / l, -dz / l); }
   }
   return null;
+}
+// you've driven into another machine: it takes a dent and some damage too, and gets shunted (and Madman hears about it if it's his ute)
+function dmgRammed(veh, hitN, impact) {
+  if (!veh || veh.kind !== 'ground' || !veh.state || veh.npc && veh.npc.mm && MM.npcDriving) return; const D = WPN.VD[veh.name]; if (D && D.wrecked) return;
+  const st = veh.state, m1 = VEH_MASS[activeName] || 1500, m2 = VEH_MASS[veh.name] || 1500, mEff = Math.min(m1, 3500), E = 0.5 * mEff * impact * impact / 1000;
+  if (E < 6) return;
+  const ix = -hitN.x, iz = -hitN.y, o = vehicleOBB(veh), wp = new THREE.Vector3(S.pos.x + ix * ((V.front + V.rear) / 2 + 0.2), st.pos.y + 0.7, S.pos.z + iz * ((V.front + V.rear) / 2 + 0.2));
+  if (o) { const dx = wp.x - o.cx, dz = wp.z - o.cz, f = THREE.MathUtils.clamp(dx * o.fx + dz * o.fz, -o.hl, o.hl), l = THREE.MathUtils.clamp(dx * o.lx + dz * o.lz, -o.hw, o.hw); wp.set(o.cx + o.fx * f + o.lx * l, st.pos.y + 0.7, o.cz + o.fz * f + o.lz * l); }
+  if (!DMG_NODENT.has(veh.name) && m2 > 500) dmgDent(veh.name, wp, new THREE.Vector3(ix, 0, iz), E * m1 / (m1 + m2) * 1.6);
+  wpnVehDamage(veh, Math.max(0, E - 10) * 0.15 * m1 / (m1 + m2) * 2, new THREE.Vector3(ix, 0, iz), 'crash', false);
+  metalSound(wp, Math.min(1, E / 80), 0.75);
+  // shunt it along: a little shove now, the rest as roll along its own axis
+  const share = m1 / (m1 + m2), push = Math.min(0.7, impact * share * 0.08), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
+  st.pos.x += ix * push; st.pos.z += iz * push; st.v = (ix * fx + iz * fz) * impact * share * 0.7; st.vx = fx * st.v; st.vz = fz * st.v; if (!veh.npc && !veh.mp) veh.coast = true;
+  if (veh.name === 'ute' && typeof MM !== 'undefined' && MM.ready && !(MM.ramT > MM.t)) { MM.ramT = MM.t + 4; MM.shotSaidT = MM.t + 4; mmSay('ram', 2.4, true); mmOffend('ram', 25, true); for (const d of MM.dogs) d.alert = 3; }
 }
 function snapshotS() {
   return { pos: S.pos.clone(), yaw: S.yaw, v: S.v, steer: S.steer, pitch: S.pitch, roll: S.roll, bodyRoll: S.bodyRoll, bodyPitch: S.bodyPitch,
@@ -4875,7 +4891,7 @@ const ACT = { more: false, for: '' };
 function updateActions() {
   let items = [];
   if (activeName === 'foot') {
-    ladderActions(items); npcActions(items); mmActions(items); mhActions(items);
+    ladderActions(items); npcActions(items); mmActions(items); mhActions(items); saActions(items);
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
@@ -4925,7 +4941,7 @@ function updateActions() {
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
-  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh):|^radio$/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
+  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa):|^radio$/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
   if (items.length > 3) { const keep = items.filter(pri), rest = items.filter(it => !pri(it));
     if (rest.length) items = ACT.more ? [...keep, { id: 'more', label: '\u2715', cls: 'more' }, ...rest] : [...keep, { id: 'more', label: '\u22ef', cls: 'more' }]; }
   const key = JSON.stringify(items); if (key === actKey) return; actKey = key;
@@ -4947,6 +4963,7 @@ function doAction(id) {
   else if (id === 'npc:kick') npcKick();
   else if (id.startsWith('mm:')) mmAct(id);
   else if (id.startsWith('mh:')) mhAct(id);
+  else if (id.startsWith('sa:')) saAct(id);
   else if (id === 'radio') radioCycle();
   else if (id === 'locker') wpnOpenLocker();
   else if (id === 'mxgo') mxGo(true);
@@ -5219,7 +5236,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
+  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) drawMinimap();
@@ -5690,7 +5707,7 @@ function audioInit() {
     ...['drone', 'flyer', 'spray'].flatMap(name => [0, 1, 2].map(k => () => { (AU.rl[name] = AU.rl[name] || [])[k] = toBuf(rotorLoop(ROTCFG[name].bpf, 300 + k * 11 + (name === 'flyer' ? 50 : name === 'spray' ? 90 : 0), ROTCFG[name].big)); })
       .concat([() => { AU.rot[name] = makeRotorVoice(name); }])),
   ];
-  jobs.push(() => faSynthAll(), () => fa2Apply(), () => mmSynth(), () => wxSynth(), () => wpnSynth(), () => melSynth(), () => realApply());
+  jobs.push(() => faSynthAll(), () => fa2Apply(), () => mmSynth(), () => wxSynth(), () => wpnSynth(), () => melSynth(), () => realApply(), () => { if (VOX.on) voxLoad(); });
   jobs.push(() => { AU.buf.track = toBuf(synthTrackLoop()); AU.trk = makeTrackVoice(); AU.soil = makeSoilVoice(); });
   jobs.push(() => { AU.buf.jake = toBuf(synthJakeLoop()); AU.jakeV = makeJakeVoice(); }, () => { AU.buf.airhiss = toBuf(synthAirHiss()); },
     () => { AU.rl.gyroProp = toBuf(rotorLoop(113, 1300, false)); }, () => { AU.rl.gyroRotor = toBuf(rotorLoop(12.7, 1311, true)); AU.gyroV = makeGyroVoice(); }, () => { AU.racerV = makeRacerVoice(); });
@@ -9281,7 +9298,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); phReset();
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); saReset(); dmReset(); phReset();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -10766,7 +10783,18 @@ LAD_ON = true;
    Nothing here is meant as a dig at anyone: they are mates having a go.
    ================================================================ */
 const NPC = { list: [], ready: false, t: 0, told: {}, center: new THREE.Vector3(), anchor: [0, 0], shedT: 3, shedWait: 0, kickCD: 0 };
+const DIMA_L = {
+  idle: ["Is good day for lifting, da?", "You look weak. Come, I show you gym.", "In Russia, sauna is one hundred degrees. Here is cute.", "Protein shake is breakfast of champion.", "Madman says I am crazy. Madman has no muscles."],
+  talk: ["Sauna makes you strong like bear.", "First sweat, then cold water, then vodka. Is the way.", "I do two hundred push-ups before you wake up.", "Steam is good for soul, my friend."],
+  bye: ["Do svidaniya, my friend.", "Go. Eat more protein."],
+  start: ["Ha! You want sauna challenge? First, bring wood. Three piles."], wood: ["Good! Now light stove. Go, go!"], lit: ["Is getting hot! I am coming."],
+  sit: ["Sit. We stay one minute. No crying."], ask: ["Water on rocks! Now!", "More steam! Is not hot yet!"], more: ["You are sleeping? More water!"],
+  good: ["Da! Is beautiful!", "Yes! Like real Russian!"], plunge: ["Now cold water! Run, run!"], win: ["Ha! Not bad! You are little bit Russian now."],
+  fail: ["Pfft. Go home, little man."], faint: ["Ha! He sleeps like baby."], slow: ["Too slow! Cold water is best part!"],
+  hurt: ["Ha! Is tickle.", "You hit like pillow."], angry: ["Now you make Dima angry!", "Come here. I fold you like blanket."], ko: ["Ugh... lucky punch..."], win2: ["Stay down, little man."],
+};
 const NPC_L = {
+  sass: [['Pff, n’importe quoi.', 'Pff, whatever.'], ['Oh, ça va, le vieux !', 'Oh, give it a rest, old man!'], ['Il est fou, celui-là.', 'That guy is crazy.']],
   enter: [['Oh, ça a l’air amusant !', 'Ooh, this looks fun!'], ['Je l’emprunte, d’accord ?', 'I’ll just borrow it, OK?'], ['Allez, on y va !', 'Right, off we go!']],
   drive: [['Wouhou ! Ça roule !', 'Woo-hoo! Look at it go!'], ['Oh là là, c’est génial !', 'Oh my, this is brilliant!'], ['Vive la France !', 'Long live France!'], ['Pardon, pardon !', 'Sorry, sorry!'], ['Je conduis comme un pro !', 'I drive like a pro!']],
   kicked: [['Eh ! Mais qu’est-ce que tu fais ?!', 'Hey! What are you doing?!'], ['C’est ma voiture !', 'That’s my car!'], ['Espèce d’abruti !', 'You absolute idiot!'], ['Tu es fou, toi !', 'You’re mad!']],
@@ -10788,50 +10816,65 @@ function npcBubble(n) {
   n.bub = { c, t, sp, time: 0 };
 }
 /* ================================================================
-   VOICES (Nov 2026): Madman and the backpackers say their lines out loud with the phone's own text-to-speech,
-   on top of the speech bubbles (which stay, as subtitles). Madman gets an Australian English voice where the
-   device has one (else British, else any English); the backpackers speak their French lines in a French voice,
-   each pitched a little differently. Louder the closer you are; nothing past ~32 m. Menu: Voices on/off.
-   Quality and the voices on offer depend on the device.
+   VOICES (Nov 2026): Madman and the backpackers say their lines out loud. Every line was recorded offline with
+   Kokoro-82M (open-source TTS, Apache-2.0) and packed into voices-v1.bin, which loads once sound starts. Madman: two
+   British male Kokoro voices blended, the vowels pushed hard toward broad Australian ("mite", "roit", "naow"),
+   drawn out, then pitched down with a heavy chest, the nasal band cut and plenty of grit. The backpackers: Kokoro's French voice (Chloe
+   as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
+   The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, ok: typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined', list: [], pick: {}, warm: false, who: null };
+const VOX = { on: true, url: 'voices-v1.bin', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
-const VOX_CAST = {
-  madman:    { langs: ['en-au', 'en-gb', 'en'], like: ['lee', 'gordon', 'russell', 'james', 'daniel', 'arthur', 'oliver', 'male'], avoid: ['karen', 'catherine', 'female', 'samantha', 'kate', 'serena', 'moira'], pitch: 0.72, rate: 1.04 },
-  Mathieu:   { langs: ['fr-fr', 'fr'], like: ['thomas', 'nicolas', 'daniel', 'paul', 'male'], avoid: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], pitch: 0.95, rate: 1.08 },
-  Alexandre: { langs: ['fr-fr', 'fr'], like: ['thomas', 'nicolas', 'daniel', 'paul', 'male'], avoid: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], pitch: 0.8, rate: 1.0 },
-  'Chloé':   { langs: ['fr-fr', 'fr'], like: ['amélie', 'amelie', 'audrey', 'marie', 'aurélie', 'julie', 'virginie', 'female'], avoid: ['thomas', 'nicolas', 'male'], pitch: 1.2, rate: 1.1 },
-};
-function voxLoad() { if (!VOX.ok) return; VOX.list = speechSynthesis.getVoices() || []; VOX.pick = {}; }
-if (VOX.ok) { voxLoad(); try { speechSynthesis.addEventListener ? speechSynthesis.addEventListener('voiceschanged', voxLoad) : (speechSynthesis.onvoiceschanged = voxLoad); } catch (_) {} }
-function voxVoice(key) {
-  if (key in VOX.pick) return VOX.pick[key];
-  const C = VOX_CAST[key], L = VOX.list; let best = null, bs = -1e9;
-  for (const v of L) { const lang = (v.lang || '').toLowerCase().replace('_', '-'), nm = (v.name || '').toLowerCase();
-    const li = C.langs.findIndex(l => lang === l || (l.length === 2 && lang.startsWith(l + '-')) || lang === l.slice(0, 2)); if (li < 0) continue;
-    let sc = -li * 10; if (C.like.some(w => nm.includes(w))) sc += 4; if (C.avoid.some(w => nm.includes(w))) sc -= 6; if (v.localService) sc += 1; if (/enhanced|premium|natural|neural/.test(nm)) sc += 2;
-    if (sc > bs) { bs = sc; best = v; } }
-  return (VOX.pick[key] = best);
+const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
+// the same normalising the recording script used, so the game's text finds its clips
+const voxNorm = (t) => String(t).replace(/[’‘]/g, "'").toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/'/g, '');
+function voxLoad() {
+  if (VOX.head || VOX.loading || VOX.failed) return; VOX.loading = true;
+  fetch(VOX.url).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(ab => {
+    const n = new DataView(ab).getUint32(0, true); VOX.head = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 4, n))); VOX.data = ab; VOX.base = 4 + n;
+    VOX.mmKeys = new Set(Object.keys(VOX.head.mm)); VOX.maxW = Math.max(...[...VOX.mmKeys].map(k => k.split(' ').length));
+  }).catch(() => { VOX.failed = true; }).finally(() => { VOX.loading = false; });
 }
-// shouted capitals ("OI!", "OUT!") get read as words, not spelled out
-const voxClean = (t) => String(t).replace(/[’‘]/g, "'").replace(/\b([A-Z]{2,})\b/g, (m) => m.charAt(0) + m.slice(1).toLowerCase()).replace(/\s+/g, ' ').trim();
+function voxBuf(ent) {
+  const key = ent[0]; if (VOX.bufs.has(key)) return VOX.bufs.get(key);
+  const pr = new Promise((ok, bad) => { const b = VOX.data.slice(VOX.base + ent[0], VOX.base + ent[0] + ent[1]); const r = AU.ctx.decodeAudioData(b, ok, bad); if (r && r.catch) r.catch(bad); }).catch(() => null);
+  VOX.bufs.set(key, pr); return pr;
+}
+// split one of Madman's lines into recorded pieces (longest pieces first, backing off if that strands the rest); null if any of it isn't recorded
+function voxSplit(text) {
+  const w = voxNorm(text).split(' ').filter(Boolean), memo = new Map();
+  const go = (i) => { if (i === w.length) return []; if (memo.has(i)) return memo.get(i); let r = null;
+    for (let n = Math.min(VOX.maxW, w.length - i); n > 0 && !r; n--) { const k = w.slice(i, i + n).join(' '); if (VOX.mmKeys.has(k)) { const rest = go(i + n); if (rest) r = [VOX.head.mm[k], ...rest]; } }
+    memo.set(i, r); return r; };
+  return w.length ? go(0) : null;
+}
+function voxStop(who) { const c = VOX.cur[who]; if (c) { for (const s of c) try { s.stop(); } catch (_) {} VOX.cur[who] = null; } }
+const voxNearMadman = () => { const n = MM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos, p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z) < 5 || (MM.sheet && MM.sheet.classList.contains('show')); };
 function voxSay(n, text) {
-  if (!VOX.ok || !VOX.on || !text || (typeof AU !== 'undefined' && AU.on === false) || document.hidden) return;
-  const key = n.mm ? 'madman' : n.name; if (!VOX_CAST[key]) return;
+  if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return;
+  if (!VOX.head) { voxLoad(); return; }                       // (the first line kicks off the download; it's said as a bubble)
+  const who = n.mm ? 'mm' : n.dima ? 'dm' : VOX_WHO[n.name]; if (!who) return;
   const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = activeName === 'foot' ? F.pos : S.pos, d = Math.hypot(p.x - me.x, p.z - me.z);
   if (d > 32) return;
-  const voice = voxVoice(key); if (!voice && VOX.list.length) return;          // no voice in that language on this device: bubble only
-  const C = VOX_CAST[key], u = new SpeechSynthesisUtterance(voxClean(text));
-  if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = C.langs[0];
-  u.pitch = C.pitch; u.rate = C.rate; u.volume = THREE.MathUtils.clamp(1.15 - d / 28, 0.15, 1);
-  try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); speechSynthesis.speak(u); VOX.who = key; } catch (_) {}
+  const now = AU.ctx.currentTime;
+  if (who !== 'mm' && who !== 'dm' && (VOX.mmUntil > now || voxNearMadman())) return;          // no French chatter over Madman
+  let parts;
+  if (who === 'mm') parts = voxSplit(text); else if (who === 'dm') { const e = VOX.head.dm && VOX.head.dm[voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
+  if (!parts || !parts.length) return;
+  if (who === 'mm') { for (const k of Object.keys(VOX.cur)) voxStop(k); } else voxStop(who);
+  const g = AU.ctx.createGain(); g.gain.value = THREE.MathUtils.clamp(1.25 - d / 26, 0.12, 1) * (who === 'mm' ? 1.15 : 0.95); g.connect(AU.master);
+  const total = parts.reduce((s, e) => s + e[2] + (e[3] ? 0.12 : 0.05), 0); if (who === 'mm') VOX.mmUntil = now + total + 0.2;
+  const tok = VOX.cur[who] = [];
+  Promise.all(parts.map(voxBuf)).then(bufs => {
+    if (VOX.cur[who] !== tok) return;                          // something newer started meanwhile
+    let t = Math.max(AU.ctx.currentTime, now) + 0.02;
+    bufs.forEach((b, i) => { if (!b) return; const s = AU.ctx.createBufferSource(); s.buffer = b; s.connect(g); s.start(t); tok.push(s); t += b.duration + (parts[i][3] ? 0.12 : 0.05); });
+    if (who === 'mm') VOX.mmUntil = t + 0.2;
+  });
 }
-function voxStop() { if (VOX.ok) try { speechSynthesis.cancel(); } catch (_) {} }
-// iPhone only lets a page start speaking from a tap: say nothing, once, on the first one
-if (VOX.ok) addEventListener('pointerdown', () => { if (VOX.warm) return; VOX.warm = true; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (_) {} }, { capture: true });
-document.addEventListener('visibilitychange', () => { if (document.hidden) voxStop(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
-  if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; }     // Madman never gets the backpackers' French: map to his own lines
+  if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; } if (n.dima) { dmSayNpc(n, line); return; }     // Madman never gets the backpackers' French: map to his own lines
   const [fr, en] = line, B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
   x.fillStyle = 'rgba(255,255,255,.96)'; x.strokeStyle = 'rgba(30,30,40,.8)'; x.lineWidth = 4; x.beginPath(); x.roundRect ? x.roundRect(6, 6, 628, 130, 26) : x.rect(6, 6, 628, 130); x.fill(); x.stroke();
   x.beginPath(); x.moveTo(300, 134); x.lineTo(320, 166); x.lineTo(340, 134); x.closePath(); x.fillStyle = 'rgba(255,255,255,.96)'; x.fill();
@@ -11041,15 +11084,15 @@ function npcThink(n, dt) {
 // pose: the same rig as Dazza, driven by simple state rules
 function npcPose(n, dt) {
   const P = n.P, R = n.root; let hipL = 0, hipR = 0, kneeL = 0, kneeR = 0, shLx = 0.05, shRx = 0.05, shLz = 0.32, shRz = -0.32, elL = -0.25, elR = -0.85, torsoX = 0, torsoY = 0, headX = 0, headY = 0, bodyY = 0.78;
-  if (n.st === 'drive') {
-    const v = n.veh, q = seatedPose(v.pose); hipL = q.hipL; hipR = q.hipR; kneeL = q.kneeL; kneeR = q.kneeR; shLx = q.shLx; shRx = q.shRx; shLz = 0.18; shRz = -0.18; elL = q.elL; elR = q.elR; torsoX = q.torso; headX = q.head;
+  if (n.st === 'drive' || n.st === 'saSit' || n.st === 'saTub') {
+    const v = n.veh, q = seatedPose(v ? v.pose : 'stick'); hipL = q.hipL; hipR = q.hipR; kneeL = q.kneeL; kneeR = q.kneeR; shLx = q.shLx; shRx = q.shRx; shLz = 0.18; shRz = -0.18; elL = q.elL; elR = q.elR; torsoX = q.torso; headX = q.head;
     headY = Math.sin(NPC.t * 0.9 + n.ph) * 0.4; bodyY = 0.78;
   } else {
     const sp = n.sp, run = THREE.MathUtils.clamp((sp - 1.6) / 3, 0, 1);
     if (n.st === 'tumble' || n.st === 'down' || n.st === 'ko') { shLz = 1.3; shRz = -1.3; shLx = shRx = -0.3; hipL = 0.1; hipR = -0.15; elL = elR = -0.2; if (n.st === 'tumble') { shLx = -2.2 + Math.sin(NPC.t * 15) * 0.5; shRx = -2.2 - Math.sin(NPC.t * 15) * 0.5; hipL = -0.5; hipR = -0.2; kneeL = kneeR = 0.8; } }
     else if (n.st === 'getup') { hipL = hipR = -1.0; kneeL = kneeR = 1.6; shLx = shRx = -0.6; }
     else if (n.st === 'stag') { torsoX = -0.35; shLx = -0.8; shRx = -0.6; elL = elR = -1.2; headX = -0.25; }
-    else if (n.st === 'fight' || (n.st === 'chase' && sp < 2) ) {
+    else if (n.st === 'fight' || (n.st === 'chase' && sp < 2) || (n.st === 'defend' && sp < 2)) {
       shLx = -1.15; shRx = -1.0; shLz = 0.25; shRz = -0.25; elL = -1.8; elR = -1.7; torsoX = 0.12; hipL = -0.15; hipR = 0.15; kneeL = 0.2; kneeR = 0.25;
       const bob = Math.sin(NPC.t * 6 + n.ph) * 0.06; bodyY += bob * 0.5; torsoY = Math.sin(NPC.t * 3 + n.ph) * 0.1;
       if (n.atkPh === 'wind') { const k = Math.min(1, n.t / 0.4); shRx = -0.6 + k * 0.9; elR = -1.9; torsoY = 0.5 * k; }
@@ -11061,7 +11104,7 @@ function npcPose(n, dt) {
       shLx = s * (0.45 + run * 0.6); shRx = -s * (0.45 + run * 0.6); elL = elR = -0.3 - run * 0.9; bodyY += Math.abs(c) * (0.035 + run * 0.06); torsoX = 0.05 + run * 0.2; torsoY = -s * 0.12;
     } else { headY = Math.sin(NPC.t * 0.4 + n.ph) * 0.3; }
   }
-  if (n.mm) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; mmPoseHook(n, Q, dt); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
+  if (n.mm || n.dima) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.mm ? mmPoseHook(n, Q, dt) : dmPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
   const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
   lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
   lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
@@ -11098,13 +11141,13 @@ function spawnShedPig(first) {
 function npcStep(dt) {
   if (!NPC.ready) { if (FA.ready && STRUCTS.ready && HOME.bmw && VEH.bmw && VEH.bmw.state) npcBuild(); else return; }
   dt = Math.min(dt, 0.05); NPC.t += dt;
-  for (const n of NPC.list) { if (n.mm) mmThink(n, dt); else npcThink(n, dt); npcPose(n, dt); }
+  for (const n of NPC.list) { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) n.t += dt; else dmThink(n, dt); } else npcThink(n, dt); npcPose(n, dt); }
   shedFauna(dt);
 }
 function npcReset() {
   NPC.shedWait = 0; if (!NPC.ready) return;
-  for (const n of NPC.list) { if (n.mm) continue; if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; }
-  NPC.list.forEach((n, i) => { if (!n.mm) npcPlace(n, i); });
+  for (const n of NPC.list) { if (n.mm || n.dima) continue; if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; }
+  NPC.list.forEach((n, i) => { if (!n.mm && !n.dima) npcPlace(n, i); });
 }
 // guns and blasts work on them too
 function npcShot(n, d, dmg, P, head) {
@@ -11689,7 +11732,7 @@ function stbUI() {
   const help = $('helpbtn'); help ? panel.insertBefore(row, help) : panel.appendChild(row);
   const paint = () => {
     const vb = $('stbV'); vb.innerHTML = ''; for (const [lbl, v] of [['On', true], ['Off', false]]) { const b = document.createElement('button'); b.type = 'button'; b.textContent = lbl; b.classList.toggle('on', VOX.on === v);
-      b.addEventListener('click', () => { VOX.on = v; try { localStorage.setItem('wfy.voices', v ? '1' : '0'); } catch (_) {} if (!v) voxStop(); paint(); toast(v ? (VOX.ok ? 'Voices on: Madman and the backpackers talk' : 'This browser can\u2019t speak, sorry') : 'Voices off: speech bubbles only', 1.8); }); vb.appendChild(b); }
+      b.addEventListener('click', () => { VOX.on = v; try { localStorage.setItem('wfy.voices', v ? '1' : '0'); } catch (_) {} if (!v) for (const k of Object.keys(VOX.cur)) voxStop(k); else voxLoad(); paint(); toast(v ? 'Voices on: Madman and the backpackers talk' : 'Voices off: speech bubbles only', 1.8); }); vb.appendChild(b); }
     const a = $('stbA'); a.innerHTML = ''; DAS_N.forEach((n, i) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; b.classList.toggle('on', DAS.lvl === i);
       b.addEventListener('click', () => { DAS.lvl = i; try { localStorage.setItem('wfy.dassist', String(i)); } catch (_) {} paint(); toast('Drift assist: ' + n + (i === 0 ? ' (you catch every slide)' : i === 3 ? ' (the car catches it for you)' : ''), 1.8); }); a.appendChild(b); });
   };
@@ -11893,104 +11936,7 @@ if (typeof module !== 'undefined') module.exports = { fa2Bank };
 /* Madman's dogs: real CC0 bark recordings (SFXMint + Freesound, see barks README), embedded so the build stays single-file */
 const MM_BARK_B64 = {"tank1": "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", "tank2": "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", "tankD": "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1RtbFDSfreKCs/b2Ho1BN1m7qwiVMNVVhiVSas4T//hWz3FX//JyV5bAyWyRk3ApKXVblWolmtW9TOpSs/3qWQpGUrM4oqO7mTszIZ7ob2o6hnYqa/qz6tMrVq3k1ZdVLNRQygwRBlIjBw0aNPWolFVr8Gp22w05CkxBTUU0LjEgKGFscGhhIDApwAL/84LEqCUbHrH+wYVIay3d/+1m+7Lp6HtuFL3+AVmJM6d6maJVhiHHBl7XAqJJKLRifzdlrrTYGrTsGqlX7Dw8oGHNGz9T2DMXXCgLkuzQIIhVHocDO0v///dit5SymHAZdkb+VSKMwMGRggZEyWCIGmimV7SS5GIqhEyDXiJZUO3FXUA0GnxEPBUY82zItOqArodCd1VMQU1FNC4xIChhbHBoYSAwKVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVWbS5v+6P/zgsTGIooSnV7BhyBuW4jcbZpaPzaF7AUjagLww5AtE/yPyPytq4Y1NyowlTK4rlnah0TqQ4l+OhB1TvYsHN7ZtXHzjdsZxWLFe6t9bxeFG/z7Wtj/GKY3u+tV+bfVMV+LVx5N7xeut21//BYGQ6we9KGIcE1MJm3VpbzVwt4oJEC4algMgUGHpdLHCmTTnk7WEeZh5QgDDCoLxEJxi6BoVAgIBIwUEUxCYIwaNcwOCgCAuCQOOAxQMEAOMyyQM5w5CATMMhdP4NzWGkNGTtR0//OCxMkjYe6EF1h4AN4GDGqUGBJIMGYnhhpmZMSmOuBE+AkSDpAuamaYKPGMGhhokZiFiAINACjZg0rE0YUORiIsYeDYGDgyE5ayYqlAWBUip4SBXdjXZTUlwIAEpFK03lKIs9ieqfLRoJf2EtKq2cfx16lzFmAoqt+IglPdla0ZA6cSUERrLSBAHDRg4FTX7jhNedKFOzEVfhAAWuli5mZrpdSegB+mKPC+amsBOI6SWsWdSMN63CPOtOxKrZx3KZj60q3SwS/0YdO/JIpPSyn/84LE/1IbwjgBndgApRMTMPwTD861uYiMxlf3+6WR15ffqxnGzr/x/963Kf/+RSOdt18qCVW56a3bxu8s59qXb0RlVqU4Y0tbtNljZvdw/OzFTvqBoqpuKQqmsgZUsaGy3JiC1JHlS1nwJAWiZWYnnKZeovqZkmg4KK3gVIb7HmgcABhYBxYAooS8G1QvqH5A2UKKGNgtGEEiuQEqjlCCxIkCHONyAjmlocoXMVSHDnEWPoo0m/RR0Uf/9STrRRUXi8xeIsXklootWiXTVlF4vP/zgsR6KTr1wAHYmACKReLyVaKNaKKLKSNmSSS+tHSdZiXXMS6atSSSqSS6KP9aNek9EugUFfxFTEFNRTQuMSAoYWxwaGEgMClVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", "dusty1": "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fSGVcJ1/IgMQVMnM0cFTVW5tiQwjgGKe8xrdapHAAn/LHHjgqKEFchrj9UYmc+hvnbRxH0wIbza8vCQIBYukYqw6py1LrOcu1fvl2D7hDrAV2Na9iak/2mqb2rjr//OCxEEhq7biFmIFioamqiP59Of+IhFa1ClNBg65vZyoLclhXVCJ6qbd6FerzktWoVSHIXpRdWRNk9ty0s302zsRmc6rPPLumZkrCMII45zgrJ3bZLS1LrvrvLqlQY+guM8jUTpwrAcdFxxlRj84xXNl8RBSTVfOOSONiEv20+RSWogro+jPS+duVWpMgSFlIYRobkLVnLGjo4g4zzFu4kr3d29ukztNRamqVko+qenmQqtNVq1/W3Q1/UroWR8WlLMqO+La0dlERQRJV4rbv0D/84LEfh/Tvvo+YYrTolWNoACV712rA7eMWKsEXcCO3UjNZ6LcVhbzhVBJyFF0AbhghnYDIRBUgxkOomjIljhPOssmp4vHElzdkiwTQpIzKpix1OpXqmznUKT2rWtazRaTNpqSpIoPqdJNnnTy6JVYKrERVCVurcDMkVE3DaGnVdeJaNivZTS1ZVRGdkhQakOlo0FBKd2qVs2IAAALkKLkkl3lztbmwRri6n+hpUTOACEABLnF1UPAXYkAiIm8a5IBFkmRSrCpWzx0WctUEYIjAf/zgsTCIgHCtf9PmABLwdEwuQtda1ToTkw3UY0mW4DiSiPOU4VLcKgQYpA0RfqRhzL8WbSqrWr+4y+lA/MZmMJ2AYpAszDFBEoev5U1NuRzNamllXbiO1KtU1LerRVuUa5+//60NYt/EuTk/GHqztdrU9txKedk9p/oncmZTXuX7bs6zpfy/mWX/hSUlBdn5Xld5y/lnnW3U7q7qavRLHKgq5S6tvuOONLjv//eO7NazctXKelluWFq5y12n+d/LfOYTPIhKfs36uViXY00M7m7//OCxP5DU/6OX5jIAfOU+u1fx/VNdrd1/1iRVlVMQU1FNC4xIChhbHBoYSAwKVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVwwwoFAgFAgEAoGAoBry+QvEdE+GBvwsEJzHM/zL/uKREcjsL/yX/9X/Fv//16v///16lTEFNRTQuMSAoYWxwaGEgMClVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/84LEbgyg1om/gYACVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ==", "dusty2": "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", "alertD": "SUQzBAAAAAAAIlRTU0UAAAAOAAADTGF2ZjYzLjEuMTAyAAAAAAAAAAAAAAD/84DAAAAAAAAAAAAASW5mbwAAAA8AAAAbAAAW2gASEhIbGxsbJCQkJC0tLTY2NjY/Pz8/SUlJUlJSUltbW1tkZGRkbW1tdnZ2dn9/f3+JiYmSkpKSm5ubm6SkpK2tra22tra2v7+/v8nJydLS0tLb29vb5OTk7e3t7fb29vb///8AAAAATGF2YzYzLjEuAAAAAAAAAAAAAAAAJAKDAAAAAAAAFtq0j3VrAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//OAxAALwAZ8NgBGAhl+7bVjpdxMMRIcPyZ/jwI4Tw/r/VD6MT8//1FE+f//pTn/2et4Y9Rx/nOj+XRrH+23yhnBI9axQDh3zYFCmXyuW1Lb5EEDsMD1CKKaegss8aS5tAaRX91hkGmpOhdvKyH5rpCBgyD7Rw0Dkb2OfEcCnmhgexY0RJeH3HzQXdIzg4Fxz5nYXz/ILit9yUMc3R/OWKctyRJPvGpUEhUBtUxBTUU0LjEgKGFscGhhIDApVVVVVVVVVVVVVVVVVVVVVVVVVf/zgsSUG/EmdBZhhuxVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQIAlTS3fyQVqo6UcXgkPiWVlIrEQiphLUHb7ZGrBEkLeKA4YwXd17IpSQ8TPeP+17qnad/8+G3PWel/X+ZGlPewiwjaIFMUPIDmpNKDL5oXuyTxsToa7uuqKL0XlMUlNBlLYeH3o0oVehlYbG7hwEMANYNWABAMBkERoNXYdZ/fmYsApetOJBQvYYEkMsAoetAxAIChGcquq8EgYAAKEZsQYICIBNUcEgUF1Y3V//OCxK0cYXp9f0wwAACJBswM2DoVSD+FtE4WRhxMVAlyHIg5y7zav/AzbGBClyIHmWUK3tAZVMrRnoVLXLto+MPcuH5ddcWFxqDpU/DaZx6c5NNRjEsWvSfHrGN6csUExTwLhcwx7fmnawsWJfDdSYu07B4HoHWk1mdu2ss+asUdiHYnKLl2xZzt28UMFTtldadjcFRSNq3ue/U5bpY1YpL3blqkxrTlu9ypXs7x7jYqaos7dFU1NP5K7l2X1JVvb+TsDwjtPRdtX634d5vn4fj/84LE/0jMDnb/m9ABZWeWPzs6zwx1hrnP7jvu8cPu49wzp8uTkr7bw+H6CWS+5YxTqoAuWubXbxZ08V10kugcOUpiheYWKPWY6LGdnZih4Kj5E7GBpJtCcAiILQ52biaiLCgekwrKlwIjTDCMJpCgxhEF1pP2hPOCAQtu8cd50goThKyVRRMMt2AhyVgaAAoCHN16R+kBC5W/T3pGcP40pL/CfXJSTGbDFb1iLCQ3G3/l7hxfF37Uuf+R0kMSaCKebnJ2pG23ed+32btSxeMv7P/zgsSfUKQWkN/byAARGolRwuXQuu/t+CZU9bwMETnY/BeEvzch3ICawkI5EriDqQv5TVksP0zrOPPuBGy3bS4fe5ik9SQA2ZpFx+KtBNP/MSuX26SxMfd7yH6PKzNx+foasokEP2pbYf+fgSrDm5U6EtdyG3oimpBBr91q9XC5TZTdLYr3opRWK8umsLkup6ev2xDmUZikNQ071qIzNiboev1SPtP3YjlNQjG3qHqDOuAE425Jfhti1U+7MRyoAOtavmhdyDpJnFxHcp2feZG5//OCxCAuXBbVXnsNPlEDFdMaj2tM7VtXjaxu2SzR3I6LenVb7Kmzfw+eORlKI3mE/a3VjS/WJ7Ir+/kV7vsZc8NI8p17d7JbHs2p/1UWQDxkBZ8TGLfEvWOsF9cW1cflc3aL7QNwtM8xOehW9/sOt/T929NaqvKs7P/WShmGCzMvUEf5xjHmqRrTTLzHfe1eq/7/4yvsO2NWma8twh9ma3OzvkpfNVWXMABSxKXfyUpAMlVJxw6uIwbypNNVmgUgmJj1Xb1JE7na1R4z+tnSgP7/84LEKiEaVtaeeYdMeR2W6qWnCBjP1N7tRvmfe8EOg/hB5pU+JicXDw1eNtCC9Io6Zeyx/0oRZenJAZXCiVQjM7rl/HsoYM2oC0QOaTaWDBRxBc49pRne9jFPs7VWXy1RkaHVuehdKpEAAEYiFL/Im/40KE2vDpA1GQ6m5hcCxpIpldsNlXkIG8f2oLA+Wi/FW2GlqFtdMeJnGF/NeDNLfXrvtr4IAaw1hzZzK8WN/sbl2lNM1nHdcpGAA4JjRFKm/DX2/KLPyBWj/n/kZGsLK//zgsRpJCwGzp54zX379cvnP+ly5FP/yL5n9/yYvKhHLmx3N5fod0Upi4gxyjWm4hlJr7a1lAAAK16k7v5G3UvhuRwkxVA9LCoWV8xHUplVGcRZQ0UocxdR6cgMl8wF0x7GlwVGJZd3e0gipTdA8pdTB4z2hEODiEMrLMrezrdNH82Y5S3sylYzFa4dAiuvly6KVqKQgr9fNCbd+JOXLK9vaCgraWll3BsL8ft/jCXxeIjpsgkFBYQVLlf7Y/vJTEFNRTQuMSAoYWyAAAFwF3fl//OCxJwice7GvnsK6XjWOMSo3JspWw0b5g/qk3uuZvvBVpR9lDxqgRXYa6EUfqMRqjqMqZVGoTIKeG1yt6/F3DLHtoyw7DjG+wV0xBV2WMbef+fHBMYWv6Rl/vzmOVDMjSwpFe+hpX1R87CQ8kV3JFyW8VwJRCgplVVyg7dALF77r2jfk8K1hvTrW93jXKZVOxhfYdTiTEFNRTQuMSAoYWxwaGEgMCmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqr/84LEyyP6TpH+wMtNqoB0Cc/0Mqy3L5l/XeVWZWQBBXS2COcXZ0isFgInIbv69cbU2j6vWwL3aBB0kj68Z9/ZPGPb5az6y25MSnfs6nfXn18VYm0MdUS5ZYEem9OWltLar1IV92YxDqU63VmvXP0b7jluRZu+Q6P6uxNve/tuznaqHRS3uSBiDdtl9GXofUZDE6qJWFpMQU1FNC4xIChhbHBoYSAwKaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqv/zgsTDIfM+gLbBhUSqqqqqqqqqqqqqqqqqqqqqqrYCu7lsl2/mEuLQ7pZaSN1g1XLvhUmSpnbLAy8UPKaSGcy8OqdUi3+Wz9/rQ1lQVEhM+fhzkY51oRrfo6EahGORvmX0ct1ZKiA+dujM6s/yIzA1u75jGSytrQyCH3STI6/Rey8p0UEaMdNMQdpIJjLFLV5FUs5C6kxBTUU0LjEgKGFscGhhIDApqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//OCxLMd0zrCPmGE1qqqqqqqqqqqqvACpcu/exU6xw7xVU28W4skLVLyEkW5dtxrLg0QBU0bJkc1kyzQIkdCqlo5SqS6tVcMg1D78NILDcSdSLWn5upLPBeEo/fqtDPmFIi2qfV+ibulSKUtjI/Kg7eYrjCMoSNNa+xIIxcIqUCxEvr4iMcIMlHE1MQTjMLHnXJtfYRbTEFNRTQuMSAoYWxwaGEgMClVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/84LEux/6ToVWekTYVVVVVVVVVVVVVVVVVXBAulu/6laqp6WIr3JjF3Q5bRsja8bmWbLbHjaWQwosK3n7ZrtL0dzDMfYo8m9M3esRkUyWNXQxIlZxI1T9ob7/oQif9LKzjdq/Z4Tt1KJJu/DnpAomUVQnNPRwtvl//mvpm/13u9/u1k6bfipPxeo5TqLdnct8RXnGKeJMQU1FNC4xIChhbHBoYSAwKaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqv/zgsS3HupOhVZ5hvGqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkBAIBxyx/NoTc2RHGRca4cJw3fSeXyommg0mkakswfg1O3XrSScYXFJxt7SpTEAIlzejms1lizgThSmZWeyoZDo6aankej0M9WksKc1ESu3TKhjaoV2Zro7pRNVd1/370k5CMyneyvIQIIBD/+yxercT2UxBTUU0LjEgKGFscGhhIDApVVVVVVVVVVVVVVVVQCHTan6q5EhAhgYIicYEQHjiOBopIHgvBgfYLEjC//OCxK4cuzaBnnpElJOoG5LNjU3Nl10kClRNaWM9M+UsfMrmSJVd8b59sta1jjVz7fMUrvfX0zf30yKvlnDK+uuWRNrJHbvqfZthz4mpibiZ/7539fP///9xcf8//Gy47pNg9B5GsOG5pniqjVc4fq+ps686YpGR97jq5YbmhSecm9JFQ1SNTr1Fl0FUFTrygpLiYS0KQkgg+zMeIrFDRgMonbdAq2MCUizDkglwcouDgIpDNQiAhsRgnI4NDGkEAziI83VhYUwElXC+JQIpgOn/84LE4inEFnTXSVgAQALNQgigNNtEpzRCQIwBZkAtlmSywzODREfAa0WVA8bFwwuUgatAcWBFFV7GasIxwduCwl7uQkHM1l4RWSJnx61ahaN7ogJ5qb2RlwUdHZgqGpVDThSmaVNMtLmL0UgCSMAgBMBvb8/IqLBlLyPC69mka7EKZ/KzizNXeLS3/Xo1BWB+4bld6foM5E/rUUdECLzs/XREpAxybp3Uqyi9YqSvVu7Gu5VsMX/p4YpY26jgRSrN00QiLvooKCOIsMnrb3A7KP/zgsT/U9QWOAGayABtYoqq2VXdC8sakEdv2bsZtWMbFLKK2PKXLPLXMtRuXLoQXUvi6xF2QI1hyIpb5X5apI3K+slFADXXHinGTpIClfvrHW7wDJ5RCXEtQ/R3JhVJRAgQYKNuMwG2oWCmOShOFJQsKwKxtf4ObMRwpATlmm5Bxh03H4S0xVcmAjwBc78AqScDEYIa3kNprNMf2LiwQcDpJSVtIFuxd7aGmT2Xa0QEAHeh+jsRqITb8RiBE2VFXbV+hnnfp5TAzs1JZG68D4ZY//OCxHNH1BZ2PZnQADEFqPU0OX2rFNOy3KpUzoKX//fZ+pYin9lkCQ0/T3NHtXI+7TNJVhJ5ylnpZOO3ALhusut+111KTl61LJepasZkTSVDlpU8Pu9DN9wXYZxSX6ZrUE4Zw7DUqppuaoaTWVTerX58vdqamu2IvQVcJ2mu3Lso7a5blcsyZm60qqXZPO5Y0lu193djv63epYZq3M7Wv/Pu9bub7ny9Q379jP6SxY7v8a13PGmwl0pV/WqlLKi8QYVMeLNYIAzRhYWAGAYHURn/84LEFzAiipgB2sgAqzJkUCEhHcmDgYua5YYMeiMXZZcmany6K32cP4shQVMh4lAjEgAVEOjg4kdAMRiKSDoyZk78WNbw+3XyqYf3ue/r2vwww7zXP/ef71rDff5399ufz8aflSn7q9T032940VemobNWkos5r6Scwwp5f3ef6/Wf5Yc1un7UqRiWVOW89ZYb/6n2NuU/mAvBDkiBoCBAT5d4PqBA4UqBCIBpeH0IPheTCIYP2rWBAABXxyuX83o+7G/nq8aRph6mfzEt48tjSv/zgsQaKtMuxp7CRT2qBHXEtlLqCNSzCNOtBdJTZVo2j241eM6IwPQPtLovWSU2PXQJMkCZKsyGzJVCJGh4gJ2oFiVKLccnVeM05R+biq1ecJGJSmRHWoK1bP1ksS0iVLU0QGmTbG5tHDj3CZCRTNJkKY4jFLRtH2iK24Nx10szenbr3b69C0ZgweVL7S/8nnfUw4koR6oJ5vjt0/52lfyACqyVd/Bb3IRUFNZ5EeA8jLAb0OcQDYtT5ZXYH4pT8dTVTZ+jjYlGZMGJFNwy45/w//OCxDIhMzbJ/nmFKAeiWDnoWzHtKv2Q6GxuLDYrfgxZWamarfZWVvaikdA9DGBFQqHspzUpGU726/3POt0VnX/+j3N2edr/T7KuzKzjnpEtT+GoNGA8MC5gCgYlaRat9AAbtKe/+WXS+4bbDoK48Y65N1gRZ+IqYvrxZG89jwbkwSWIXalYIAkGkrGg01n7mft/uHFh47Uai7V5RddfcLXrFRlsC4ZaGyZgKCMIg6SCShNrlQHeprfpDvrO3l0C7ogeYuxyyvbPOHaJ3U9dqkz/84LEcRwBItH+ekzkQU1FNC4xIChhbHBoYSAwKVVVVVVVVVVVVVVVVVXIABPwqXf5lxDRZgEiXBdbVDolHwciiZEonCUglUeDIpmL0cC68TSYJgalld4od0BF6tUuGcKJOcxVbyCnlKqlLqX9W/p8xsqSsj5gIcKE3Fnj1AzpBWKuBX1h3WdyP1ne4Shr//b575IFQVVMQU1FNC4xIChhbHBoYSAwKVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zgsSnGuHquf57BFhVVVVVVVVVVVVVVVVVVVUmMpzf4a8GCS2C8FzHqMURAW00TaKcQEP0uRNAvFojJqqVSmoaApI0iE1MNhY4TEIoUizDI6azchdYww4pYdIkdw4NQ4NRJnXKfELl3fnw9E/+HD7f1YBBR5RAyIiyIsueHLLkP1/I1o2aVRUo9VaCbqzLYMvvHUqX6ExBTUU0LjEgKGFscGhhIDApVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//OCxLUegeaUHnpG6FVRiak5L+/mfvZu2l+ChF3HmX1KzN8OInoVSY05Y1UURiakwiifIZA7at2BECyZywarqp/bv2OSql5W80z7/eY2si1tn3N2D0U6qFNUpbvQ5SlFHZVK6X7W0vQ4xBE5GZ3S90T3vE2OWxZTtnE6GycJYy3TXq+y9X//+fx2/UI916l9pgw9acYqTEFNRTQuMSAoYWxwaGEgMCmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqr/84LEwyHK3p1WeYrfqqqqqqqqqqqqqqqqqsCYUm/y2K94y2UqdY1YDaG2SWKJZUAihAqZFk8LbpkaDwjZs+YXTic65CwWdnNeiTDgU7+mfpY1a9fNfMNl6RBwGo5JI8VJKHhFxZkTAIOueVBl1Ix7B9QNElNcBiAVLObySCQK8KbX2uGzMNtLKNLh1y5Kkk2kglzBvHVMQU1FNC4xIChhbHBoYSAwKVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zgsS3HukyhLZ7DJBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVStk17ei0Tq0F2XIVASD4MgGGAaAKYBJ5CJQGYFTVkKAVJmVYS5hUbakx65rtqX/SY6sFBhxJEyEmDM8FXFirciGwlUPgUzJkiIaCpryISCoShUZ6wERO6ipFr9gSHP///9T1UxBTUU0LjEgKGFscGhhIDApVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//OCxJ4YkS5kFjJGdFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU="};
 
-/* ================= Madman's mouth: builds his own lines from parts, offline =================
-   Openers, cores (pigs, dogs, weather, beer, the ute, time of day), terms of address, insults and closers are mixed
-   per mood. Angry keys only ever use angry parts; friendly and hunt keys never get insults. The last few lines are
-   remembered so he doesn't say the same thing twice running. Anything not covered here falls back to the fixed lists. */
-const MG = {
-  openF: ['Strewth,', 'Fair dinkum,', 'Yeah nah,', 'Fuck me dead,', 'Righto,', 'Crikey,', 'Mate,', 'Ay,', 'Listen,', 'Hang on,', 'Yeah,', 'Struth, mate,', 'Tell ya what,', 'Bloody hell,'],
-  openA: ['OI!', 'Fuck me dead!', 'Strewth!', 'Righto!', 'Listen here!', 'Hey!', 'Oi oi!', 'Bloody hell!', 'Fair dinkum!'],
-  termF: ['mate', 'legend', 'champ', 'cobber', 'young fella', 'ya mad bastard', 'old son'],
-  insult: ['ya galah', 'ya drongo', 'ya mongrel', 'ya flamin’ idiot', 'ya stunned mullet', 'ya dropkick', 'ya muppet', 'ya clown', 'ya bloody menace', 'ya useless lump', 'ya great pork chop'],
-  closeF: ['Fair dinkum.', 'She’ll be right.', 'Too easy.', 'No worries.', 'Ripper.', 'Bloody oath.', 'True story.', 'Reckon.', 'Yeah?', 'Strewth.', 'Fuck me dead.'],
-  closeA: ['Got it?', 'Last warnin’.', 'I mean it.', 'Try me.', 'Don’t test me.', 'Fair dinkum.', 'Not jokin’.', 'Hear me?'],
-  topic: {
-    pigs: ['there’s more pigs out there than sense', 'them pigs have rooted the headland again', 'a big boar’s been diggin’ up the channel bank', 'the back paddock’s crawlin’ with pigs',
-      'I can smell pig from here', 'heard a sow squealin’ half the night', 'saw a boar the size of a Corolla down the channel', 'pigs got into the sorghum again, little bastards'],
-    pigsNear: ['there’s pigs right there, bold as brass', 'that mob’s just over yonder', 'they’re sittin’ out in the open, cheeky buggers', 'look at ’em, not a care in the world', 'pigs on the doorstep again'],
-    dogs: ['Tank’s the best bailer in the district', 'Dusty’d chase her own shadow', 'them dogs are itchin’ for a run', 'Tank’s got a nose like a bloodhound', 'Dusty’s all bark, Tank’s all business',
-      'Tank’d hang off a boar’s ear all day', 'Dusty just likes the ride'],
-    dogsBark: ['the dogs have picked somethin’ up', 'listen to them mongrels carry on', 'somethin’s got the dogs fired up', 'settle down, ya mongrels', 'Tank, quiet! ...Tank!'],
-    sun: ['it’s hot enough to fry an egg on the bonnet', 'not a cloud in the sky', 'flies are thick as anything today', 'dry as a dead dingo’s donger out here', 'the dust’s gettin’ into everything'],
-    rain: ['this rain’ll bog the ute to the axles', 'decent drop of rain, about bloody time', 'the paddocks’ll be a mud bath', 'pigs love a bit of wet, they’ll be out diggin’'],
-    morn: ['bit early for this', 'smoko can’t come quick enough', 'me coffee hasn’t kicked in yet', 'sun’s barely up'],
-    arvo: ['the arvo’s draggin’ on', 'nearly knock-off time', 'where’d the day go', 'arvo’s the time for a cold one'],
-    eve: ['pigs’ll be out with the dark', 'good night for a spotlight run', 'sun’s goin’ down, pigs are comin’ up'],
-    night: ['bit late to be wanderin’ round, isn’t it', 'should be in me donga by now', 'nothin’ good happens this late'],
-    beer: ['could murder a cold one', 'there’s a carton in the fridge with me name on it', 'it’s beer o’clock somewhere', 'me tinnie’s gone warm', 'nothin’ a cold XXXX won’t fix'],
-    ute: ['the ute’s runnin’ sweet as', 'don’t touch the ute, that’s rule one', 'me ute’s worth more than you are', 'she’s got a few dents but she’s honest'],
-    life: ['diesel’s daylight robbery these days', 'me old man had a ute just like this', 'I don’t do the city, too many people, not enough pigs', 'reckon it’ll rain Thursday, me knee’s playin’ up',
-      'the donga’s not much but it’s home'],
-  },
-  angry: {
-    touch: ['get ya mitts off the ute', 'don’t you lean on her', 'hands off me paintwork', 'that ute’s not a bloody bench seat', 'you scratch her, you’re payin’'],
-    enter: ['get outta me ute', 'nobody sits in her but me', 'out of the bloody ute, now', 'who said you could get in'],
-    yank: ['out ya get', 'go on, rack off', 'get out and stay out', 'outta me seat'],
-    ram: ['watch the bloody ute', 'you’ll dent her', 'that’s me ute you just hit', 'learn to bloody drive'],
-    shotUte: ['stop shootin’ me ute', 'that’s fifty grand of ute you’re puttin’ holes in', 'put the gun down and step away from the ute'],
-    aimed: ['get that gun off me', 'point that somewhere else', 'you aim that at me again and you’ll wear it', 'lower the barrel, now', 'don’t you point that at me'],
-    careful: ['mind the dogs', 'watch where you’re pointin’ that', 'careful with that thing'],
-    hostile: ['you’re gettin’ a hidin’', 'I’ll knock ya into next week', 'I’ve had a gutful of you', 'come ’ere and cop it'],
-    annoyed: ['not in the mood', 'rack off for a bit', 'ask me when I’ve cooled down', 'you’ve got a nerve'],
-    donga: ['what are you doin’ in me donga', 'get out of me donga', 'that’s me bed you’re standin’ next to', 'hands off me beer fridge', 'nobody comes in here uninvited'],
-  },
-  hunt: {
-    start: ['let’s go find some pigs', 'hop in, we’re goin’ huntin’', 'dogs are keen, let’s roll', 'right, pigs, here we come'],
-    drive: ['hang on to somethin’', 'saw a mob down this way last week', 'keep ya eyes peeled out your side', 'hold onto ya hat'],
-    near: ['there they are, get the gun up', 'pigs out your side, have a crack', 'they’re right there, line one up', 'out your window, take ya time'],
-    grab: ['{dog}’s got one by the ear', '{dog}’s got him, shoot it now', 'he’s held, take the shot', 'good dog {dog}, hang on to him', '{dog}’s latched on, quick before he tears loose'],
-    kill: ['got him', 'that’s one down', 'good shootin’', 'he won’t be diggin’ up me headland again'],
-    miss: ['missed by a mile', 'aim at the pig, not the sky', 'you couldn’t hit a barn from inside it', 'breathe, then squeeze'],
-    gone: ['they’ve shot through', 'that mob’s gone bush', 'gone like a bride’s nightie'],
-  },
-  recent: [],
-};
-const mgR = a => a[Math.floor(Math.random() * a.length)];
-const mgCap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-const mgMaybe = (p, s) => (Math.random() < p ? s : '');
-function mgCtx() {
-  const n = MM.n, p = n ? n.pos : F.pos;
-  const pigs = typeof FA !== 'undefined' ? FA.pigs.filter(a => a.st !== 'down' && Math.hypot(a.pos.x - p.x, a.pos.z - p.z) < 45).length : 0;
-  const bark = performance.now() - (MM.lastBark || -1e9) < 5000, rain = typeof WX !== 'undefined' && WX.rain > 0.25, h = new Date().getHours();
-  return { pigs, bark, rain, tod: h >= 5 && h < 11 ? 'morn' : h < 17 && h >= 11 ? 'arvo' : h < 22 && h >= 17 ? 'eve' : 'night' };
-}
-// friendly chatter: pick a topic, weighted by what's going on
-function mgTopic(c, force) {
-  if (force) return mgR(MG.topic[force]);
-  const w = [['pigs', 2], ['dogs', 1.5], [c.rain ? 'rain' : 'sun', 1.4], [c.tod, 1.4], ['beer', 1.2], ['ute', 0.8], ['life', 1.2]];
-  if (c.pigs) w.push(['pigsNear', 5]); if (c.bark) w.push(['dogsBark', 4]);
-  let t = w.reduce((s, x) => s + x[1], 0) * Math.random(); for (const [k, v] of w) { if ((t -= v) <= 0) return mgR(MG.topic[k]); } return mgR(MG.topic.life);
-}
-function mgFriendly(core) {
-  const op = mgMaybe(0.7, mgR(MG.openF)), term = mgMaybe(0.35, ', ' + mgR(MG.termF)), cl = mgMaybe(0.4, ' ' + mgR(MG.closeF));
-  const body = op ? op + ' ' + core : mgCap(core); return mgCap(body) + term + '.' + cl;
-}
-function mgAngry(core) {
-  const op = mgMaybe(0.75, mgR(MG.openA) + ' '), ins = mgMaybe(0.7, ', ' + mgR(MG.insult)), cl = mgMaybe(0.45, ' ' + mgR(MG.closeA));
-  return op + mgCap(core) + ins + '!' + cl;
-}
-function mgHunt(core) {
-  const op = mgMaybe(0.45, mgR(['Righto,', 'Strewth,', 'Fuck me dead,', 'Go on,', 'Yeah!', 'Oi,', 'Fair dinkum,']) + ' ');
-  return (op ? op + (/[!]\s$/.test(op) ? mgCap(core) : core) : mgCap(core)) + mgMaybe(0.3, ', ' + mgR(MG.termF)) + mgR(['!', '.', '!']);
-}
-// build a line for key k (null = use the fixed list)
-function mmGen(k) {
-  const c = mgCtx(); let line = null;
-  for (let tries = 0; tries < 6; tries++) {
-    if (MG.angry[k]) line = mgAngry(mgR(MG.angry[k]));
-    else if (MG.hunt[k] && Math.random() < 0.8) { const dog = MG.dog || 'Tank'; line = mgHunt(mgR(MG.hunt[k]).replace(/\{dog\}/g, dog)); }
-    else if (k === 'idle' || k === 'talk') line = Math.random() < 0.8 ? mgFriendly(mgTopic(c)) + mgMaybe(k === 'talk' ? 0.4 : 0.15, ' ' + mgCap(mgTopic(c)) + '.') : null;
-    else if (k === 'pigs') line = mgFriendly(mgTopic(c, c.pigs ? 'pigsNear' : 'pigs'));
-    else if (k === 'dogs') line = mgFriendly(mgTopic(c, c.bark ? 'dogsBark' : 'dogs'));
-    else if (k === 'greet') line = mgR(['G’day', 'How ya goin’', 'Oi oi', 'Here he is', 'Ow ya goin’']) + ', ' + mgR(MG.termF) + '!' + mgMaybe(0.5, ' ' + mgCap(mgTopic(c, Math.random() < 0.5 ? c.tod : (c.rain ? 'rain' : 'sun'))) + '.');
-    else if (k === 'bye') line = mgR(['Catch ya', 'Hooroo', 'See ya', 'Righto, see ya', 'Go hard']) + mgMaybe(0.5, ', ' + mgR(MG.termF)) + '.' + mgMaybe(0.4, ' ' + mgR(['Don’t touch the ute.', 'Mind the pigs.', 'Don’t do anything I wouldn’t.', 'Dogs say hooroo.']));
-    else return null;
-    if (!line) return null;
-    if (!MG.recent.includes(line)) break;
-  }
-  MG.recent.push(line); if (MG.recent.length > 10) MG.recent.shift();
-  return line;
-}
+const MG = { v: null, dog: 'Tank' };          // scratch vector for the aim check; which dog last grabbed a pig
 // he notices when you aim a gun at him (on foot, close, crosshair on him for a moment)
 function mmAimCheck(dt) {
   const n = MM.n; MM.aimSaidT = Math.max(0, (MM.aimSaidT || 0) - dt);
@@ -12014,7 +11960,7 @@ function mmAimCheck(dt) {
 const DG = { x: 180.1, z: 53.5, yaw: Math.PI, kind: 'madman', L: 6, W: 3, H: 2.55, fl: 0.14, du: 1.7, dw: 1.05, deck: 1.6, root: null, door: null, doorA: 0, light: null, bulb: null, gy: 0,
   inT: 0, warnN: 0, warnT: 0, okSaid: false, restT: 120 + Math.random() * 120 };
 const DG_BLOCK = { x0: 169.7, x1: 183.4, z0: 39.4, z1: 55.1 };
-const DG_UNITS = [DG, { x: 173.3, z: 53.5, yaw: Math.PI, kind: 'rec' }, { x: 173.3, z: 41, yaw: 0, kind: 'bunk' }, { x: 180.1, z: 41, yaw: 0, kind: 'mess' }];
+const DG_UNITS = [DG, { x: 173.3, z: 53.5, yaw: Math.PI, kind: 'rec' }, { x: 173.3, z: 41, yaw: 0, kind: 'bunk' }, { x: 180.1, z: 41, yaw: 0, kind: 'dima' }];
 const DG_PAD = { x0: 160.2, x1: 169.0, z0: 39.6, z1: 53.6 };       // the gravel car park along the west side
 const DG_ST = ['dgGo', 'dgEnter', 'dgIn', 'dgOut', 'dgVer', 'dgLeave'];
 // local (u along the length, v across; +v is the front with the door) -> world
@@ -12022,6 +11968,7 @@ function dgW(u, v, U = DG) { const c = Math.cos(U.yaw), s = Math.sin(U.yaw); ret
 function dgL(x, z, U = DG) { const c = Math.cos(U.yaw), s = Math.sin(U.yaw), dx = x - U.x, dz = z - U.z; return [dx * c - dz * s, dx * s + dz * c]; }
 // literal numbers: this runs while the scan is set up, before anything else here exists
 function dgCut(x, y, z) {
+  if (x > 183.85 && x < 187.25 && z > 49.25 && z < 52.45) return y > 0.62;                                   // the black tent sauna on its pad (rebuilt as a proper one)
   if (x > 168.7 && x < 183.75 && z > 39.2 && z < 55.3) return y > 0.5;                                    // under the new slab: the scanned lump, down to the dirt
   if (x > 168.95 && x < 183.9 && z > 38.75 && z < 55.9) return y > 0.8;                                   // its walls just outside the slab (the dirt there stays)
   if (x > 168.2 && x <= 168.95 && z > 38.75 && z < 55.9 && y > 2.3) return true;                          // the west eaves
@@ -12031,28 +11978,29 @@ function dgCut(x, y, z) {
 // which donga's room a point is in (null outside)
 function dgRoom(p) { if (!DG.root || p.y > DG.gy + 2 || p.y < DG.gy - 0.3) return null; for (const U of DG_UNITS) { const [u, v] = dgL(p.x, p.z, U); if (Math.abs(u) < DG.L / 2 - 0.02 && Math.abs(v) < DG.W / 2 + 0.05) return U; } return null; }
 // under the block's roofs: in a room or in the breezeway
-function dgUnder(p) { if (dgRoom(p)) return true; const B = DG_BLOCK; return !!DG.root && p.y < DG.gy + 2 && p.y > DG.gy - 0.3 && p.x > B.x0 - 0.3 && p.x < B.x1 + 0.3 && p.z > DG_UNITS[2].z && p.z < DG.z; }
+function dgUnder(p) { if (dgRoom(p) || (typeof saInside === 'function' && saInside(p))) return true; const B = DG_BLOCK; return !!DG.root && p.y < DG.gy + 2 && p.y > DG.gy - 0.3 && p.x > B.x0 - 0.3 && p.x < B.x1 + 0.3 && p.z > DG_UNITS[2].z && p.z < DG.z; }
 // the walk map over the block: the breezeway and the car park are open, the rooms and the furniture aren't (null = not ours to say)
 function dgBlockWalk(x, z) {
   const B = DG_BLOCK, P = DG_PAD; if (x > P.x0 && x < P.x1 + 0.2 && z > P.z0 && z < P.z1) return 1;
+  if (Math.abs(x - 185.45) < 1.75 && Math.abs(z - 50.85) < 1.55) return 0;                                  // the sauna (inside, you go by hand)
   if (x < B.x0 - 0.8 || x > B.x1 + 0.8 || z < B.z0 - 0.6 || z > B.z1 + 0.6) return null;
   for (const U of DG_UNITS) { const [u, v] = dgL(x, z, U); if (Math.abs(u) < DG.L / 2 + 0.4 && Math.abs(v) < DG.W / 2 + 0.4) return 0; }
   const cx = (B.x0 + B.x1) / 2, cz = (DG_UNITS[2].z + DG.z) / 2; if (Math.abs(x - (cx - 0.6)) < 1.5 && Math.abs(z - (cz + 0.2)) < 1.4) return 0;
   return x > B.x0 - 0.3 && x < B.x1 + 0.3 && z > DG_UNITS[2].z && z < DG.z ? 1 : null;
 }
-// the way round to a point for someone on foot: the breezeway is entered from its west end, by the car park
+// the way round to a point for someone on foot: in and out of the breezeway only through its west end (its mouth, by the
+// car park), round the outside corners of the block if you're north or south of it
 function dgVia(px, pz, tx, tz) {
-  const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, lane = B.x0 - 2.6;
-  const inB = (x, z) => x > B.x0 - 1.4 && x < B.x1 + 0.6 && Math.abs(z - zm) < 4.6, mid = (z) => Math.abs(z - zm) < 3;
-  const pin = inB(px, pz), tin = inB(tx, tz); if (pin && tin) return [tx, tz];
-  if (pin) return [lane, zm];                                                                // out the west end first
-  if (tin) {
-    if (px > lane + 1 && !mid(pz)) return [lane, pz > zm ? Math.max(pz, B.z1 + 1.6) : Math.min(pz, B.z0 - 1.6)];      // along the outside to the corner
-    return mid(pz) ? [tx, tz] : [lane, zm]; }
-  // both outside: don't cut the corner of the block coming out of the car park
-  if (px < B.x0 - 1 && pz > B.z0 && pz < B.z1 + 0.8 && tx > B.x0 - 1 && tz > B.z1) return [lane, B.z1 + 1.8];
-  if (px < B.x0 - 1 && pz > B.z0 - 0.8 && pz < B.z1 && tx > B.x0 - 1 && tz < B.z0) return [lane, B.z0 - 1.8];
-  return [tx, tz];
+  const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, mx = B.x0 + 0.2;
+  const band = (x, z) => x > B.x0 - 0.3 && x < B.x1 + 0.6 && Math.abs(z - zm) < 4.3;          // (the breezeway out to both rows of doors)
+  const corner = (x, z) => (x > B.x0 - 0.6 && (z > B.z1 + 0.3 || z < B.z0 - 0.3)) ? [B.x0 - 1.2, z > zm ? B.z1 + 1.8 : B.z0 - 1.8] : null;
+  const pin = band(px, pz), tin = band(tx, tz);
+  if (pin && tin) return [tx, tz];
+  if (pin) return px > mx + 1 ? [mx, zm] : (corner(tx, tz) && Math.hypot(px - mx, pz - zm) < 1.5 ? corner(tx, tz) : [tx, tz]);      // leaving: out the mouth first
+  if (tin) return Math.hypot(px - mx, pz - zm) < 1 ? [tx, tz] : (corner(px, pz) || [mx, zm]);                                     // coming in: round the corner, then the mouth
+  // both outside: don't cut across the block
+  if (px < B.x0 - 1 && tx > B.x0 - 1 && (tz > B.z1 || tz < B.z0) && pz > B.z0 - 0.8 && pz < B.z1 + 0.8) return [B.x0 - 1.2, tz > zm ? B.z1 + 1.8 : B.z0 - 1.8];
+  return corner(px, pz) && (tx < B.x0 - 1) ? corner(px, pz) : [tx, tz];
 }
 function dgInside(p) { const [u, v] = dgL(p.x, p.z); return Math.abs(u) < DG.L / 2 - 0.05 && Math.abs(v) < DG.W / 2 - 0.05; }
 function dgBuild() {
@@ -12109,6 +12057,7 @@ function dgBuild() {
       const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.125), new THREE.MeshLambertMaterial({ map: t })); })(); tag.rotation.y = Math.PI; tag.position.set(x, 0.92, z - dp / 2 - 0.03); root.add(tag);
     solid(x, 0.56, z, w / 2, 0.56, dp / 2); });
   root.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== M.bulb; o.receiveShadow = true; } });
+  if (typeof saBuild === 'function') saBuild();
   // the gravel car park where the scanned utes were: a slab of gravel laid to the fall of the ground round it
   { const P = DG_PAD, px = (P.x0 + P.x1) / 2, pz = (P.z0 + P.z1) / 2, w = P.x1 - P.x0, d = P.z1 - P.z0;
     const g = (x, z) => { const h = rawGround(x, z, 20); return h > 0.05 && h < 0.9 ? h : 0.45; }, h00 = g(P.x0 - 0.5, P.z0 - 0.5), h10 = Math.max(g(P.x1 - 0.3, P.z0 - 0.5), gy - 0.06), h01 = g(P.x0 - 0.5, P.z1 + 0.5), h11 = Math.max(g(P.x1 - 0.3, P.z1 + 0.5), gy - 0.06);
@@ -12153,7 +12102,7 @@ function dgUnit(U, gy, group) {
   const hinge = new THREE.Group(); hinge.position.set(du - dw / 2, fl, W / 2); root.add(hinge); U.door = hinge;
   const dm = new THREE.Mesh(new THREE.BoxGeometry(dw - 0.04, 2.02, 0.05), M.trim); dm.position.set(dw / 2, 1.02, 0); hinge.add(dm);
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), M.steel); knob.position.set(dw - 0.14, 1.0, 0.05); hinge.add(knob);
-  const sign = label({ madman: 'MADMAN\nKNOCK FIRST', rec: 'REC ROOM', bunk: 'BUNKS', mess: 'MESS' }[U.kind], 0.62, 0.3, '#2c3a33', '#f0e6c8', mm ? 30 : 40); sign.position.set(dw / 2, 1.55, 0.03); hinge.add(sign);
+  const sign = label({ madman: 'MADMAN\nKNOCK FIRST', rec: 'REC ROOM', bunk: 'BUNKS', dima: 'DIMA' }[U.kind], 0.62, 0.3, '#2c3a33', '#f0e6c8', mm ? 30 : 40); sign.position.set(dw / 2, 1.55, 0.03); hinge.add(sign);
   if (mm) {
     // the bed (far west end), with a swag of a blanket and a pillow
     box(1.95, 0.32, 0.95, M.wood, -L / 2 + 1.1, fl + 0.16, -W / 2 + 0.6); box(1.9, 0.14, 0.9, M.white, -L / 2 + 1.1, fl + 0.39, -W / 2 + 0.6);
@@ -12278,15 +12227,44 @@ function dgUnit(U, gy, group) {
     const pc = label('WINGFIELD\nBACKPACKERS', 0.6, 0.3, '#f4f1e6', '#3a3a3a', 26); pc.rotation.y = Math.PI; pc.position.set(0.3, fl + 1.75, W / 2 - 0.05); root.add(pc);
     box(0.13, 0.16, 0.3, M.boot, -0.9, fl + 0.08, W / 2 - 0.3); box(0.13, 0.16, 0.3, M.boot, -0.72, fl + 0.08, W / 2 - 0.27); box(0.13, 0.16, 0.3, M.boot, 0.4, fl + 0.08, W / 2 - 0.32, 0.4);
     box(1.3, 0.012, 0.8, M.blanket, 0.2, fl + 0.006, 0.45);
-  } else if (U.kind === 'mess') {
-    // kitchen bench with a sink, a microwave and a kettle; the tall fridge; a table and two chairs
-    box(2.5, 0.88, 0.6, M.white, -1.6, fl + 0.44, -W / 2 + 0.38); box(2.56, 0.04, 0.64, M.steel, -1.6, fl + 0.9, -W / 2 + 0.38); box(0.5, 0.02, 0.38, M.dark, -2.2, fl + 0.925, -W / 2 + 0.38);
-    box(0.5, 0.3, 0.36, M.dark, -0.75, fl + 1.07, -W / 2 + 0.32); box(0.3, 0.2, 0.02, M.glass, -0.8, fl + 1.07, -W / 2 + 0.505);
-    const k = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.22, 12), M.steel); k.position.set(-1.45, fl + 1.03, -W / 2 + 0.34); root.add(k);
-    box(0.64, 1.72, 0.64, M.white, L / 2 - 0.44, fl + 0.86, -W / 2 + 0.44); box(0.04, 0.5, 0.04, M.steel, L / 2 - 0.7, fl + 1.1, -W / 2 + 0.78);
-    box(1.2, 0.05, 0.75, M.wood, 0.3, fl + 0.74, 0.25); legs(0.3, 0.25, 0.54, 0.32, 0.72); chair(0.0, 0.95, 1); chair(0.6, -0.42, -1);
-    for (const [a, b, m] of [[0.05, 0.2, M.red], [0.5, 0.35, M.blue]]) { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.09, 10), m); o.position.set(a, fl + 0.81, b); root.add(o); }
-    const mn = label('SMOKO\n10 · 12:30 · 3', 0.5, 0.36, '#f4f1e6', '#3a3a3a', 30); mn.position.set(1.2, fl + 1.95, -W / 2 + 0.075); root.add(mn);
+  } else if (U.kind === 'dima') {
+    // Dima's: a bed, a dumbbell rack, a bench and bar, kettlebells, protein tubs and shakers everywhere, gym posters
+    const blk = DG.matIron || (DG.matIron = new THREE.MeshLambertMaterial({ color: 0x232527 })), chrome = M.steel;
+    box(1.95, 0.32, 0.95, M.wood, -L / 2 + 1.1, fl + 0.16, -W / 2 + 0.6); box(1.9, 0.14, 0.9, M.white, -L / 2 + 1.1, fl + 0.39, -W / 2 + 0.6); box(1.4, 0.05, 0.92, M.red, -L / 2 + 1.35, fl + 0.48, -W / 2 + 0.6); box(0.45, 0.1, 0.62, M.white, -L / 2 + 0.33, fl + 0.5, -W / 2 + 0.6);
+    box(2.3, 0.012, 1.4, blk, 0.9, fl + 0.006, 0.35);                                                                   // rubber mat
+    // bench press: bench, uprights, the bar loaded up
+    box(1.2, 0.08, 0.3, blk, 0.9, fl + 0.45, 0.3); for (const a of [-0.45, 0.45]) box(0.06, 0.42, 0.06, chrome, 0.9 + a, fl + 0.21, 0.3);
+    for (const a of [-0.55, 0.55]) box(0.05, 1.05, 0.05, chrome, 0.4, fl + 0.52, 0.3 + a);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.9, 8), chrome); bar.rotation.x = Math.PI / 2; bar.position.set(0.4, fl + 1.02, 0.3); root.add(bar);
+    for (const z of [-0.72, -0.62, 0.62, 0.72]) { const pl = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.05, 18), blk); pl.rotation.x = Math.PI / 2; pl.position.set(0.4, fl + 1.02, 0.3 + z); root.add(pl); }
+    // dumbbell rack along the back wall
+    box(1.3, 0.05, 0.32, chrome, 1.95, fl + 0.5, -W / 2 + 0.25); box(1.3, 0.05, 0.32, chrome, 1.95, fl + 0.22, -W / 2 + 0.25); for (const a of [-0.62, 0.62]) box(0.04, 0.55, 0.3, chrome, 1.95 + a, fl + 0.28, -W / 2 + 0.25);
+    for (let k = 0; k < 6; k++) for (const y of [0.22, 0.5]) { const x = 1.42 + k * 0.21, r = 0.045 + k * 0.008; for (const e of [-0.09, 0.09]) { const h = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.07, 10), blk); h.rotation.x = Math.PI / 2; h.position.set(x, fl + y + 0.07, -W / 2 + 0.25 + e); root.add(h); } }
+    // kettlebells
+    for (const [x, z, r] of [[-0.25, 0.9, 0.13], [0.05, 1.0, 0.11], [2.6, 0.9, 0.15]]) { const b = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), blk); b.position.set(x, fl + r, z); root.add(b); const h = new THREE.Mesh(new THREE.TorusGeometry(r * 0.6, 0.018, 6, 14, Math.PI), blk); h.position.set(x, fl + r * 1.7, z); root.add(h); }
+    // protein: big tubs, shakers on the shelf and the floor, one tub knocked over and spilling
+    const tub = (x, z, txt, col, y) => { const c = document.createElement('canvas'); c.width = 128; c.height = 128; const g = c.getContext('2d'); g.fillStyle = col; g.fillRect(0, 0, 128, 128); g.fillStyle = '#fff'; g.fillRect(0, 44, 128, 40); g.fillStyle = '#111'; g.font = '900 30px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 64, 65);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.3, 16), [new THREE.MeshLambertMaterial({ map: t }), new THREE.MeshLambertMaterial({ color: 0x111111 }), new THREE.MeshLambertMaterial({ color: 0x111111 })]); m.position.set(x, fl + (y || 0) + 0.15, z); m.rotation.y = x * 3; root.add(m); return m; };
+    tub(-0.1, -W / 2 + 0.28, 'WHEY', '#c62f2f'); tub(0.18, -W / 2 + 0.3, 'MASS', '#2f5fc6'); tub(0.45, -W / 2 + 0.26, 'WHEY', '#c62f2f'); tub(-L / 2 + 0.3, 0.9, 'BCAA', '#2c8a4a');
+    const fallen = tub(1.4, 0.95, 'WHEY', '#c62f2f'); fallen.rotation.set(0, 0.6, Math.PI / 2); fallen.position.y = fl + 0.11;
+    box(0.5, 0.01, 0.3, M.white, 1.65, fl + 0.006, 1.0, 0.4);                                                          // a spill of powder
+    for (const [x, z, y, m] of [[0.75, -W / 2 + 0.3, 0, M.blue], [2.85, 0.5, 0, M.red], [-0.4, 0.75, 0.48, M.blue], [1.1, 0.95, 0, M.white]]) { const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.22, 10), m); sh.position.set(x, fl + y + 0.11, z); root.add(sh); const cp = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.047, 0.04, 10), blk); cp.position.set(x, fl + y + 0.24, z); root.add(cp); }
+    // posters
+    const poster = (w, h, draw, x, y, z, ry) => { const c = document.createElement('canvas'); c.width = 256; c.height = Math.round(256 * h / w); const g = c.getContext('2d'); draw(g, 256, c.height); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: t })); m.position.set(x, y, z); m.rotation.y = ry || 0; root.add(m); };
+    const words = (g, t, x, y, px, col) => { g.fillStyle = col; g.font = `900 ${px}px system-ui,sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, x, y); };
+    const flexer = (g, x, y, k, col) => { g.fillStyle = col; g.beginPath(); g.arc(x, y - 70 * k, 16 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(x - 46 * k, y - 50 * k); g.lineTo(x + 46 * k, y - 50 * k); g.lineTo(x + 22 * k, y + 20 * k); g.lineTo(x - 22 * k, y + 20 * k); g.closePath(); g.fill();
+      for (const s of [-1, 1]) { g.beginPath(); g.ellipse(x + s * 62 * k, y - 52 * k, 20 * k, 11 * k, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(x + s * 74 * k, y - 80 * k, 11 * k, 22 * k, s * 0.2, 0, 7); g.fill(); g.beginPath(); g.ellipse(x + s * 72 * k, y - 66 * k, 14 * k, 12 * k, 0, 0, 7); g.fill(); }
+      g.fillRect(x - 20 * k, y + 18 * k, 16 * k, 60 * k); g.fillRect(x + 4 * k, y + 18 * k, 16 * k, 60 * k); };
+    const zb = -W / 2 + 0.076, zf = W / 2 - 0.05, xw = -L / 2 + 0.076, xe = L / 2 - 0.076;
+    poster(0.6, 0.85, (g, w, h) => { g.fillStyle = '#111'; g.fillRect(0, 0, w, h); flexer(g, 128, h * 0.55, 1.15, '#d6a23a'); words(g, 'NO PAIN', 128, 34, 34, '#fff'); words(g, 'NO GAIN', 128, h - 30, 34, '#d63a3a'); }, -1.0, fl + 1.55, zb);
+    poster(0.6, 0.85, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#5a0f0f'); gr.addColorStop(1, '#1a0606'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#ddd'; g.fillRect(40, h * 0.5 - 6, 176, 12); for (const x of [40, 56, 200, 216]) g.fillRect(x - 7, h * 0.5 - 40, 14, 80); words(g, 'BEAST', 128, 50, 48, '#fff'); words(g, 'MODE', 128, h - 50, 48, '#ffcc33'); }, 1.6, fl + 1.55, zb);
+    poster(0.55, 0.75, (g, w, h) => { g.fillStyle = '#f2ead6'; g.fillRect(0, 0, w, h); g.fillStyle = '#222'; g.beginPath(); g.arc(128, h * 0.55, 62, 0, 7); g.fill(); g.lineWidth = 14; g.strokeStyle = '#222'; g.beginPath(); g.arc(128, h * 0.55 - 70, 34, Math.PI, 0); g.stroke();
+      words(g, 'СИЛА', 128, 40, 44, '#b3261e'); words(g, 'STRENGTH', 128, h - 26, 22, '#222'); }, xw, fl + 1.6, 0.6, Math.PI / 2);
+    poster(0.6, 0.85, (g, w, h) => { g.fillStyle = '#1f3c88'; g.fillRect(0, 0, w, h); flexer(g, 128, h * 0.52, 1.2, '#f2c9a0'); words(g, 'MR SIBERIA', 128, 30, 30, '#fff'); words(g, '1998', 128, h - 28, 30, '#ffd76a'); }, -1.6, fl + 1.5, zf, Math.PI);
+    poster(0.7, 0.22, (g, w, h) => { g.fillStyle = '#d63a3a'; g.fillRect(0, 0, w, h); words(g, 'LEG DAY EVERY DAY', 128, h / 2, 22, '#fff'); }, 0.6, fl + 2.0, zf, Math.PI);
+    box(0.5, 0.012, 0.3, M.white, xe - 0.02, fl + 1.5, -0.4, Math.PI / 2);                                              // a training log pinned up
   } else {
     // rec room: a couch, the telly on a cabinet, a dartboard, a rug and an esky
     box(1.9, 0.38, 0.8, M.blanket, -L / 2 + 1.2, fl + 0.24, -W / 2 + 0.55); box(1.9, 0.5, 0.2, M.blanket, -L / 2 + 1.2, fl + 0.6, -W / 2 + 0.25);
@@ -12310,6 +12288,306 @@ function dgUnit(U, gy, group) {
   solid(-L / 2 + aW / 2, fl + H / 2, W / 2, aW / 2, H / 2, 0.06); solid(L / 2 - bW / 2, fl + H / 2, W / 2, bW / 2, H / 2, 0.06); solid(du, fl + 2.05 + (H - 2.05) / 2, W / 2, dw / 2, (H - 2.05) / 2, 0.06);
   solid(0, fl + H + 0.04, 0, L / 2 + 0.17, 0.05, W / 2 + 0.17);
 }
+/* ================================================================
+   THE SAUNA (Nov 2026): the black tent-sauna lump on the pad east of the dongas, rebuilt as a little timber sauna
+   you can walk into: two-tier bench, wood stove with a basket of rocks, steam, a thermometer, and an old bathtub of
+   cold water outside for the plunge. Light the stove and it heats up over a minute or so; throw water on the rocks
+   (loyly) for a blast of steam. Stay in too long and you pass out. Dima (next door) is a sauna fanatic: he has his own
+   menu and a challenge (wood, stove, a minute of loyly with him, then the cold tub). Madman thinks they're all mad.
+   ================================================================ */
+const SA = { x: 185.45, z: 50.85, W: 2.6, D: 2.2, H: 2.25, fl: 0.12, root: null, door: null, doorA: 0, gy: 0.55, lit: false, litT: 0, temp: 24, steam: 0, heat: 0,
+  puffs: [], smoke: [], tub: { x: 189.4, z: 51.7 }, q: null, mmT: 20, soloT: 120 + Math.random() * 90, solo: null, chip: null, haze: null, sheet: null, best: 0, done: 0 };
+try { const v = JSON.parse(localStorage.getItem('wfy.sauna') || '{}'); SA.best = v.best || 0; SA.done = v.done || 0; } catch (_) {}
+const saW = (lx, lz) => [SA.x + lx, SA.z + lz];
+function saInside(p) { return !!SA.root && Math.abs(p.x - SA.x) < SA.W / 2 - 0.08 && Math.abs(p.z - SA.z) < SA.D / 2 - 0.06 && p.y > SA.gy - 0.3 && p.y < SA.gy + 1.6; }
+const saDoorOut = () => saW(-0.55, SA.D / 2 + 0.9), saDoorIn = () => saW(-0.55, SA.D / 2 - 0.45), saSeat = (k) => saW(k ? 0.45 : -0.35, -SA.D / 2 + 0.42);
+const saFeel = () => SA.temp + SA.steam * 16;
+// on foot to the sauna door (it faces south): round the outside of the dongas block, never through it
+function saVia(px, pz) {
+  const B = DG_BLOCK, D = saDoorOut(), zm = (DG_UNITS[2].z + DG.z) / 2;
+  if (pz > B.z1 + 0.4) return px > 183.8 ? D : [184.1, 56.4];                                  // south of the block: along to its SE corner, then up to the door
+  if (px > B.x1 - 0.1 && pz > 52.6) return D;                                                 // just south-east of the block: the door's right there
+  if (px > 187.3) return pz < 53.4 ? [188.0, 53.9] : D;                                      // east of the sauna: down that side
+  if (px > B.x1 + 0.2 && pz < 49.2) return [188.0, 48.6];                                    // north-east: round the sauna's far side
+  if (px < B.x0 - 0.5) return [B.x0 - 1.2, B.z1 + 1.8];                                       // car park and west: round the SW corner
+  return pz < zm + 4.3 && pz > zm - 4.3 ? [B.x0 - 1.0, zm] : [B.x0 - 1.2, pz > zm ? B.z1 + 1.8 : B.z0 - 1.8];      // in the block: out the west end
+}
+function saBuild() {
+  const gs = []; for (let k = 0; k < 9; k++) { const g = rawGround(SA.x + (k % 3 - 1) * 1.1, SA.z + (Math.floor(k / 3) - 1) * 0.9, 20); if (g > 0.1 && g < 0.9) gs.push(g); }
+  gs.sort((a, b) => a - b); SA.gy = (gs[Math.floor(gs.length / 2)] || 0.55) + 0.01;
+  const root = new THREE.Group(); root.position.set(SA.x, SA.gy, SA.z); scene.add(root); SA.root = root;
+  const plank = (rgb, n, dark) => { const c = document.createElement('canvas'); c.width = 128; c.height = 128; const g = c.getContext('2d'); const w = 128 / n;
+    for (let i = 0; i < n; i++) { const k = 0.9 + ((i * 37) % 11) / 55; g.fillStyle = `rgb(${rgb.map(v => Math.round(v * k)).join(',')})`; g.fillRect(i * w, 0, w, 128); g.fillStyle = dark; g.fillRect(i * w, 0, 1.5, 128); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; };
+  const M = SA.mats || (SA.mats = { ext: new THREE.MeshLambertMaterial({ map: plank([122, 82, 48], 8, 'rgba(40,24,12,.7)') }), int: new THREE.MeshLambertMaterial({ map: plank([196, 150, 98], 6, 'rgba(90,60,30,.5)'), side: THREE.DoubleSide, emissive: 0x000000 }),
+    bench: new THREE.MeshLambertMaterial({ color: 0xc9995e }), roof: new THREE.MeshLambertMaterial({ color: 0x3b3f42 }), stove: new THREE.MeshLambertMaterial({ color: 0x1f1f21 }), glow: new THREE.MeshBasicMaterial({ color: 0x241208 }),
+    rock: new THREE.MeshLambertMaterial({ color: 0x6d6a66 }), steel: new THREE.MeshLambertMaterial({ color: 0x9aa1a3 }), glass: new THREE.MeshLambertMaterial({ color: 0x2b3a44, emissive: 0x0d1418 }),
+    tub: new THREE.MeshPhongMaterial({ color: 0xf2f0ea, specular: 0x666666, shininess: 40 }), water: new THREE.MeshPhongMaterial({ color: 0x4a7f99, specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.82 }),
+    wood: new THREE.MeshLambertMaterial({ color: 0x7a5432 }), bucket: new THREE.MeshLambertMaterial({ color: 0x8a6a3c }), dark: new THREE.MeshLambertMaterial({ color: 0x2c2a27 }) });
+  const W = SA.W, D = SA.D, H = SA.H, fl = SA.fl, dx = -0.55, dw = 0.75;
+  const box = (w, h, d, m, x, y, z, ry, par) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); if (ry) o.rotation.y = ry; (par || root).add(o); return o; };
+  // shell: floor, walls (outside dark-stained boards, inside pale), the door gap on the south side, a pent roof with a chimney
+  box(W + 0.1, fl, D + 0.1, M.bench, 0, fl / 2, 0);
+  for (const [w, x, z, ry] of [[W, 0, -D / 2, 0], [D, -W / 2, 0, Math.PI / 2], [D, W / 2, 0, Math.PI / 2]]) { box(w, H, 0.1, M.ext, x, fl + H / 2, z, ry); box(w - 0.12, H - 0.05, 0.02, M.int, x + (ry ? (x < 0 ? 0.06 : -0.06) : 0), fl + H / 2, z + (ry ? 0 : 0.06), ry); }
+  const aW = (dx - dw / 2) + W / 2, bW = W / 2 - (dx + dw / 2);
+  box(aW, H, 0.1, M.ext, -W / 2 + aW / 2, fl + H / 2, D / 2); box(bW, H, 0.1, M.ext, W / 2 - bW / 2, fl + H / 2, D / 2); box(dw, H - 1.95, 0.1, M.ext, dx, fl + 1.95 + (H - 1.95) / 2, D / 2);
+  box(bW - 0.1, H - 0.05, 0.02, M.int, W / 2 - bW / 2, fl + H / 2, D / 2 - 0.06); box(aW - 0.08, H - 0.05, 0.02, M.int, -W / 2 + aW / 2, fl + H / 2, D / 2 - 0.06);
+  box(W - 0.1, 0.02, D - 0.1, M.int, 0, fl + H - 0.02, 0);
+  const rf = box(W + 0.5, 0.06, D + 0.6, M.roof, 0, fl + H + 0.12, 0.05); rf.rotation.x = 0.1;
+  const ch = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 1.1, 10), M.steel); ch.position.set(0.85, fl + H + 0.45, 0.45); root.add(ch);
+  // the door (glazed slot), on a hinge, swings out
+  const hinge = new THREE.Group(); hinge.position.set(dx - dw / 2, fl, D / 2 + 0.05); root.add(hinge); SA.door = hinge;
+  box(dw - 0.03, 1.92, 0.05, M.ext, dw / 2, 0.97, 0, 0, hinge); box(0.16, 0.9, 0.06, M.glass, dw / 2, 1.25, 0, 0, hinge); box(0.04, 0.22, 0.04, M.wood, dw - 0.12, 0.98, 0.05, 0, hinge);
+  // benches: a low step and the top bench along the back wall
+  box(W - 0.2, 0.06, 0.5, M.bench, 0, fl + 0.45, -D / 2 + 0.85); box(W - 0.2, 0.06, 0.55, M.bench, 0, fl + 0.9, -D / 2 + 0.36);
+  for (const x of [-W / 2 + 0.25, 0, W / 2 - 0.25]) { box(0.06, 0.45, 0.06, M.wood, x, fl + 0.22, -D / 2 + 1.05); box(0.06, 0.9, 0.06, M.wood, x, fl + 0.45, -D / 2 + 0.6); }
+  // the stove in the front corner by the door's far side, rocks on top, a guard rail; the fire door glows when it's lit
+  box(0.42, 0.62, 0.42, M.stove, 0.85, fl + 0.31, 0.55); SA.fire = box(0.22, 0.14, 0.02, M.glow, 0.85, fl + 0.22, 0.765);
+  for (let k = 0; k < 14; k++) { const r = new THREE.Mesh(new THREE.IcosahedronGeometry(0.07 + (k % 3) * 0.015, 0), M.rock); r.position.set(0.85 + ((k * 0.37) % 0.3) - 0.15, fl + 0.68 + (k % 4) * 0.035, 0.55 + ((k * 0.53) % 0.3) - 0.15); r.rotation.set(k, k * 2, k * 3); root.add(r); }
+  for (const z of [0.3, 0.8]) box(0.6, 0.03, 0.03, M.wood, 0.85, fl + 0.6, z);
+  // bucket and ladle, a thermometer, the light
+  const bk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.1, 0.22, 12), M.bucket); bk.position.set(0.3, fl + 0.59, -D / 2 + 0.85); root.add(bk);
+  box(0.03, 0.03, 0.42, M.wood, 0.3, fl + 0.73, -D / 2 + 0.95).rotation.x = 0.5;
+  const th = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 160; const g = c.getContext('2d'); g.fillStyle = '#c99a5e'; g.fillRect(0, 0, 64, 160); g.fillStyle = '#f4f1e6'; g.fillRect(12, 10, 40, 140); g.fillStyle = '#b3261e'; g.fillRect(28, 30, 8, 110); g.fillStyle = '#222'; g.font = '700 14px system-ui'; g.textAlign = 'center'; g.fillText('°C', 32, 24);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.3), new THREE.MeshLambertMaterial({ map: t })); })(); th.position.set(-W / 2 + 0.07, fl + 1.5, -0.3); th.rotation.y = Math.PI / 2; root.add(th);
+  SA.bulb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffb070 })); SA.bulb.position.set(-W / 2 + 0.2, fl + H - 0.25, 0.7); root.add(SA.bulb);
+  // a little woodpile against the north wall (the challenge has you fetch more)
+  for (let k = 0; k < 9; k++) { const lg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 7), M.wood); lg.rotation.x = Math.PI / 2; lg.rotation.z = Math.PI / 2; lg.position.set(-0.6 + (k % 3) * 0.13, 0.06 + Math.floor(k / 3) * 0.12, -D / 2 - 0.35); root.add(lg); }
+  // the old bathtub of cold water, on its claw feet
+  const T = SA.tub, tb = new THREE.Group(); tb.position.set(T.x, rawGround(T.x, T.z, 20), T.z); scene.add(tb); SA.tubM = tb;
+  box(1.6, 0.08, 0.7, M.tub, 0, 0.2, 0, 0, tb); box(1.6, 0.48, 0.06, M.tub, 0, 0.46, -0.32, 0, tb); box(1.6, 0.48, 0.06, M.tub, 0, 0.46, 0.32, 0, tb); box(0.06, 0.48, 0.7, M.tub, -0.77, 0.46, 0, 0, tb); box(0.06, 0.48, 0.7, M.tub, 0.77, 0.46, 0, 0, tb);
+  box(1.5, 0.02, 0.6, M.water, 0, 0.6, 0, 0, tb); for (const [a, b] of [[-0.62, -0.25], [0.62, -0.25], [-0.62, 0.25], [0.62, 0.25]]) box(0.07, 0.18, 0.07, M.steel, a, 0.09, b, 0, tb);
+  root.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== SA.bulb.material; o.receiveShadow = true; } }); tb.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // solid: floor, walls, roof, the stove, the tub
+  const group = { id: 'sauna', root, parts: [], ctr: new THREE.Vector3(SA.x, SA.gy + 1.2, SA.z), rad: 4.5, gy: SA.gy, fixed: true }; STRUCTS.groups.push(group);
+  const eX = new THREE.Vector3(1, 0, 0), eY = new THREE.Vector3(0, 1, 0), eZ = new THREE.Vector3(0, 0, 1);
+  const solid = (x, y, z, hx, hy, hz, obj) => { const pt = addPart(group, { kind: 'sauna', obj: obj || root, fixed: true }); boxPart(pt, new THREE.Vector3(SA.x + x, SA.gy + y, SA.z + z), eX, eY, eZ, hx, hy, hz); };
+  solid(0, fl / 2, 0, W / 2 + 0.05, fl / 2, D / 2 + 0.05); solid(0, fl + H / 2, -D / 2, W / 2, H / 2, 0.06); solid(-W / 2, fl + H / 2, 0, 0.06, H / 2, D / 2); solid(W / 2, fl + H / 2, 0, 0.06, H / 2, D / 2);
+  solid(-W / 2 + aW / 2, fl + H / 2, D / 2, aW / 2, H / 2, 0.06); solid(W / 2 - bW / 2, fl + H / 2, D / 2, bW / 2, H / 2, 0.06); solid(dx, fl + 1.95 + (H - 1.95) / 2, D / 2, dw / 2, (H - 1.95) / 2, 0.06);
+  solid(0, fl + H + 0.1, 0.05, W / 2 + 0.25, 0.05, D / 2 + 0.3); solid(0.85, fl + 0.36, 0.55, 0.23, 0.36, 0.23);
+  const tg = { id: 'tub', root: tb, parts: [], ctr: new THREE.Vector3(T.x, tb.position.y + 0.4, T.z), rad: 1.5, gy: tb.position.y, fixed: true }; STRUCTS.groups.push(tg);
+  const tp = addPart(tg, { kind: 'tub', obj: tb, fixed: true }); boxPart(tp, new THREE.Vector3(T.x, tb.position.y + 0.35, T.z), eX, eY, eZ, 0.8, 0.35, 0.36);
+  // steam and chimney smoke
+  const tex = radialTex([255, 255, 255], true), stex = radialTex([110, 110, 112], true);
+  for (let k = 0; k < 16; k++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 })); sp.visible = false; scene.add(sp); SA.puffs.push({ sp, life: 0 }); }
+  for (let k = 0; k < 10; k++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: stex, transparent: true, depthWrite: false, opacity: 0 })); sp.visible = false; scene.add(sp); SA.smoke.push({ sp, life: 0 }); }
+}
+/* ---------- DIMA: the big Russian in the north-east donga. Lifts, eats protein, lives for the sauna ---------- */
+const DM = { ready: false, n: null, talkT: 12, flexT: 0 };
+const DIMA_LOOK = { name: 'Dima', h: 0.95, w: 0.35, m: 1, skin: 1, hair: 'buzz', hc: 1, hat: 'none', hatc: 0, shirt: 'singlet', sc: 5, legs: 'long', lc: 2, shoes: 'boots', shc: 1, gl: 'none', fh: 1 };
+const dmUnit = () => DG_UNITS.find(U => U.kind === 'dima');
+const dmHome = () => dgW(DG.du + 0.9, DG.W / 2 + 1.1, dmUnit());
+function dmBuild() {
+  DM.ready = true; const L = lookFix(DIMA_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
+  const n = { npc: true, dima: true, name: 'Dima', P, root: P.root, pack: new THREE.Group(), look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'home', t: 0, hp: 160, max: 160, tilt: 0, gy: 0, gT: 0, ph: 0, side: 1, stuck: 0, tgt: null,
+    veh: null, vehT: 1e9, driveT: 1e9, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null, lookH: 0, angry: false };
+  npcBubble(n); DM.n = n; NPC.list.push(n); dmPlace();
+}
+function dmPlace() {
+  const n = DM.n; if (!n) return; const [x, z] = dmHome(); scene.attach(n.root); n.root.scale.setScalar(n.s);
+  n.pos.set(x, 0, z); n.gy = n.pos.y = groundAt(x, z, DG.gy + 1.5, DG.gy); n.yaw = Math.PI; n.st = 'home'; n.t = 0; n.tilt = 0; n.sp = 0; n.hp = n.max; n.angry = false; n.ko = false; n.atkPh = ''; n.bub.sp.visible = false; n.bub.time = 0;
+}
+// a line from Dima: a plain speech bubble (he speaks English, of a sort), voiced from the pack
+function dmSay(n, k, dur) { const L = DIMA_L[k]; if (!L || !n || !n.bub) return; const line = L[Math.floor(Math.random() * L.length)]; dur = dur || Math.max(2.6, Math.min(5.5, line.length * 0.07)); mmSayBub(n, line, dur); n.sayT = dur; }
+// on foot to a point near home: from round the sauna, back up the east side and in at the breezeway's east end
+function dmVia(px, pz, tx, tz) {
+  const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, band = (x, z) => x > B.x0 - 0.3 && x < B.x1 + 0.6 && Math.abs(z - zm) < 4.3;
+  if (band(px, pz)) return [tx, tz];
+  if (px > B.x1 - 0.1) { if (pz > 49.0) return px < 187.6 ? [188.0, Math.max(pz, 53.9)] : [188.0, 48.6]; return [B.x1 + 0.6, zm]; }
+  return dgVia(px, pz, tx, tz);
+}
+function dmThink(n, dt) {
+  n.t += dt; n.sayT -= dt;
+  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) {        // a scrap: the shared fight code, then home
+    npcThink(n, dt); if (n.st === 'wander') { n.st = 'home'; n.t = 0; n.angry = false; } return; }
+  const veh = FA.threats.find(t => t.kind === 'veh');
+  if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
+    if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
+  if (n.st !== 'home') { n.st = 'home'; n.t = 0; }
+  const [x, z] = dmHome(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
+  if (d > 0.5) { const [wx, wz] = dmVia(n.pos.x, n.pos.z, x, z); if (d < 3 && Math.abs(n.pos.z - z) < 3) dgMove(n, x, z, 1.4, dt); else npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 1.8 : 1.2, dt); return; }
+  n.sp *= 0.8; n.pos.x += (x - n.pos.x) * Math.min(1, dt * 3); n.pos.z += (z - n.pos.z) * Math.min(1, dt * 3);
+  const me = activeName === 'foot' ? F.pos : S.pos, dP = Math.hypot(me.x - n.pos.x, me.z - n.pos.z);
+  if (dP < 10) npcFace(n, me.x, me.z, 3, dt); else n.yaw += faAng(Math.PI - n.yaw) * Math.min(1, dt * 2);
+  DM.flexT -= dt; DM.talkT -= dt;
+  if (DM.talkT <= 0 && dP < 9 && !SA.q && !(SA.sheet && SA.sheet.classList.contains('show'))) { DM.talkT = 30 + Math.random() * 25; dmSay(n, 'idle'); DM.flexT = 2.2; }
+  else if (DM.flexT < -14 && Math.random() < dt * 0.15) DM.flexT = 1.8;        // and a flex now and then, for nobody in particular
+}
+// fights and hurts from the shared code come through npcSay with the backpackers' French: give him his own
+function dmSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) dmSay(n, m, 2.6); return; } }
+function dmPoseHook(n, Q) { if (DM.flexT > 0 && n.st === 'home') { Q.shLz = 1.5; Q.shRz = -1.5; Q.shLx = -0.15; Q.shRx = -0.15; Q.elL = -1.8; Q.elR = -1.8; Q.torsoX = -0.06; Q.headX = -0.1; } }
+function dmReset() { if (DM.n) dmPlace(); DM.talkT = 12; }
+// someone (or you) in there?
+function saOccupants() { const out = []; if (activeName === 'foot' && saInside(F.pos)) out.push('you'); for (const n of NPC.list) if (!n.veh && saInside(n.pos)) out.push(n.name); return out; }
+const saDima = () => NPC.list.find(n => n.dima);
+// the menu and the HUD
+function saUI() {
+  if (SA.sheet) return;
+  const st = document.createElement('style');
+  st.textContent = '#saSheet{position:fixed;inset:0;z-index:30;background:rgba(22,26,25,.35);display:none;align-items:center;justify-content:center;padding:12px}#saSheet.show{display:flex}' +
+    '#saCard{background:var(--card);border-radius:var(--r1);box-shadow:var(--shadow);width:min(520px,100%);max-height:calc(100vh - 24px);overflow:auto;padding:14px 16px;box-sizing:border-box;font:14px/1.35 var(--font);color:var(--ink)}' +
+    '#saCard h2{margin:0;font-size:17px}#saX{width:36px;height:36px;border-radius:50%;border:0;background:var(--inset);font:700 16px var(--font);cursor:pointer;color:var(--ink)}#saMood{margin:6px 0 0;font-size:12.5px;color:var(--ink-3)}' +
+    '#saGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}#saGrid .w-card{min-height:58px;justify-content:center}#saGrid .w-card[aria-disabled=true]{opacity:.5;cursor:default}' +
+    '#saChip{position:fixed;z-index:9;left:50%;top:calc(58px + env(safe-area-inset-top,0px));transform:translateX(-50%);display:none;gap:10px;align-items:center;background:rgba(22,26,25,.82);color:#fff;border-radius:14px;padding:7px 14px;font:700 13px var(--font);pointer-events:none;white-space:nowrap}' +
+    '#saChip.show{display:flex}#saChip b{color:#f2c14e}#saChip .bar{width:70px;height:7px;border-radius:4px;background:rgba(255,255,255,.2);overflow:hidden}#saChip .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#f2c14e,#e8504a)}' +
+    '#saHaze{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,rgba(255,236,214,.25) 0%,rgba(255,196,150,.55) 70%,rgba(255,170,120,.8) 100%)}' +
+    '@media (max-height:400px){#saChip{top:calc(52px + env(safe-area-inset-top,0px))}#saGrid .w-card{min-height:48px}}';
+  document.head.appendChild(st);
+  const c = document.createElement('div'); c.id = 'saChip'; c.className = 'ui'; c.innerHTML = '<span>SAUNA</span><b></b><span class="bar"><i></i></span><span class="tm"></span>'; document.body.appendChild(c); SA.chip = c;
+  const h = document.createElement('div'); h.id = 'saHaze'; document.body.appendChild(h); SA.haze = h;
+  const sh = document.createElement('div'); sh.id = 'saSheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.setAttribute('aria-label', 'Dima');
+  sh.innerHTML = '<div id="saCard"><div class="ch-head"><h2>Dima</h2><button id="saX" type="button" aria-label="Close">&times;</button></div><p id="saMood"></p><div id="saGrid">' +
+    '<button type="button" class="w-card" data-sa="talk"><b>Talk</b><span>Ask about the sauna</span></button>' +
+    '<button type="button" class="w-card" data-sa="quest"><b>Sauna challenge</b><span>Wood, stove, a minute of löyly, then the cold tub</span></button>' +
+    '<button type="button" class="w-card" data-sa="leave"><b>Leave</b><span>Do svidaniya</span></button></div></div>';
+  document.body.appendChild(sh); SA.sheet = sh;
+  sh.addEventListener('click', e => { if (e.target === sh || e.target.id === 'saX') { sh.classList.remove('show'); return; } const b = e.target.closest('[data-sa]'); if (b) saChoose(b.dataset.sa); });
+}
+function saTalkable() { const n = saDima(); return !!n && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air') && F.dead <= 0 && !n.veh && !n.angry && ['home', 'saSit', 'saGo', 'saIn'].includes(n.st) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 3.2; }
+function saMenuOpen() {
+  saUI(); if (!saTalkable()) return; const n = saDima(), q = SA.q;
+  $('saMood').textContent = 'Russian, enormous, sauna fanatic. ' + (SA.done ? 'Challenges done: ' + SA.done + (SA.best ? ' · best löyly: ' + SA.best : '') : 'He reckons you won’t last a minute.');
+  const b = SA.sheet.querySelector('[data-sa="quest"]'), busy = !!q || MH.mode; b.setAttribute('aria-disabled', busy ? 'true' : 'false');
+  b.querySelector('span').textContent = q ? 'Already on: ' + saStepText() : MH.mode ? 'Not while Madman’s out hunting' : 'Wood, stove, a minute of löyly, then the cold tub';
+  SA.sheet.classList.add('show'); npcFace(n, F.pos.x, F.pos.z, 99, 1);
+}
+function saChoose(k) {
+  const n = saDima(); SA.sheet.classList.remove('show'); if (!n) return;
+  if (k === 'talk') dmSay(n, 'talk');
+  else if (k === 'leave') dmSay(n, 'bye');
+  else if (k === 'quest' && !SA.q && !MH.mode) saQuestStart(n);
+}
+// ---- the challenge ----
+const SA_WOOD = [[196.5, 37.5], [158.5, 61.5], [193.5, 63.5]];
+function saQuestStart(n) {
+  if (SA.solo) saSoloEnd();
+  SA.q = { step: 'wood', t: 0, left: 240, wood: 0, piles: [], asks: 0, hits: 0, ask: 0, askT: 9, sweat: 0 };
+  const tex = SA.woodTex || (SA.woodTex = radialTex([255, 200, 120], true));
+  for (const [x, z] of SA_WOOD) { const g = new THREE.Group(), y = groundAt(x, z, 6, 0); g.position.set(x, y, z); scene.add(g);
+    for (let k = 0; k < 5; k++) { const lg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 7), SA.mats.wood); lg.rotation.z = Math.PI / 2; lg.rotation.y = (k - 2) * 0.12; lg.position.set(0, 0.08 + (k % 2) * 0.12 + Math.floor(k / 3) * 0.12, (k % 3 - 1) * 0.14); g.add(lg); }
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 })); glow.scale.set(2.2, 2.2, 1); glow.position.y = 0.5; g.add(glow);
+    SA.q.piles.push({ g, glow, x, z, got: false }); }
+  dmSay(n, 'start'); saUI(); toast('Sauna challenge: grab three armfuls of firewood (the glowing piles)', 3);
+}
+function saStepText() { const q = SA.q; if (!q) return '';
+  return q.step === 'wood' ? 'Firewood ' + q.wood + '/3' : q.step === 'light' ? 'Light the stove' : q.step === 'heat' ? 'Heating up… ' + Math.round(SA.temp) + '°C' : q.step === 'sweat' ? 'Sit it out · löyly ' + q.hits : q.step === 'plunge' ? 'Cold tub, quick!' : ''; }
+function saQuestEnd(win, why) {
+  const q = SA.q; if (!q) return; const n = saDima();
+  for (const p of q.piles) scene.remove(p.g);
+  if (n && npcAlive(n) && !n.angry) dmSay(n, win ? 'win' : why === 'faint' ? 'faint' : why === 'slow' ? 'slow' : 'fail');
+  if (win) { SA.done++; SA.best = Math.max(SA.best, q.hits); try { localStorage.setItem('wfy.sauna', JSON.stringify({ best: SA.best, done: SA.done })); } catch (_) {}
+    toast('Sauna challenge done! Löyly on cue: ' + q.hits + (q.hits >= SA.best ? ' (best)' : ''), 3.2); }
+  else toast(why === 'faint' ? 'You passed out in the sauna' : why === 'left' ? 'You bailed out of the sauna early' : why === 'slow' ? 'Too slow to the cold tub' : why === 'time' ? 'Ran out of time' : 'Sauna challenge off', 2.6);
+  SA.q = null; SA.litT = Math.min(SA.litT || 0, 90);
+  if (n && ['saGo', 'saIn', 'saSit'].includes(n.st)) { n.st = n.st === 'saGo' ? 'home' : 'saOut'; n.t = 0; }      // (if he's already headed for the tub, he gets his dip)
+}
+function saQuestStep(dt) {
+  const q = SA.q; if (!q) return; const n = saDima(); q.t += dt;
+  if (!n || !npcAlive(n) || n.angry || n.veh) { saQuestEnd(false, 'mathieu'); return; }
+  if (q.step === 'wood' || q.step === 'light') { q.left -= dt; if (q.left <= 0) { saQuestEnd(false, 'time'); return; } }
+  if (q.step === 'wood') {
+    for (const p of q.piles) { if (p.got) continue; p.glow.material.opacity = 0.55 + Math.sin(q.t * 3 + p.x) * 0.2;
+      if (activeName === 'foot' && F.dead <= 0 && Math.hypot(F.pos.x - p.x, F.pos.z - p.z) < 1.6) { p.got = true; scene.remove(p.g); q.wood++; sfx('find'); toast('Firewood ' + q.wood + '/3', 1.2); } }
+    if (q.wood >= 3) { q.step = 'light'; dmSay(n, 'wood'); toast('Now light the stove in the sauna', 2.2); }
+  } else if (q.step === 'heat') {
+    if (SA.temp >= 65 && n.st === 'saSit' && activeName === 'foot' && saInside(F.pos)) { q.step = 'sweat'; q.sweat = 60; q.askT = 6; dmSay(n, 'sit'); toast('Sit it out for a minute. Throw water on the rocks when Dima asks', 3); }
+  } else if (q.step === 'sweat') {
+    if (!(activeName === 'foot' && saInside(F.pos))) { saQuestEnd(false, 'left'); return; }
+    q.sweat -= dt; if (q.ask > 0) { q.ask -= dt; if (q.ask <= 0) dmSay(n, 'more'); }
+    q.askT -= dt; if (q.askT <= 0 && q.ask <= 0) { q.askT = 9 + Math.random() * 5; q.ask = 5; q.asks++; dmSay(n, 'ask'); }
+    if (q.sweat <= 0) { q.step = 'plunge'; q.plunge = 25; dmSay(n, 'plunge'); toast('Out you get: jump in the cold tub!', 2.4); n.st = 'saOut'; n.t = 0; n.after = 'tub'; }
+  } else if (q.step === 'plunge') { q.plunge -= dt; if (q.plunge <= 0) saQuestEnd(false, 'slow'); }
+}
+// Dima's legs: to the sauna, onto the bench, out again, into the tub (true = handled this frame)
+function saNpc(n, dt) {
+  if (!n.dima || n.veh || n.angry || !npcAlive(n) || ['tumble', 'down', 'ko', 'getup', 'stag', 'flee'].includes(n.st)) return false;
+  const q = SA.q, want = (q && ['heat', 'sweat'].includes(q.step)) || SA.solo, R = (x, z, sp) => dgMove(n, x, z, sp, dt);
+  if (want && !['saGo', 'saIn', 'saSit'].includes(n.st)) { n.st = 'saGo'; n.t = 0; }
+  if (n.st === 'saGo') { if (!want) { n.st = 'home'; return false; } const [x, z] = saDoorOut(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
+    if (d < 0.6 || n.t > 60) { if (d > 2) { n.pos.x = x; n.pos.z = z; } n.st = 'saIn'; n.t = 0; return true; } const [wx, wz] = saVia(n.pos.x, n.pos.z); npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 2.4 : 1.4, dt); return true; }
+  if (n.st === 'saIn') { const [ix, iz] = saDoorIn(), [sx, sz] = saSeat(0); if (n.t < 1.2) R(ix, iz, 1.0); else if (R(sx, sz, 0.8) && n.t > 2) { n.st = 'saSit'; n.t = 0; } return true; }
+  if (n.st === 'saSit') { const [sx, sz] = saSeat(0); n.pos.x = sx; n.pos.z = sz; n.pos.y = SA.gy + SA.fl + 0.93 - 0.702 * n.s + 0.06; n.yaw += faAng(0 - n.yaw) * Math.min(1, dt * 4); n.sp = 0;
+    if (!want) { n.st = 'saOut'; n.t = 0; } return true; }
+  if (n.st === 'saOut') { const [ix, iz] = saDoorIn(), [ox, oz] = saDoorOut(); if (n.t < 0.6) { n.pos.y = SA.gy + SA.fl; R(saSeat(0)[0], iz - 0.4, 1.0); } else if (n.t < 2.2) R(ix, iz, 1.0); else if (R(ox, oz, 1.2) || n.t > 5) { n.st = n.after === 'tub' ? 'saTubGo' : 'home'; n.after = null; n.t = 0; } return true; }
+  if (n.st === 'saTubGo') { const T = SA.tub; if (R(T.x - 0.3, T.z + 0.75, 2.2) || n.t > 8) { n.st = 'saTub'; n.t = 0; faSay(_w1.set(T.x, SA.tubM.position.y + 0.6, T.z), 'fa_splash', 0.8, 1.0, 14); } return true; }
+  if (n.st === 'saTub') { const T = SA.tub; n.pos.set(T.x - 0.35, SA.tubM.position.y + 0.32 - 0.702 * n.s + 0.25, T.z); n.yaw += faAng(Math.PI / 2 - n.yaw) * Math.min(1, dt * 4); n.sp = 0;
+    if (n.t > 9) { n.pos.set(T.x - 0.3, SA.tubM.position.y, T.z + 0.9); n.gy = n.pos.y; n.st = 'home'; n.t = 0; } return true; }
+  return false;
+}
+// now and then he has one on his own (lights it himself), which is how Madman tends to catch him at it
+function saSoloTick(dt) {
+  const n = saDima(); if (!n || SA.q) return;
+  if (SA.solo) { SA.solo.t -= dt; if (SA.solo.t <= 0 || n.angry || n.veh) saSoloEnd(); return; }
+  SA.soloT -= dt; if (SA.soloT > 0) return; SA.soloT = 150 + Math.random() * 120;
+  if (n.st !== 'home' || n.angry || n.veh || Math.random() < 0.4) return;
+  SA.solo = { t: 45 + Math.random() * 25 }; SA.lit = true; SA.litT = Math.max(SA.litT, 90); dmSay(n, 'talk');
+}
+function saSoloEnd() { SA.solo = null; }
+function saActions(items) {
+  if (!SA.root) return;
+  if (saTalkable() && !seqBusy()) items.push({ id: 'sa:talk', label: 'Talk to Dima', cls: 'warn' });
+  if (!(F.mode === 'walk' || F.mode === 'air') || F.dead > 0) return;
+  if (saInside(F.pos)) {
+    if (!SA.lit) items.push({ id: 'sa:light', label: SA.q && SA.q.step === 'wood' ? 'Need firewood (' + SA.q.wood + '/3)' : 'Light the stove', cls: 'warn' });
+    else items.push({ id: 'sa:water', label: 'Throw water on the rocks', cls: 'warn' });
+  }
+  if (Math.hypot(F.pos.x - SA.tub.x, F.pos.z - SA.tub.z) < 1.7) items.push({ id: 'sa:tub', label: 'Jump in the cold tub', cls: 'warn' });
+}
+function saAct(id) {
+  const q = SA.q, n = saDima();
+  if (id === 'sa:talk') saMenuOpen();
+  else if (id === 'sa:light') {
+    if (q && q.step === 'wood') { toast('No wood. Grab the glowing piles first (' + q.wood + '/3)', 2); return; }
+    SA.lit = true; SA.litT = Math.max(SA.litT, q ? 1e9 : 240); sfx('thud', _w1.set(SA.x + 0.85, SA.gy + 0.4, SA.z + 0.55), 0.6, 0.7, 6); toast('The stove’s going. Give it a minute to heat up', 2);
+    if (q && q.step === 'light') { q.step = 'heat'; if (n) dmSay(n, 'lit'); }
+  } else if (id === 'sa:water') {
+    SA.steam = 1; SA.temp = Math.min(100, SA.temp + 4); if (AU.buf.hiss) sfx('hiss', _w1.set(SA.x + 0.85, SA.gy + 0.8, SA.z + 0.55), 1, 0.75, 8);
+    for (let k = 0; k < 6; k++) saPuff(true);
+    if (q && q.step === 'sweat' && q.ask > 0) { q.ask = 0; q.hits++; if (n) dmSay(n, 'good'); }
+  } else if (id === 'sa:tub') {
+    faSay(_w1.set(SA.tub.x, SA.tubM.position.y + 0.6, SA.tub.z), 'fa_splash', 1, 0.9, 14); SA.heat = 0; camShake = Math.max(camShake, 0.15);
+    if (q && q.step === 'plunge') saQuestEnd(true); else toast(SA.heat > 30 || (q && q.step === 'sweat') ? 'Brrrr!' : 'Brrrr! Freezing', 1.6);
+  }
+}
+function saPuff(burst) { const p = SA.puffs.find(p => p.life <= 0); if (!p) return; p.life = p.max = burst ? 2.2 + Math.random() : 3 + Math.random() * 2;
+  p.sp.position.set(SA.x + 0.85 + (Math.random() - 0.5) * 0.3, SA.gy + SA.fl + 0.75, SA.z + 0.55 + (Math.random() - 0.5) * 0.3); p.v = new THREE.Vector3((Math.random() - 0.5) * 0.5 - (burst ? 0.4 : 0.1), burst ? 0.9 : 0.35, (Math.random() - 0.5) * 0.5 - (burst ? 0.35 : 0.1)); p.burst = burst; p.sp.visible = true; }
+function saStep(dt) {
+  if (!SA.root) return; dt = Math.min(dt, 0.05);
+  if (!DM.ready && NPC.ready && DG.root) dmBuild();
+  if (SA.lit) { SA.litT -= dt; if (SA.litT <= 0 && !SA.q && !SA.solo) SA.lit = false; }
+  SA.temp += ((SA.lit ? 86 : 24) - SA.temp) * Math.min(1, dt / (SA.lit ? 20 : 45)); SA.steam = Math.max(0, SA.steam - dt * 0.22);
+  const feel = saFeel(), me = activeName === 'foot' && saInside(F.pos);
+  SA.fire.material.color.setHex(SA.lit ? (Math.sin(performance.now() / 90) > 0.6 ? 0xff9a3a : 0xff7a22) : 0x241208); SA.bulb.visible = SA.lit || me;
+  SA.mats.int.emissive.setRGB(SA.lit ? 0.12 : 0.04, SA.lit ? 0.07 : 0.03, SA.lit ? 0.03 : 0.01);
+  // the door opens for whoever's at it
+  const [dx, dz] = saW(-0.55, SA.D / 2), near = (p) => Math.hypot(p.x - dx, p.z - dz) < 1.5, M = saDima();
+  const want = near(F.pos) || (M && near(M.pos)); SA.doorA += ((want ? 1 : 0) - SA.doorA) * Math.min(1, dt * 4); SA.door.rotation.y = 1.5 * SA.doorA;
+  // steam inside, smoke out the chimney
+  if (SA.lit && Math.random() < dt * (1.5 + SA.steam * 6)) saPuff(false);
+  for (const p of SA.puffs) { if (p.life <= 0) continue; p.life -= dt; p.sp.position.addScaledVector(p.v, dt); p.v.multiplyScalar(Math.exp(-0.8 * dt));
+    const k = p.life / p.max; p.sp.material.opacity = Math.max(0, Math.min(1, (1 - k) * 4) * k * (p.burst ? 0.55 : 0.3)); p.sp.scale.setScalar(0.4 + (1 - k) * (p.burst ? 1.6 : 1.0));
+    if (Math.abs(p.sp.position.x - SA.x) > SA.W / 2 - 0.2 || p.sp.position.y > SA.gy + SA.H - 0.1) p.v.multiplyScalar(0.3); if (p.life <= 0) p.sp.visible = false; }
+  if (SA.lit && Math.random() < dt * 3) { const s = SA.smoke.find(s => s.life <= 0); if (s) { s.life = s.max = 4 + Math.random() * 2; s.sp.position.set(SA.x + 0.85, SA.gy + SA.fl + SA.H + 1.0, SA.z + 0.45); s.v = new THREE.Vector3(0.3 + Math.random() * 0.3, 0.8, (Math.random() - 0.5) * 0.3); s.sp.visible = true; } }
+  for (const s of SA.smoke) { if (s.life <= 0) continue; s.life -= dt; s.sp.position.addScaledVector(s.v, dt); const k = s.life / s.max; s.sp.material.opacity = Math.max(0, Math.min(1, (1 - k) * 3) * k * 0.35); s.sp.scale.setScalar(0.5 + (1 - k) * 2.2); if (s.life <= 0) s.sp.visible = false; }
+  // you, in the heat
+  if (me) SA.heat = Math.min(100, SA.heat + dt * Math.max(0, feel - 60) / 26);      // (a minute at full heat is fine; keep piling on steam and you'll go) else SA.heat = Math.max(0, SA.heat - dt * 1.6);
+  if (me && SA.heat >= 100 && F.mode === 'walk') {               // passed out: you come to outside the door
+    const [ox, oz] = saDoorOut(); standFarmerAt({ x: ox, y: groundAt(ox, oz, SA.gy + 2, SA.gy), z: oz + 0.4 }, 0, true); startTumble(new THREE.Vector3(0, 1.5, 1.2)); SA.heat = 55; if (SA.q) saQuestEnd(false, 'faint'); else toast('You passed out in the sauna. Easy, champ', 2.4); }
+  saQuestStep(dt); saSoloTick(dt);
+  // HUD
+  if (!SA.chip && (me || SA.q)) saUI();
+  if (SA.chip) { const show = me || !!SA.q; SA.chip.classList.toggle('show', show);
+    if (show) { const q = SA.q, txt = q ? saStepText() : Math.round(SA.temp) + '°C' + (SA.lit ? '' : ' · stove cold'); if (txt !== SA.chipTxt) { SA.chipTxt = txt; SA.chip.querySelector('b').textContent = txt; }
+      SA.chip.querySelector('.bar').style.display = me ? 'block' : 'none'; SA.chip.querySelector('.bar i').style.width = Math.round(SA.heat) + '%';
+      const tm = q ? (q.step === 'sweat' ? Math.ceil(q.sweat) + 's' : q.step === 'plunge' ? Math.ceil(q.plunge) + 's' : (q.step === 'wood' || q.step === 'light') ? Math.floor(q.left / 60) + ':' + String(Math.floor(q.left % 60)).padStart(2, '0') : '') : ''; SA.chip.querySelector('.tm').textContent = tm; } }
+  if (SA.haze) SA.haze.style.opacity = me ? Math.min(0.75, Math.max(0, (feel - 45) / 70) + SA.steam * 0.25).toFixed(3) : '0';
+  if (SA.sheet && SA.sheet.classList.contains('show') && !saTalkable()) SA.sheet.classList.remove('show');
+}
+function saReset() {
+  if (SA.q) { for (const p of SA.q.piles) scene.remove(p.g); SA.q = null; }
+  SA.solo = null; SA.lit = false; SA.litT = 0; SA.temp = 24; SA.steam = 0; SA.heat = 0; if (SA.sheet) SA.sheet.classList.remove('show');
+  const n = saDima(); if (n && n.st && n.st.startsWith('sa')) { n.st = 'home'; n.t = 0; }
+}
 // the drive grid keeps the ute off the block
 function dgDrvBlock() { const B = DG_BLOCK; for (let x = B.x0 - 1; x <= B.x1 + 1; x += 2) for (let z = B.z0 - 1; z <= B.z1 + 1; z += 2) { const [i, j] = drvIJ(x, z); if (i >= 0 && j >= 0 && i < DRV.NX && j < DRV.NZ) DRVA[j * DRV.NX + i] = 0; }
   const P = DG_PAD; for (let x = P.x0 + 1; x < P.x1 - 1; x += 2) for (let z = P.z0 + 1; z < P.z1; z += 2) { const [i, j] = drvIJ(x, z), [cx2, cz2] = drvXZ(i, j); if (cx2 > P.x0 && cx2 < P.x1 - 1.5 && cz2 > P.z0 && cz2 < P.z1) DRVA[j * DRV.NX + i] = 1; } }
@@ -12325,7 +12603,6 @@ function dgFace(n, yaw, dt) { n.yaw += faAng(yaw - n.yaw) * Math.min(1, dt * 4);
 // his donga routine (inside: drink at the table; verandah: stand out front with a tinnie). true = handled this frame
 function dgThink(n, dt, dP) {
   if (!DG.root) { n.st = 'home'; return true; }
-  const night = (() => { const h = new Date().getHours(); return h >= 21 || h < 6; })();
   MM.dgT = (MM.dgT || 0) - dt;
   if (n.st === 'dgGo') { const [x, z] = dgPt(MM.dgWant === 'ver' ? 'ver' : 'door'), d = Math.hypot(x - n.pos.x, z - n.pos.z);
     if (d < 0.5 || n.t > 75) { if (n.t > 75) { n.pos.x = x; n.pos.z = z; } n.st = MM.dgWant === 'ver' ? 'dgVer' : 'dgEnter'; n.t = 0; MM.dgT = MM.dgStay || 40; return true; }
@@ -12339,15 +12616,14 @@ function dgThink(n, dt, dP) {
   if (n.st === 'dgVer') { const [x, z] = dgPt('ver'); if (dgMove(n, x, z, 1.0, dt)) dgFace(n, DG.yaw, dt);
     MM.sipT -= dt; if (MM.sipT <= 0) { MM.sip = 1.6; MM.sipT = 7 + Math.random() * 9; } if (MM.sip > 0) MM.sip -= dt;
     mmChatter(n, dt, dP);
-    if (MM.dgT <= 0) { if (night) { MM.dgWant = 'in'; n.st = 'dgGo'; MM.dgT = 1e9; } else n.st = 'home'; n.t = 0; } return true; }
+    if (MM.dgT <= 0) { n.st = 'home'; n.t = 0; } return true; }
   return false;
 }
-// from the lean spot: now and then he wanders over to the donga; at night he turns in. true = he's off
+// from the lean spot: now and then he wanders over to the donga (no night-time routine yet). true = he's off
 function dgRestTick(n, dt) {
-  const h = new Date().getHours(), night = h >= 21 || h < 6;
-  DG.restT -= dt; if (!night && DG.restT > 0) return false; DG.restT = 150 + Math.random() * 150;
-  if (!night && Math.random() < 0.45) return false;
-  dgSend(n, night ? 'in' : Math.random() < 0.5 ? 'ver' : 'in', night ? 1e9 : 40 + Math.random() * 40); return true;
+  DG.restT -= dt; if (DG.restT > 0) return false; DG.restT = 150 + Math.random() * 150;
+  if (Math.random() < 0.45) return false;
+  dgSend(n, Math.random() < 0.5 ? 'ver' : 'in', 40 + Math.random() * 40); return true;
 }
 function dgSend(n, want, stay) { MM.dgWant = want; MM.dgT = stay; MM.dgStay = stay; MM.dgNext = want === 'in' && Math.random() < 0.5 ? 'ver' : null; n.st = 'dgGo'; n.t = 0; }
 // if something pulled him out of the routine while he was inside, get him out the door before anything else
@@ -12423,48 +12699,47 @@ function sndPick(name) {
 const MM_LOOK = { name: 'Madman', h: 0.62, w: 1, m: 0.3, skin: 2, hair: 'crop', hc: 1, hat: 'cap', hatc: 1, shirt: 'singlet', sc: 7, legs: 'stubbies', lc: 0, shoes: 'thongs', shc: 1, gl: 'sunnies', fh: 3 };
 const MM_DOGS = [{ name: 'Tank', coat: 'brindle', vest: 0xd8561f }, { name: 'Dusty', coat: 'red', vest: 0x2f3a2a }];
 const MM_L = {
-  idle: ['Strewth, she’s a warm one today.', 'Fair dinkum, these pigs are takin’ over the joint.', 'Yeah nah, not movin’ till this one’s empty.', 'She’ll be right.',
-    'Fuck me dead, where’d the arvo go?', 'Could murder a pie right now.', 'Dogs are itchin’ for a run.', 'Saw a boar down the channel last night. Size of a Corolla, fair dinkum.',
-    'Beer o’clock somewhere, mate.', 'Ripper of a day for it.', 'Flat out like a lizard drinkin’.', 'If it grunts, the dogs’ll find it.', 'Bloody flies. Every year.', 'Strewth, I’m dry as a dead dingo’s donger.'],
-  greet: ['G’day mate!', 'Oi oi! How ya goin’?', 'Here he is!', 'How’s it hangin’, legend?', 'Ow ya goin’, ya mad bastard?', 'Look what the dog dragged in!'],
-  talk: ['Pigs got into the sorghum again. Rooted half the headland. Little bastards.', 'Tank there’s the best bailer in the district. Dusty just likes the ride.',
-    'Me old man had this same ute. Well, not this one. Same colour though.', 'Fuck me dead, mate, the price of diesel. Daylight robbery.', 'You want pigs? There’s pigs. More pigs than sense round here.',
-    'Ever seen a boar go through a fence? Doesn’t even slow down. Fair dinkum.', 'Don’t touch the ute. That’s rule one. There is no rule two.', 'Yeah nah, I don’t do the city. Too many people, not enough pigs.',
-    'Strewth, I reckon it’ll rain Thursday. Knee’s playin’ up.', 'Had a sow charge the ute last week. Dented the bullbar. Dented the sow more.', 'She’ll be right, mate. She’s always right.'],
-  dogs: ['Settle down, ya mongrels!', 'Oi! Quiet!', 'Tank! Sit! ...Tank!', 'Dusty, give it a rest!', 'Righto, righto, I see it!', 'Shut ya traps, the pair of ya!'],
-  pigs: ['Look at that! Bloody pigs, bold as brass.', 'Fuck me dead, they’re right on the doorstep!', 'Dogs have seen ’em. Hang on to ya hat.', 'Strewth, there’s a few out there today.', 'Cheeky buggers, aren’t they?'],
-  touch: ['Oi! Mitts off the ute!', 'Don’t lean on her, mate.', 'Hands where I can see ’em.', 'Get off the bloody ute!', 'You scratch her, you’re payin’.'],
-  enter: ['OI! Get outta me ute!', 'Fuck me dead! Outta the bloody ute!', 'Whaddaya reckon you’re doin’?! OUT!', 'Strewth! Nobody drives her but me!'],
-  stolen: ['OI! That’s me bloody ute! Bring her back!', 'You thievin’ mongrel! I’ll have ya for that!', 'Fuck me dead, he’s nicked the ute! Get back ’ere!'],
-  pinch: ['Right. Two can play at that.', 'I’m takin’ this. Hang on, girls, I’m comin’!', 'Not gettin’ away that easy, ya rat!'],
-  pursue: ['Pull over, ya mongrel!', 'I’ll run ya off the bloody road!', 'That’s MY ute!', 'You scratch her and you’re dead!', 'Nowhere to go, mate!'],
-  yank: ['Out ya get!', 'Righto. OUT!', 'Go on, rack off!', 'Get out and stay out!'],
-  left: ['And stay out!', 'Yeah, you’d better.', 'Too right.'],
-  ram: ['OI! Watch the bloody ute!', 'Fuck me dead, you’ll dent her!', 'Ya galah! That’s me ute!', 'Strewth! Mind the paint!'],
-  shotUte: ['Are you shootin’ at me ute?!', 'Fuck me dead! Stop shootin’ the ute!', 'That’s a fifty grand ute, ya drongo!'],
-  careful: ['Careful where you point that thing!', 'Oi, watch it with that!', 'Strewth, mind the dogs!'],
-  annoyed: ['Yeah nah, not in the mood, mate.', 'Rack off for a bit.', 'Ask me again when I’ve cooled down.', 'You’ve got a nerve, I’ll give ya that.'],
-  hostile: ['Right! That’s it! You’re gettin’ a hidin’!', 'Come ’ere, ya little rat!', 'I’ll knock ya into next week!', 'Fuck me dead, I’ve had a gutful of you!'],
-  calm: ['Righto. We’re square. Don’t touch me ute again.', 'Fair enough. Water under the bridge, eh.', 'Yeah, alright. Settle down, the both of us.'],
-  hurt: ['Ow! Ya bastard!', 'Strewth!', 'Fuck me dead, that hurt!', 'Oi!'],
-  win: ['Ha! Don’t mess with the ute.', 'Told ya.', 'Stay down, ya galah.'],
-  ko: ['Cheap shot...', 'Strewth... me head...'],
-  wreck: ['ME UTE! You’ve wrecked me bloody ute!', 'Fuck me dead... she’s cooked.', 'Strewth... me ute...'],
-  fixed: ['Mate’s towed her back and patched her up. No thanks to you.'],
-  ejected: ['Oi! Me own bloody ute!', 'Strewth, that\u2019s gunna leave a mark!', 'Ya mongrel!'],
-  bye: ['Catch ya.', 'Hooroo!', 'See ya, mate.', 'Don’t do anything I wouldn’t do.', 'Go hard.'],
-  soon: ['Not today, mate. Dogs are still sore from Tuesday.', 'Yeah nah, give it a bit. Dogs need a rest.'],
-  multi: ['Not with all your mates about. Dogs get confused.'],
-  intro: ['Oi! You must be the new fella. Name’s Madman. Don’t touch the ute.'],
+  idle: ["Strewth, she’s a warm one today.", "Could murder a pie right now.", "Saw a boar down the channel last night. Size of a Corolla, fair dinkum.", "Beer o’clock somewhere, mate.", "Bloody flies. Every year.", "Strewth, I’m dry as a dead dingo’s donger."],
+  greet: ["G’day mate!", "Oi oi! How ya goin’?", "Ow ya goin’, ya mad bastard?"],
+  talk: ["Pigs got into the sorghum again. Rooted half the headland. Little bastards.", "Fuck me dead, mate, the price of diesel. Daylight robbery.", "Don’t touch the ute. That’s rule one. There is no rule two.", "Yeah nah, I don’t do the city. Too many people, not enough pigs.", "Had a sow charge the ute last week. Dented the bullbar. Dented the sow more."],
+  dogs: ["Settle down, ya mongrels!", "Tank! Sit! ...Tank!", "Shut ya traps, the pair of ya!"],
+  pigs: ["Look at that! Bloody pigs, bold as brass.", "Fuck me dead, they’re right on the doorstep!", "Cheeky buggers, aren’t they?"],
+  touch: ["Oi! Mitts off the ute!", "Get off the bloody ute!", "You scratch her, you’re payin’."],
+  enter: ["OI! Get outta me ute!", "Fuck me dead! Outta the bloody ute!", "Whaddaya reckon you’re doin’?! OUT!"],
+  stolen: ["OI! That’s me bloody ute! Bring her back!", "Fuck me dead, he’s nicked the ute! Get back ’ere!"],
+  pinch: ["Right. Two can play at that.", "Not gettin’ away that easy, ya rat!"],
+  pursue: ["Pull over, ya mongrel!", "I’ll run ya off the bloody road!", "That’s MY ute!"],
+  yank: ["Out ya get!", "Go on, rack off!"],
+  left: ["And stay out!", "Too right."],
+  ram: ["OI! Watch the bloody ute!", "Ya galah! That’s me ute!"],
+  shotUte: ["Are you shootin’ at me ute?!", "That’s a fifty grand ute, ya drongo!"],
+  careful: ["Careful where you point that thing!", "Strewth, mind the dogs!"],
+  annoyed: ["Yeah nah, not in the mood, mate.", "Rack off for a bit."],
+  hostile: ["Right! That’s it! You’re gettin’ a hidin’!", "Come ’ere, ya little rat!", "I’ll knock ya into next week!"],
+  calm: ["Righto. We’re square. Don’t touch me ute again.", "Fair enough. Water under the bridge, eh."],
+  hurt: ["Ow! Ya bastard!", "Strewth!", "Fuck me dead, that hurt!"],
+  win: ["Ha! Don’t mess with the ute.", "Stay down, ya galah."],
+  ko: ["Cheap shot...", "Strewth... me head..."],
+  wreck: ["ME UTE! You’ve wrecked me bloody ute!", "Fuck me dead... she’s cooked."],
+  fixed: ["Mate’s towed her back and patched her up. No thanks to you."],
+  ejected: ["Oi! Me own bloody ute!", "Ya mongrel!"],
+  bye: ["Catch ya.", "Hooroo!", "Don’t do anything I wouldn’t do."],
+  soon: ["Not today, mate. Dogs are still sore from Tuesday."],
+  multi: ["Not with all your mates about. Dogs get confused."],
+  intro: ["Oi! You must be the new fella. Name’s Madman. Don’t touch the ute."],
   sip: [],
-  aimed: ['Get that bloody gun off me!', 'Point that somewhere else, ya drongo!'],
-  donga: ['Oi! Get outta me donga!', 'Who said you could come in here?!'],
-  dongaOk: ['Make yaself at home. Don’t touch the fridge.', 'Come in, mate. Mind the mess.'],
+  aimed: ["Get that bloody gun off me!", "Point that somewhere else, ya drongo!"],
+  donga: ["Oi! Get outta me donga!", "Who said you could come in here?!"],
+  sauna: ["Sittin’ in a hot box on purpose? You’re mad, the lot of ya!", "Strewth! It’s forty degrees out and you’s are cookin’ yaselves in a shed!", "Oi! Come out of there before ya cook, ya bloody lunatics!"],
+  frog: ["Oi, Pepé. That’s my esky, not yours.", "Backpackers. Eat all me bread and call it a baguette.", "Speak English, ya croissant.", "Righto, Frenchie. Go pick some fruit or somethin’.", "Ooh la la. Wash ya socks, mate."],
+  defend: ["Oi! Leave him alone, ya frog!", "Pick on someone ya own size, Frenchie!", "Back off, ya baguette! He’s with me!"],
+  defended: ["And stay down, Pierre.", "Bloody backpackers."],
+  dongaOk: ["Come in, mate. Mind the mess."],
 };
 const MM = { ready: false, n: null, dogs: [], t: 0, anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, idleT: 14, sayT: 0, told: {}, last: {},
   inUteT: 0, stolen: false, uteAt: null, lostT: 0, pur: null, touchT: 0, nearT: 0, away: true, sipT: 4, sip: 0, react: null, reactT: 0, rest: null, moved: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0,
   npcDriving: false, sub: null, subT: 0, sheet: null, uteSeen: null, scareT: 0, barkT: 20 };
-const mmPick = (k) => { const g = typeof mmGen === 'function' ? mmGen(k) : null; if (g) return g; const L = MM_L[k]; if (!L || !L.length) return ''; let i = Math.floor(Math.random() * L.length); if (L[i] === MM.last[k] && L.length > 1) i = (i + 1) % L.length; MM.last[k] = L[i]; return L[i]; };
+const mmPick = (k) => { const L = MM_L[k]; if (!L || !L.length) return ''; let i = Math.floor(Math.random() * L.length); if (L[i] === MM.last[k] && L.length > 1) i = (i + 1) % L.length; MM.last[k] = L[i]; return L[i]; };
 // say a line: speech bubble over his head, and a subtitle when you're close enough to hear it
 function mmSay(k, dur, force) {
   const n = MM.n; if (!n) return; const line = MM_L[k] ? mmPick(k) : k; if (!line) return;
@@ -12589,6 +12864,7 @@ function mmThink(n, dt) {
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (typeof dgStuckIn === 'function' && dgStuckIn(n, dt)) return;
   if (MH.mode && mhMadman(n, dt)) return;
+  if (!n.veh && !MH.mode && mmDefend(n, dt)) return;
   if (n.st === 'drive') { if (n.veh !== v) mmPursue(n, dt); else if (MH.mode) mhDriveThink(n, dt); else mmDriveThink(n, dt); return; }
   // you're in his ute: he comes for you, on foot or in whatever he can get his hands on, and drags you out
   if (activeName === 'ute' && n.st !== 'toDoor' && n.st !== 'yank' && n.st !== 'toRide') { MM.gawpT = n.st === 'lean' || n.st === 'home' ? 1.2 : 0; n.st = 'toDoor'; n.t = 0; MM.lostT = 0; }
@@ -12663,6 +12939,51 @@ function mmChatter(n, dt, dP) {
   if (MM.dogs.some(d => d.barkN > 0) && !(MM.dogSaidT > MM.t) && Math.random() < dt * 0.4) { MM.dogSaidT = MM.t + 30; mmSay('dogs'); }
   // idle chat while you're about
   MM.idleT -= dt; if (MM.idleT <= 0) { MM.idleT = 22 + Math.random() * 26; if (dP < 26 && MM.anger < 30) mmSay('idle'); else if (dP < 26) mmSay('annoyed'); }
+}
+/* ---------- Madman and the backpackers ----------
+   He can't stand them: when one wanders close he has a dig (and sometimes gets one back). But if one of them has a go
+   at you and he's about, he's on your side: he storms over and sorts them out. */
+const mmBackpackers = () => NPC.list.filter(b => !b.mm && !b.dima && !b.veh && npcAlive(b));
+function mmDefend(n, dt) {
+  const calm = MM.hostileT <= 0 && F.dead <= 0 && npcAlive(n) && !['tumble', 'down', 'ko', 'getup', 'stag', 'chase', 'fight'].includes(n.st);
+  if (n.st !== 'defend') {
+    if (!calm || !(['lean', 'home', 'toUte', 'wander'].includes(n.st) || DG_ST.includes(n.st))) return false;
+    const b = mmBackpackers().find(b => b.angry && (b.st === 'chase' || b.st === 'fight') && Math.hypot(b.pos.x - n.pos.x, b.pos.z - n.pos.z) < 35);
+    if (!b) return false;
+    n.st = 'defend'; n.t = 0; n.def = b; n.defT = 0; n.atkPh = ''; n.atk = 0.3; mmSay('defend', 2.4, true); return true;
+  }
+  const b = n.def; n.defT += dt;
+  const done = !b || !calm || b.st === 'ko' || !b.angry || n.defT > 30 || F.dead > 0;
+  if (done) { if (b && (b.st === 'ko' || b.st === 'down')) mmSay('defended', 2.4, true); n.def = null; n.atkPh = ''; n.st = 'home'; n.t = 0; return true; }
+  const dx = b.pos.x - n.pos.x, dz = b.pos.z - n.pos.z, d = Math.hypot(dx, dz);
+  if (['tumble', 'down', 'getup'].includes(b.st)) { npcFace(n, b.pos.x, b.pos.z, 8, dt); n.sp *= 0.85; n.atkPh = ''; return true; }      // on the ground: he stands over him
+  if (d > 1.7 && n.atkPh === '') { mmRun(n, b.pos.x, b.pos.z, d > 4 ? 5.6 : 3.2, dt, false); return true; }
+  npcFace(n, b.pos.x, b.pos.z, 12, dt); n.sp *= 0.8;
+  if (n.atkPh === '') { n.atk -= dt; if (n.atk <= 0) { n.atkPh = 'wind'; n.t = 0; } }
+  else if (n.atkPh === 'wind') { if (n.t > 0.35) { n.atkPh = 'hit'; n.t = 0;
+      if (d < 2.1) { const k = 1 / (d || 1); npcLaunch(b, dx * k * 4.5, dz * k * 4.5, 24); if (typeof sfx === 'function') sfx('m_punch', b.pos, 1, 0.75, 9); camShake = Math.max(camShake, 0.2 * Math.max(0, 1 - faCamD(b.pos) / 25)); }
+      else if (typeof sfx === 'function') sfx('m_swish', n.pos, 0.5, 1.0, 5); } }
+  else if (n.atkPh === 'hit') { if (n.t > 0.3) { n.atkPh = ''; n.atk = 0.6 + Math.random() * 0.4; } }
+  return true;
+}
+// a dig at a backpacker who's wandered too close (and maybe one back)
+// someone's in the sauna and he can see it from where he is: he lets them know what he thinks
+function mmSaunaWatch(n, dt) {
+  if (typeof SA === 'undefined' || !SA.root) return; SA.mmT -= dt;
+  if (SA.mmT > 0 || MM.hostileT > 0 || MH.mode || n.veh || !['lean', 'home', 'dgVer'].includes(n.st) || MM.sayT > 0) return;
+  if (Math.hypot(n.pos.x - SA.x, n.pos.z - SA.z) > 32 || !saOccupants().length) return;
+  const me = activeName === 'foot' ? F.pos : S.pos; if (Math.hypot(me.x - n.pos.x, me.z - n.pos.z) > 34) return;
+  SA.mmT = 50 + Math.random() * 30; mmSay('sauna', 3.4, true);
+}
+function mmBanter(n, dt) {
+  MM.frogT = (MM.frogT === undefined ? 20 : MM.frogT) - dt;
+  if (MM.frogBack && MM.t > MM.frogBack.t) { const b = MM.frogBack.b; MM.frogBack = null; if (npcAlive(b) && !b.veh && !b.angry) { npcFace(b, n.pos.x, n.pos.z, 99, 1); npcSay(b, npcPick(NPC_L.sass), 2.6); } }
+  if (MM.frogT > 0 || MM.hostileT > 0 || MH.mode || n.veh || !['lean', 'home', 'dgVer'].includes(n.st) || MM.sayT > 0) return;
+  if (MM.sheet && MM.sheet.classList.contains('show')) return;
+  const me = activeName === 'foot' ? F.pos : S.pos; if (Math.hypot(me.x - n.pos.x, me.z - n.pos.z) > 30) return;       // nobody to hear it
+  const b = mmBackpackers().find(b => !b.angry && (b.st === 'wander' || b.st === 'toVeh') && Math.hypot(b.pos.x - n.pos.x, b.pos.z - n.pos.z) < 9);
+  if (!b) return;
+  MM.frogT = 35 + Math.random() * 30; mmSay('frog', 3, true); if (Math.random() < 0.65) MM.frogBack = { b, t: MM.t + 3.2 };
 }
 // drag you out of the driver's seat and shove you in the dirt
 function mmYank(n) {
@@ -12792,7 +13113,7 @@ function mmStep(dt) {
   MM.sayT -= dt; MM.scareT -= dt;
   if (typeof dgStep === 'function') dgStep(dt);
   if (typeof mmAimCheck === 'function') mmAimCheck(dt);
-  if (MM.grabbed) { const g = MM.grabbed; MM.grabbed = null; if (!MH.mode) { MH.grabbed = null; if (n && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 60) mmSay(mmGen('grab') || 'Good dog! Hang on to him!', 0, true); } }
+  if (MM.grabbed) { const g = MM.grabbed; MM.grabbed = null; if (!MH.mode) { MH.grabbed = null; if (n && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 60) mmSay(mhPick('grab'), 0, true); } }
   if (MM.subT > 0) { MM.subT -= dt; if (MM.subT <= 0 && MM.sub) MM.sub.classList.remove('show'); }
   if (MM.sub && MM.subT > 0) { const ts = $('toast'), on = ts && ts.classList.contains('show'); const y = on ? Math.max(0, ts.getBoundingClientRect().bottom + 8 - MM.sub.offsetTop) : 0; MM.sub.style.transform = 'translate(-50%,' + Math.round(y) + 'px)'; }
   // anger cools off
@@ -12830,6 +13151,7 @@ function mmStep(dt) {
     if (MM.wreckT > 60 && far && activeName !== 'ute') mmFixUte();
   } else MM.wreckT = 0;
   for (const d of MM.dogs) if (d.mode === 'tray') mmDogStep(d, dt);
+  if (n) { mmBanter(n, dt); mmSaunaWatch(n, dt); }
   mmMenuStep();
 }
 // a mate brings the ute back, patched up
@@ -12909,7 +13231,7 @@ function mmMenuOpen() {
   const ms = mhMenuState(), sub = { solo: 'He takes the ute and the dogs', hunt: 'Ride shotgun, shoot out the window \u00b7 5 pigs' };
   for (const k of ['solo', 'hunt']) { const b = sh.querySelector('[data-mm="' + k + '"]'); b.setAttribute('aria-disabled', ms[k] ? 'true' : 'false'); b.querySelector('span').textContent = ms[k] || sub[k]; }
   const S_ = MH.stats; if (S_.g || S_.s) $('mmMood').textContent += ' Hunts: ' + (S_.g + S_.s) + ' \u00b7 pigs: ' + S_.k + (S_.best ? ' \u00b7 best ' + fmtT(S_.best) : '');
-  sh.classList.add('show'); MM.n.lookH = 0; mmSay(cross ? 'annoyed' : 'greet', 2.2, true);
+  sh.classList.add('show'); MM.n.lookH = 0; MM.sayT = Math.max(MM.sayT, 1.5);      // (he waits for you to pick something rather than piping up)
 }
 function mmMenuClose() { if (MM.sheet) MM.sheet.classList.remove('show'); }
 function mmMenuStep() { if (MM.sheet && MM.sheet.classList.contains('show') && !mmTalkable()) mmMenuClose(); }
@@ -13217,25 +13539,25 @@ const DRV = {"X0": -210, "Z0": -270, "C": 4, "NX": 125, "NZ": 115, "b": "AAAAAAA
 const MH = { mode: '', ph: '', t: 0, pax: false, kills: 0, goal: 5, limit: 150, left: 150, mob: null, visited: [], nav: null, cdG: 0, cdS: 0, sayT: 0, stopT: 0, shotT: 0,
   camYaw0: undefined, chip: null, fade: null, fadeT: 0, gave: '', soloKills: 0, told: {}, stats: STORE.get('wfy.hunt', { g: 0, s: 0, k: 0, best: 0 }), seen: new Set() };
 const MH_L = {
-  start: ['Righto, hop in! Grab ya gun, shoot out the window.', 'In ya get. Five pigs and we’re home for a beer.', 'Let’s go get some pork, mate!'],
-  gun: ['Here, have me spare rifle. Don’t point it at the dogs.'],
-  drive: ['Hang on to somethin’!', 'Mob down this way. Fair dinkum, saw ’em this mornin’.', 'Keep ya eyes peeled.', 'Strewth, mind ya head.'],
-  near: ['There they are! Dogs, GO!', 'Pigs! Out ya get, boys!', 'Fuck me dead, look at the size of that one! Go on dogs!'],
-  bailed: ['Dogs have got one bailed! Take the shot!', 'He’s held up! Shoot!', 'Now, mate! Now!'],
-  kill: ['Good shot!', 'Got him!', 'Fuck me dead, what a shot!', 'Ripper!', 'That’s one less!', 'Beauty!'],
-  miss: ['Ya missed! Again!', 'Strewth, aim at the pig, not the dirt!'],
-  gone: ['They’ve bolted. Dogs, in! Next mob.', 'Yeah nah, gone into the scrub. We’ll find more.'],
-  win: ['That’s five! Beers on me. Home we go.', 'Ripper hunt, mate. Back to the dongas.', 'Fair dinkum, you can shoot. Home time.'],
-  timeout: ['Yeah nah, they’ve gone to ground. Home time.', 'Light’s goin’. We’ll call it there.'],
-  quit: ['Suit yourself. I’ll take her home.', 'Fine, walk then!'],
-  soloGo: ['Righto. Back in a bit. Don’t touch anything.', 'Dogs! In the back! See ya in a few, mate.'],
-  soloBack: ['Got {n} of the buggers. Dogs did all the work.', 'Bagged {n}. There’s some ammo for ya on the tray.', '{n} pigs, mate. Tank got a bit chewed up but she’ll be right.'],
-  soloNone: ['Not a bloody one. They heard us comin’.'],
-  cooldown: ['Dogs are knackered. Give ’em a minute.', 'Yeah nah, let the dogs get their breath back.'],
-  hit: ['Oi! Watch it!'],
-  grab: ['Tank’s got one! Shoot it!', 'Dog’s got him by the ear, take the shot!'],
+  start: ["Righto, hop in! Grab ya gun, shoot out the window.", "Let’s go get some pork, mate!"],
+  gun: ["Here, have me spare rifle. Don’t point it at the dogs."],
+  drive: ["Hang on to somethin’!", "Keep ya eyes peeled."],
+  near: ["There they are! Dogs, GO!", "Fuck me dead, look at the size of that one! Go on dogs!"],
+  bailed: ["Dogs have got one bailed! Take the shot!", "He’s held up! Shoot!"],
+  kill: ["Got him!", "Fuck me dead, what a shot!", "Ripper!"],
+  miss: ["Strewth, aim at the pig, not the dirt!"],
+  gone: ["They’ve bolted. Dogs, in! Next mob."],
+  win: ["That’s five! Beers on me. Home we go.", "Ripper hunt, mate. Back to the dongas."],
+  timeout: ["Yeah nah, they’ve gone to ground. Home time."],
+  quit: ["Fine, walk then!"],
+  soloGo: ["Righto. Back in a bit. Don’t touch anything."],
+  soloBack: ["Got {n} of the buggers. Dogs did all the work."],
+  soloNone: ["Not a bloody one. They heard us comin’."],
+  cooldown: ["Dogs are knackered. Give ’em a minute."],
+  hit: ["Oi! Watch it!"],
+  grab: ["Tank’s got one! Shoot it!"],
 };
-const mhPick = k => { const g = MG.hunt[k] && typeof mmGen === 'function' ? mmGen(k) : null; if (g) return g; const L = MH_L[k]; return L ? L[Math.floor(Math.random() * L.length)] : k; };
+const mhPick = k => { const L = MH_L[k]; return L ? L[Math.floor(Math.random() * L.length)] : k; };
 function mhSay(k, force, n) { const line = (MH_L[k] ? mhPick(k) : k).replace('{n}', n == null ? '' : n); if (force || MH.sayT <= 0) { MH.sayT = 4; mmSay(line, 0, true); } }
 
 /* ================= the drivable grid and the route planner ================= */
@@ -13782,7 +14104,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { VOX, voxVoice, voxClean, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, mmGen, MG, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { DM, DIMA_L, dmSay, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
