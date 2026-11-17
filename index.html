@@ -2423,21 +2423,22 @@ SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 
    fw = share of weight on the front, h = height of the centre of mass (m), drv = driven axle(s).
    ================================================================ */
 const HND = {
-  x5:      { g: 1.02, cs: 16, fw: 0.52, h: 0.62, drv: 'a' }, bmw:     { g: 1.05, cs: 17, fw: 0.52, h: 0.6, drv: 'a' },
-  suv:     { g: 0.93, cs: 14, fw: 0.53, h: 0.74, drv: 'a' }, ute:     { g: 0.93, cs: 14, fw: 0.56, h: 0.72, drv: 'r' },
-  trophy:  { g: 0.98, cs: 12, fw: 0.5, h: 0.85, drv: 'r' },  tractor: { g: 0.7, cs: 9, fw: 0.42, h: 1.1, drv: 'a' },
-  tele:    { g: 0.7, cs: 9, fw: 0.5, h: 1.2, drv: 'a' },     truck:   { g: 0.62, cs: 8.5, fw: 0.45, h: 1.3, drv: 'r' },
-  combine: { g: 0.6, cs: 8.5, fw: 0.6, h: 1.6, drv: 'f' },   def:     { g: 0.85, cs: 11, fw: 0.5, h: 0.8, drv: 'a' } };
+  x5:      { g: 1.12, cs: 16, fw: 0.52, h: 0.62, drv: 'a' }, bmw:     { g: 1.15, cs: 17, fw: 0.52, h: 0.6, drv: 'a' },
+  suv:     { g: 1.02, cs: 14, fw: 0.53, h: 0.74, drv: 'a' }, ute:     { g: 1.02, cs: 14, fw: 0.56, h: 0.72, drv: 'r' },
+  trophy:  { g: 1.06, cs: 12, fw: 0.5, h: 0.85, drv: 'r' },  tractor: { g: 0.78, cs: 9, fw: 0.42, h: 1.1, drv: 'a' },
+  tele:    { g: 0.78, cs: 9, fw: 0.5, h: 1.2, drv: 'a' },    truck:   { g: 0.7, cs: 8.5, fw: 0.45, h: 1.3, drv: 'r' },
+  combine: { g: 0.68, cs: 8.5, fw: 0.6, h: 1.6, drv: 'f' },  def:     { g: 0.92, cs: 11, fw: 0.5, h: 0.8, drv: 'a' } };
 const tyreCurve = (x) => x / Math.sqrt(1 + x * x);          // rises straight, then leans over to the limit: no cliff to fall off
 function carMotion(dt, throttle, steerIn, braking, handbrake) {
   const H = HND[activeName] || HND.def, DS = V.drift || (activeName === 'suv' ? DRIFT : null), dm = DMG.v[activeName];
-  const m = VEH_MASS[activeName] || 1500, wb = V.wb, a = wb * (1 - H.fw), b = wb - a, g = 9.8, Iz = m * a * b * 1.3;
+  const m = VEH_MASS[activeName] || 1500, wb = V.wb, a = wb * (1 - H.fw), b = wb - a, g = 9.8, Iz = m * a * b * 1.1;
   const top = DS ? DS.top : V.top, rev = DS ? DS.rev : V.rev, pull = DS ? DS.drive : V.accel, loose = DRIFTM && !!DS;
   const MU = H.g * WX.grip * slideGm() * (dm && dm.s0 ? V.grip / dm.s0.grip : 1) * (loose ? 0.88 : 1), rearK = loose ? 0.72 : 1;
   // the wheel eases toward the stick (quicker coming off than going on); the lock shrinks with speed
-  const sn0 = S.steerN || 0, off = Math.abs(steerIn) < Math.abs(sn0) || steerIn * sn0 < 0;
-  S.steerN = sn0 + THREE.MathUtils.clamp(steerIn - sn0, -(off ? 9 : 6) * dt, (off ? 9 : 6) * dt);
-  const sp0 = Math.hypot(S.vx, S.vz), lock = Math.min(V.steer, Math.atan(wb * H.g * g * 1.05 / Math.max(sp0 * sp0, 16)) + (loose ? 3 : 1.9) / H.cs);      // the turn the tyres can hold, plus the slip it takes to get there
+  // (keys are all-or-nothing so they get eased; a stick or the steering buttons are already smooth, so they go nearly straight through)
+  const sn0 = S.steerN || 0, off = Math.abs(steerIn) < Math.abs(sn0) || steerIn * sn0 < 0, sr = (input.kx ? (off ? 11 : 7.5) : 20) * dt;
+  S.steerN = sn0 + THREE.MathUtils.clamp(steerIn - sn0, -sr, sr);
+  const sp0 = Math.hypot(S.vx, S.vz), lock = Math.min(V.steer, Math.atan(wb * H.g * g * 1.25 / Math.max(sp0 * sp0, 16)) + (loose ? 3.2 : 2.5) / H.cs);      // the turn the tyres can hold, plus the slip it takes to get there
   const n = Math.max(2, Math.ceil(dt / 0.005)), h = dt / n;
   // the machine's origin is its rear axle; the sums are done at its centre of mass, b ahead of that, so it turns about its middle
   let yaw = S.yaw, r = S.r || 0, vx = S.vx + r * b * Math.cos(yaw), vz = S.vz - r * b * Math.sin(yaw), x = S.pos.x + b * Math.sin(yaw), z = S.pos.z + b * Math.cos(yaw), vF = 0, vL = 0, axF = S.axF || 0, d = 0, slipR = 0, spin = false;
@@ -2449,7 +2450,7 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
     d = -S.steerN * lock;
     if (loose && vF > 3 && !handbrake) d = THREE.MathUtils.clamp(d + (0.42 + 0.55 * (1 - Math.abs(steerIn))) * dasK() * THREE.MathUtils.clamp(beta, -0.6, 0.6), -V.steer, V.steer);   // drift mode's counter-steer assist
     // weight on each axle: braking loads the front, power the rear
-    const shift = THREE.MathUtils.clamp(m * axF * H.h / wb * 0.5, -0.25 * m * g, 0.25 * m * g), Nf = m * g * b / wb - shift, Nr = m * g * a / wb + shift;
+    const shift = THREE.MathUtils.clamp(m * axF * H.h / wb * 0.32, -0.2 * m * g, 0.2 * m * g), Nf = m * g * b / wb - shift, Nr = m * g * a / wb + shift;
     const Nd = H.drv === 'a' ? Nf + Nr : H.drv === 'f' ? Nf : Nr;
     // along the car: engine, brakes, handbrake, drag
     let Fd = 0, Fb = 0;
@@ -2469,7 +2470,7 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
     const capF = MU * Nf * (H.drv === 'f' ? cut : 1), capR = MU * rearK * Nr * (H.drv === 'r' || (loose && H.drv === 'a') ? cut : 1) * (handbrake ? (loose ? 0.1 : 0.22) : 1);
     const Fyf = -capF * tyreCurve(H.cs * Nf * slipF / Math.max(1, capF)), Fyr = -capR * tyreCurve(H.cs * Nr * slipR / Math.max(1, capR));
     const aF = (Fx - Fyf * sd) / m + grade + vL * r, aL = (Fyf * cd + Fyr) / m - vF * r;
-    let torque = a * Fyf * cd - b * Fyr - (1.1 + 0.05 * speed) * r * Iz;                       // (plus the damping a real chassis has)
+    let torque = a * Fyf * cd - b * Fyr - (0.8 + 0.035 * speed) * r * Iz;                       // (plus the damping a real chassis has)
     if (handbrake && Math.abs(steerIn) > 0.15 && speed > 5) torque += -steerIn * (loose ? 2.2 : 1.6) * Iz * Math.min(1, speed / 10);      // a handbrake flick swings the tail
     S.hbT = handbrake ? 0.8 : Math.max(0, (S.hbT || 0) - h);
     const lim = loose ? 0.72 : S.hbT > 0 ? 0.85 : 0.3; if (speed > 4 && vF > 0 && Math.abs(beta) > lim) torque += Math.sign(beta) * (Math.abs(beta) - lim) * (loose ? 26 : 30) * Iz;   // past a big slide angle it pulls itself back into line
@@ -4029,7 +4030,8 @@ function shedParking() {
   }
   HOME.truck = { x: -56, z: 28, yaw: Math.PI };
   HOME.combine = { x: -150, z: 46, yaw: Math.PI };
-  HOME.bmw = { x: 163.4, z: 46.9, yaw: Math.PI / 2 };          // on the gravel by the dongas, nose to the breezeway
+  HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
+  HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
   HOME.farmer = { x: 172.5, z: 41.1, yaw: 1.05, indoors: true };   // you wake up in the bunks, facing the door
   HOME.ute = { x: 163, z: 50.4, yaw: Math.PI / 2 };   // on the gravel beside the BMW, tailgate to the open ground   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
@@ -5910,6 +5912,7 @@ const PICKUPS = [
   [58, 29, 'grenade'], [-30, 30, 'pistol'], [-45, -62, 'rpg', 'roof'],
   [50, 2, 'flamer'], [-36, 2, 'grenade'], [52, 112, 'rifle'], [98, 82, 'flamer'],
   [-30, -12, 'shotgun'], [2, 47, 'pistol'], [35, 66, 'sticky'], [-10, -40, 'molotov'], [55, -28, 'rifle'],
+  [178.15, 52.55, 'rifle', 'in'], [178.15, 53.3, 'shotgun', 'in'],        // Madman's gun locker
 ];
 const PICK_BACK = 60;
 const HUNT_ST = { items: [], fx: [] };
@@ -5917,12 +5920,13 @@ function buildHunt() {
   const tex = { gun: radialTex([255, 214, 110], true), boom: radialTex([255, 150, 70], true), fire: radialTex([255, 90, 50], true) };
   for (const [x, z, id, where] of PICKUPS) {
     const W = WEAPONS[id], cls = W.kind === 'gun' ? 'gun' : W.kind === 'flame' || id === 'molotov' ? 'fire' : 'boom';
-    const y = groundAt(x, z, where ? 25 : 6, 0);
+    const y = where === 'in' ? groundAt(x, z, DG.gy + 1.5, 0) : groundAt(x, z, where ? 25 : 6, 0);
     const root = new THREE.Group(); root.position.set(x, y, z); scene.add(root);
     const m = new THREE.Group(), g = wpnGunModel(id); g.scale.setScalar(W.kind === 'throw' ? 3 : 1.5); g.rotation.set(0, 0, W.kind === 'throw' ? 0 : 0.35); m.add(g); root.add(m);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex[cls], color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 }));
     glow.scale.set(2.4, 2.4, 1); glow.position.y = 0.55; root.add(glow);
-    HUNT_ST.items.push({ id, root, m, glow, y, ph: Math.random() * 6, got: false, back: 0, flyT: 0 });
+    if (where === 'in') { glow.scale.set(1.1, 1.1, 1); g.scale.setScalar(1.1); }             // indoors: smaller, and you have to walk right up to it
+    HUNT_ST.items.push({ id, root, m, glow, y, ph: Math.random() * 6, got: false, back: 0, flyT: 0, inside: where === 'in' });
   }
 }
 function huntUpdate(dt) {
@@ -5939,7 +5943,7 @@ function huntUpdate(dt) {
     if (near) { const pop = Math.min(1, it.ph * 3); it.root.scale.setScalar(pop); it.m.position.y = 0.45 + Math.sin(it.ph * 2) * 0.1; it.m.rotation.y += dt * 1.6; it.glow.material.opacity = 0.55 + Math.sin(it.ph * 3) * 0.2; }
     // on foot, or drive over it in a ground machine (not from the air)
     const p = it.root.position; let got = false;
-    if (!v) { if (F.mode !== 'seq' && F.dead <= 0 && Math.hypot(F.pos.x - p.x, F.pos.z - p.z) < 1.6 && Math.abs(F.pos.y - p.y) < 2.6) got = true; }
+    if (!v) { if (F.mode !== 'seq' && F.dead <= 0 && Math.hypot(F.pos.x - p.x, F.pos.z - p.z) < (it.inside ? 0.9 : 1.6) && Math.abs(F.pos.y - p.y) < 2.6) got = true; }
     else if (v.kind !== 'air') { const o = vehicleOBB(v), dx = p.x - o.cx, dz = p.z - o.cz;
       const d = Math.hypot(Math.max(0, Math.abs(dx * o.fx + dz * o.fz) - o.hl), Math.max(0, Math.abs(dx * o.lx + dz * o.lz) - o.hw)); if (d < 0.8 && p.y < o.top + 1 && p.y > o.bottom - 1.5) got = true; }
     if (got) collect(it);
@@ -9809,11 +9813,12 @@ function wpnCam(dt) {
   const yaw = camYawF, pit = camPitchF, cp = Math.cos(pit), sp = Math.sin(pit);
   const f = _w1.set(Math.sin(yaw) * cp, -sp, Math.cos(yaw) * cp), right = _w2.set(-Math.cos(yaw), 0, Math.sin(yaw));
   const pivot = _w3.set(F.pos.x, F.pos.y + 1.58, F.pos.z);
-  const want = WPN.scope ? 14 : 58; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
-  let back = WPN.scope ? -0.25 : 2.3, side = WPN.scope ? 0 : 0.62;
-  const desired = _w4.copy(pivot).addScaledVector(f, -back).addScaledVector(right, side); desired.y += WPN.scope ? 0.05 : 0.25;
+  const fpIn = activeName === 'foot' && typeof dgUnder === 'function' && dgUnder(F.pos); if (fpIn) { F.fpK = 1; F.fp = true; }            // under the dongas' roofs you aim through his eyes (a camera over the shoulder ends up in the ceiling)
+  const want = WPN.scope ? 14 : fpIn ? 76 : 58; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
+  let back = WPN.scope ? -0.25 : fpIn ? -0.05 : 2.3, side = WPN.scope || fpIn ? 0 : 0.62;
+  const desired = _w4.copy(pivot).addScaledVector(f, -back).addScaledVector(right, side); desired.y += WPN.scope ? 0.05 : fpIn ? 0 : 0.25;
   const dv = desired.clone().sub(pivot), L = dv.length(); dv.normalize(); const hit = castHit(pivot, dv, L + 0.3); if (hit) desired.copy(pivot).addScaledVector(dv, Math.max(0.3, hit.distance - 0.25));
-  camPos.lerp(desired, 1 - Math.exp(-22 * dt)); camera.position.copy(camPos);
+  if (fpIn) camera.position.copy(desired); else { camPos.lerp(desired, 1 - Math.exp(-22 * dt)); camera.position.copy(camPos); }
   if (camShake > 0) camera.position.addScaledVector(_w2.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), 0.2 * camShake);
   lookAt.copy(camera.position).addScaledVector(f, 30); camera.lookAt(lookAt);
   // he faces where you aim; arms up
@@ -10778,6 +10783,7 @@ function npcBuild() {
   NPC.ready = true;
   const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)];
   NPC.anchor = [D.cx + U[0] * 15, D.cz + U[1] * 15]; NPC.center.set(NPC.anchor[0], 0, NPC.anchor[1]);
+  NPC.home = [165.5, 47.2];                       // the backpackers live in the bunks at the dongas now (the shed keeps its pigs and wallabies)
   NPC_LOOKS.forEach((L, i) => {
     const P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
     const pack = new THREE.Group(); P.torso.add(pack);
@@ -10792,7 +10798,7 @@ function npcBuild() {
   NPC.shedWait = 0;
 }
 function npcPlace(n, i) {
-  const p = faPick(NPC.anchor[0], NPC.anchor[1], 16, 0.8, 4) || [NPC.anchor[0], NPC.anchor[1]];
+  const p = faPick(NPC.home[0], NPC.home[1], 12, 0.8, 2) || [NPC.home[0], NPC.home[1]];
   if (n.root.parent !== scene) scene.attach(n.root);
   n.pos.set(p[0], 0, p[1]); n.gy = n.pos.y = groundAt(p[0], p[1], 30, 0); n.yaw = Math.random() * 6.28; n.st = 'wander'; n.t = 0; n.hp = n.max; n.tilt = 0; n.sp = 0; n.tgt = null; n.veh = null; n.pack.visible = true;
   n.vehT = 8 + (i || 0) * 6 + Math.random() * 8; n.root.scale.setScalar(n.s);
@@ -10851,7 +10857,7 @@ function npcDriveAI(n, dt) {
   else if (n.mode === 'reverse') { thr = -0.7; str = Math.sin(t * 1.1 + n.ph) * 0.8; }
   else if (n.mode === 'stopgo') { thr = Math.sin(t * 2.2 + n.ph) > 0 ? 1 : -0.2; str = Math.sin(t * 0.8) * 0.5; }
   else { // rampage: a random spot in the yard, flat out
-    if (!n.wpt || Math.hypot(n.wpt[0] - st.pos.x, n.wpt[1] - st.pos.z) < 4) n.wpt = faPick(NPC.anchor[0], NPC.anchor[1], 34, 3) || [NPC.anchor[0], NPC.anchor[1]];
+    if (!n.wpt || Math.hypot(n.wpt[0] - st.pos.x, n.wpt[1] - st.pos.z) < 4) n.wpt = faPick(NPC.home[0] - 14, NPC.home[1] + 4, 34, 3) || [NPC.home[0] - 14, NPC.home[1] + 4];
     let e = Math.atan2(n.wpt[0] - st.pos.x, n.wpt[1] - st.pos.z) - st.yaw; e = Math.atan2(Math.sin(e), Math.cos(e)); thr = 0.9; str = THREE.MathUtils.clamp(e * 1.6, -1, 1); }
   if (Math.abs(st.v) > cap && thr > 0) thr = 0;
   if (n.sayT <= 0 && Math.random() < dt * 0.3) { n.sayT = 6; npcSay(n, npcPick(NPC_L.drive)); }
@@ -10955,8 +10961,8 @@ function npcThink(n, dt) {
   n.vehT -= dt;
   if (n.st === 'wander') {
     if (n.vehT <= 0) { n.vehT = 16 + Math.random() * 18; const v = npcPickVehicle(n); if (v && dP > 6) { n.veh = v; n.st = 'toVeh'; n.t = 0; return; } }
-    if (!n.tgt || Math.hypot(n.tgt[0] - n.pos.x, n.tgt[1] - n.pos.z) < 1 || n.stuck > 2) { n.stuck = 0; n.tgt = Math.random() < 0.4 ? null : (faPick(NPC.anchor[0], NPC.anchor[1], 20, 0.8) || null); n.idle = n.tgt ? 0 : 1.5 + Math.random() * 3; }
-    if (!n.tgt) { n.idle -= dt; n.sp *= 0.85; if (n.idle <= 0) n.tgt = faPick(NPC.anchor[0], NPC.anchor[1], 20, 0.8) || null; }
+    if (!n.tgt || Math.hypot(n.tgt[0] - n.pos.x, n.tgt[1] - n.pos.z) < 1 || n.stuck > 2) { n.stuck = 0; n.tgt = Math.random() < 0.4 ? null : (faPick(NPC.home[0], NPC.home[1], 16, 0.8) || null); n.idle = n.tgt ? 0 : 1.5 + Math.random() * 3; }
+    if (!n.tgt) { n.idle -= dt; n.sp *= 0.85; if (n.idle <= 0) n.tgt = faPick(NPC.home[0], NPC.home[1], 16, 0.8) || null; }
     else npcWalk(n, faSteer(n, Math.atan2(n.tgt[0] - n.pos.x, n.tgt[1] - n.pos.z), 2.5), 1.3, dt);
     return;
   }
@@ -12027,9 +12033,17 @@ function dgBuild() {
   // wheelie bins by the west end, an esky, boots by the doors
   for (const [k, m] of [[0, M.red], [1, M.yellow]]) { const x = B.x0 + 0.7 + k * 0.75, z = zS - 0.75; box(0.56, 0.92, 0.6, M.green, x, 0.52, z); box(0.6, 0.07, 0.66, m, x, 1.01, z); solid(x, 0.52, z, 0.29, 0.52, 0.31); }
   box(0.62, 0.36, 0.38, M.blue, tx + 1.7, 0.22, tz + 1.5, 0.3); box(0.64, 0.06, 0.4, M.white, tx + 1.7, 0.43, tz + 1.5, 0.3);
-  // a washing line strung between the west posts
-  const lz0 = zN + 0.1, lz1 = zS - 0.2, lx = B.x0 + 0.25; box(0.015, 0.015, lz1 - lz0, M.dark, lx, 2.05, (lz0 + lz1) / 2);
-  [[1.6, M.blue, 0.7, 0.6], [2.9, M.yellow, 0.55, 0.75], [4.1, M.white, 0.9, 0.5], [5.5, M.red, 0.6, 0.6]].forEach(([d, m, w, h]) => box(0.02, h, w, m, lx, 2.05 - h / 2, lz0 + d));
+  // the dogs' cages along the north side, between the bunks' door and the mess door: weldmesh on a steel frame, a bed and a bowl in each
+  DG.matMesh = DG.matMesh || new THREE.MeshLambertMaterial({ color: 0x3a3f42, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
+  [['TANK', cx + 0.35, M.red], ['DUSTY', cx + 2.05, M.blue]].forEach(([nm, x, bed]) => { const z = zN + 0.62, w = 1.5, dp = 1.05, hh = 1.05;
+    box(w, 0.04, dp, M.steel, x, 0.06, z); box(w * 0.7, 0.07, dp * 0.6, bed, x - 0.12, 0.115, z + 0.05); cyl(0.11, 0.06, M.steel, x + 0.5, 0.11, z - 0.28);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.04, hh, 0.04, M.dark, x + sx * w / 2, 0.04 + hh / 2, z + sz * dp / 2);
+    for (const sz of [-1, 1]) { box(w, 0.04, 0.04, M.dark, x, 0.04 + hh, z + sz * dp / 2); box(w, hh, 0.012, DG.matMesh, x, 0.04 + hh / 2, z + sz * dp / 2); for (let k = -3; k <= 3; k++) box(0.015, hh, 0.015, M.dark, x + k * w / 7, 0.04 + hh / 2, z + sz * dp / 2); }
+    for (const sx of [-1, 1]) { box(0.04, 0.04, dp, M.dark, x + sx * w / 2, 0.04 + hh, z); box(0.012, hh, dp, DG.matMesh, x + sx * w / 2, 0.04 + hh / 2, z); for (let k = -2; k <= 2; k++) box(0.015, hh, 0.015, M.dark, x + sx * w / 2, 0.04 + hh / 2, z + k * dp / 5); }
+    box(w, 0.03, dp, M.steel, x, 0.06 + hh, z);
+    const tag = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 40; const g = c.getContext('2d'); g.fillStyle = '#e9e2c8'; g.fillRect(0, 0, 128, 40); g.fillStyle = '#2a2a2a'; g.font = '900 26px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(nm, 64, 21);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.125), new THREE.MeshLambertMaterial({ map: t })); })(); tag.position.set(x, 0.92, z + dp / 2 + 0.03); root.add(tag);
+    solid(x, 0.56, z, w / 2, 0.56, dp / 2); });
   root.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== M.bulb; o.receiveShadow = true; } });
   // the gravel car park where the scanned utes were: a slab of gravel laid to the fall of the ground round it
   { const P = DG_PAD, px = (P.x0 + P.x1) / 2, pz = (P.z0 + P.z1) / 2, w = P.x1 - P.x0, d = P.z1 - P.z0;
@@ -12055,8 +12069,6 @@ function dgUnit(U, gy, group) {
   const can = (x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.12, 10), M.tin); o.position.set(x, y, z); root.add(o); return o; };
   const legs = (x, z, a, b, h) => { for (const [i, j] of [[-a, -b], [a, -b], [-a, b], [a, b]]) box(0.05, h, 0.05, M.wood, x + i, fl + h / 2, z + j); };
   const chair = (x, z, back) => { box(0.42, 0.05, 0.42, M.wood, x, fl + 0.45, z); box(0.42, 0.45, 0.05, M.wood, x, fl + 0.7, z + back * 0.2); legs(x, z, 0.18, 0.18, 0.44); };
-  const bed = (u, m) => { const s = Math.sign(u); box(1.95, 0.32, 0.95, M.wood, u, fl + 0.16, -W / 2 + 0.6); box(1.9, 0.14, 0.9, M.white, u, fl + 0.39, -W / 2 + 0.6);
-    box(1.4, 0.06, 0.92, m, u - s * 0.25, fl + 0.48, -W / 2 + 0.6); box(0.45, 0.1, 0.62, M.white, u + s * 0.77, fl + 0.5, -W / 2 + 0.6); };
   // shell: floor, deck, walls with a door gap, roof, skids
   box(L + 0.1, fl, W + 0.1, M.floor, 0, fl / 2, 0); box(L, 0.12, DG.deck, M.deck, 0, fl - 0.06, W / 2 + DG.deck / 2 + 0.05);
   for (const u of [-L / 2 + 0.3, L / 2 - 0.3]) box(0.2, 0.12, W + 0.2, M.dark, u, 0.06, 0);
@@ -12140,13 +12152,51 @@ function dgUnit(U, gy, group) {
     poster(0.5, 0.38, (g, w, h) => { g.fillStyle = '#7fa66a'; g.fillRect(0, 0, w, h); g.fillStyle = '#b8955f'; g.fillRect(0, h * 0.62, w, h);
       for (const [dx, col] of [[78, '#6a4a2c'], [176, '#a8562a']]) { g.fillStyle = col; g.beginPath(); g.ellipse(dx, h * 0.6, 40, 22, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(dx + 36, h * 0.44, 20, 17, 0, 0, 7); g.fill(); g.fillRect(dx - 30, h * 0.66, 9, 34); g.fillRect(dx + 20, h * 0.66, 9, 34);
         g.beginPath(); g.moveTo(dx + 26, h * 0.36); g.lineTo(dx + 30, h * 0.2); g.lineTo(dx + 40, h * 0.36); g.fill(); g.fillStyle = '#111'; g.beginPath(); g.arc(dx + 42, h * 0.42, 3, 0, 7); g.fill(); }
-      g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(0, h - 30, w, 30); words(g, 'TANK & DUSTY', 128, h - 14, 20, '#fff'); }, xe, fl + 1.55, 0.75, -Math.PI / 2);
+      g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(0, h - 30, w, 30); words(g, 'TANK & DUSTY', 128, h - 14, 20, '#fff'); }, 2.62, fl + 1.5, zf, Math.PI);
+    // the gun locker against the east wall: door hanging open, the rifle and the shotgun stood in the rack (walk up to take them)
+    { const lx = L / 2 - 0.3, lz = 0.75, g1 = DG.matGun || (DG.matGun = new THREE.MeshLambertMaterial({ color: 0x47503a })), wd = DG.matStock || (DG.matStock = new THREE.MeshLambertMaterial({ color: 0x5a3a20 }));
+      box(0.44, 1.8, 0.04, g1, lx, fl + 0.9, lz - 0.5); box(0.44, 1.8, 0.04, g1, lx, fl + 0.9, lz + 0.5); box(0.04, 1.8, 1.0, g1, lx + 0.2, fl + 0.9, lz); box(0.44, 0.04, 1.04, g1, lx, fl + 1.82, lz); box(0.44, 0.04, 1.0, g1, lx, fl + 0.02, lz);
+      box(0.4, 0.03, 0.96, M.dark, lx, fl + 1.35, lz); box(0.06, 0.03, 0.96, M.dark, lx - 0.12, fl + 0.75, lz);
+      const dr = box(0.03, 1.76, 0.5, g1, lx - 0.42, fl + 0.9, lz - 0.62); dr.rotation.y = 0.5; const dr2 = box(0.03, 1.76, 0.5, g1, lx - 0.4, fl + 0.9, lz + 0.66); dr2.rotation.y = -0.65;
+      for (const [dz2, len] of [[-0.2, 1.15], [0.18, 1.05]]) { const b1 = box(0.035, len, 0.035, M.dark, lx + 0.04, fl + 0.12 + len / 2, lz + dz2); b1.rotation.x = 0.04; box(0.05, 0.42, 0.09, wd, lx + 0.04, fl + 0.27, lz + dz2); }
+      box(0.16, 0.1, 0.22, M.red, lx, fl + 1.42, lz - 0.2); box(0.16, 0.1, 0.22, M.yellow, lx, fl + 1.42, lz + 0.12);
+      const kl = label('GUNS\nHANDS OFF', 0.34, 0.2, '#b3261e', '#fff', 40); kl.rotation.y = -Math.PI / 2; kl.position.set(lx - 0.23, fl + 1.62, lz); root.add(kl); }
+    // the mess he lives in: empties everywhere, pizza boxes, yesterday's clothes, an overflowing bin
+    { const rr = rng(4477), mt = DG.matMess || (DG.matMess = { can2: new THREE.MeshLambertMaterial({ color: 0x2f7a3d }), can3: new THREE.MeshLambertMaterial({ color: 0xb9bdbb }), btl: new THREE.MeshLambertMaterial({ color: 0x5a3414 }), card: new THREE.MeshLambertMaterial({ color: 0xb08a5a }), sock: new THREE.MeshLambertMaterial({ color: 0xd8d4c4 }), stain: new THREE.MeshLambertMaterial({ color: 0x5e4a36 }), denim: new THREE.MeshLambertMaterial({ color: 0x3c5878 }) });
+      const cg = new THREE.CylinderGeometry(0.033, 0.033, 0.12, 8), cans = [M.tin, mt.can2, mt.can3];
+      const lie = (x, z, m, y) => { const o = new THREE.Mesh(cg, m); o.rotation.set(0, rr() * 6.28, Math.PI / 2); o.position.set(x, fl + (y || 0) + 0.034, z); root.add(o); };
+      const stand = (x, z, m, y) => { const o = new THREE.Mesh(cg, m); o.position.set(x, fl + (y || 0) + 0.06, z); root.add(o); };
+      for (let k = 0; k < 26; k++) { const x = -L / 2 + 0.3 + rr() * (L - 0.9), z = -W / 2 + 0.25 + rr() * (W - 0.6); if (Math.abs(x - du) < 0.7 && z > 0.5) continue; (rr() < 0.75 ? lie : stand)(x, z, cans[Math.floor(rr() * 3)]); }
+      for (const [x, z] of [[0.55, -W / 2 + 0.4], [-0.1, -W / 2 + 0.75], [0.62, -W / 2 + 0.72], [0.3, -W / 2 + 0.36]]) (rr() < 0.5 ? lie : stand)(x, z, cans[Math.floor(rr() * 3)], 0.765);          // on the table
+      for (const [x, z] of [[-L / 2 + 0.7, -W / 2 + 0.5], [-L / 2 + 1.6, -W / 2 + 0.8]]) lie(x, z, cans[1], 0.5);                                                                   // in the bed
+      for (const [x, z, y] of [[-0.45, 0.2, 0], [0.9, 0.5, 0], [0.42, -W / 2 + 0.6, 0.765]]) { const o = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.2, 8), mt.btl); o.position.set(x, fl + y + 0.1, z); root.add(o); const nk = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.02, 0.08, 6), mt.btl); nk.position.set(x, fl + y + 0.24, z); root.add(nk); }
+      for (let k = 0; k < 3; k++) box(0.42, 0.045, 0.42, mt.card, -0.75 + k * 0.03, fl + 0.025 + k * 0.047, 0.85 - k * 0.02, 0.3 + k * 0.25);          // pizza boxes
+      box(0.42, 0.045, 0.42, mt.card, 0.72, fl + 0.79, -W / 2 + 0.42, 0.5);
+      for (const [x, z, w, d, m, ry] of [[-1.5, 0.35, 0.55, 0.4, M.blanket, 0.4], [-1.2, 0.6, 0.45, 0.5, mt.denim, 1.1], [-L / 2 + 0.5, 0.9, 0.5, 0.35, M.red, 0.2], [1.1, -0.1, 0.4, 0.3, mt.sock, 0.8], [-2.0, -0.2, 0.3, 0.3, M.trim, 1.9]]) { box(w, 0.07, d, m, x, fl + 0.04, z, ry); box(w * 0.6, 0.06, d * 0.7, m, x + 0.06, fl + 0.1, z - 0.04, ry + 0.5); }
+      for (const [x, z, ry] of [[0.7, 0.9, 0.3], [-0.2, 1.1, 1.2], [1.4, 0.2, 2.0]]) box(0.09, 0.03, 0.24, mt.sock, x, fl + 0.02, z, ry);                                              // socks
+      box(1.6, 0.05, 0.92, M.blanket, -L / 2 + 1.75, fl + 0.3, -W / 2 + 1.0).rotation.set(0.9, 0, 0.1);                                                                             // the blanket half off the bed
+      box(0.45, 0.1, 0.62, M.white, -L / 2 + 2.3, fl + 0.05, -W / 2 + 1.35, 0.6);                                                                                                  // a pillow on the floor
+      for (const [x, z, w, d] of [[0.2, 0.6, 0.9, 0.6], [-1.6, -0.4, 0.6, 0.5], [2.0, -0.6, 0.5, 0.7]]) box(w, 0.008, d, mt.stain, x, fl + 0.005, z, rr() * 3);                     // stains
+      const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.16, 0.45, 12), M.dark); bin.position.set(1.15, fl + 0.225, -W / 2 + 0.35); root.add(bin);
+      for (let k = 0; k < 7; k++) lie(1.15 + (rr() - 0.5) * 0.3, -W / 2 + 0.35 + (rr() - 0.5) * 0.3, cans[Math.floor(rr() * 3)], 0.42 + rr() * 0.1);
+      for (let k = 0; k < 5; k++) lie(1.15 + (rr() - 0.5) * 0.9, -W / 2 + 0.55 + rr() * 0.5, cans[Math.floor(rr() * 3)]);
+      const pl = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.1, 0.02, 12), M.white); pl.position.set(-0.05, fl + 0.775, -W / 2 + 0.45); root.add(pl); box(0.1, 0.03, 0.07, mt.card, -0.05, fl + 0.795, -W / 2 + 0.45, 0.4); }
   } else if (U.kind === 'bunk') {
-    // two beds, a steel locker between the windows, a hi-vis shirt on a hook, boots
-    bed(-L / 2 + 1.1, M.red); bed(L / 2 - 1.1, M.green);
+    // the backpackers' room: two double bunks, their packs, a locker, the tricolour on the wall
+    const bunk = (u, m1, m2) => { const zc = -W / 2 + 0.6, sg = Math.sign(u);
+      for (const [y, m] of [[0.3, m1], [1.42, m2]]) { box(1.95, 0.1, 0.95, M.wood, u, fl + y, zc); box(1.9, 0.13, 0.9, M.white, u, fl + y + 0.11, zc); box(1.35, 0.05, 0.92, m, u - sg * 0.27, fl + y + 0.2, zc); box(0.42, 0.09, 0.6, M.white, u + sg * 0.74, fl + y + 0.22, zc); }
+      for (const a of [-0.95, 0.95]) for (const b of [-0.45, 0.45]) box(0.07, 1.9, 0.07, M.wood, u + a, fl + 0.95, zc + b);
+      box(1.95, 0.07, 0.05, M.wood, u, fl + 1.78, zc + 0.46);
+      for (const b of [-0.14, 0.14]) box(0.04, 1.45, 0.04, M.steel, u - sg * 0.62 + b, fl + 0.72, zc + 0.52); for (const y of [0.35, 0.7, 1.05, 1.4]) box(0.3, 0.035, 0.04, M.steel, u - sg * 0.62, fl + y, zc + 0.52); };
+    bunk(-L / 2 + 1.1, M.red, M.blue); bunk(L / 2 - 1.1, M.green, M.yellow);
     box(0.55, 1.75, 0.45, M.steel, -0.1, fl + 0.875, -W / 2 + 0.32); box(0.02, 1.6, 0.02, M.dark, -0.1, fl + 0.9, -W / 2 + 0.55);
-    box(0.5, 0.6, 0.04, M.yellow, L / 2 - 0.1, fl + 1.55, 0.5, Math.PI / 2); box(0.5, 0.06, 0.05, M.steel, L / 2 - 0.1, fl + 1.3, 0.5, Math.PI / 2);
-    box(0.13, 0.16, 0.3, M.boot, -0.9, fl + 0.08, W / 2 - 0.3); box(0.13, 0.16, 0.3, M.boot, -0.72, fl + 0.08, W / 2 - 0.27);
+    DG.matPack = DG.matPack || [0x5f6b45, 0xb8574a, 0x2f5f8a].map(c => new THREE.MeshLambertMaterial({ color: c })); DG.matRoll = DG.matRoll || new THREE.MeshLambertMaterial({ color: 0xd9c37a });
+    [[-L / 2 + 0.35, 0.95, 0.2], [0.55, -W / 2 + 0.3, -0.3], [L / 2 - 0.35, 0.9, 0.5]].forEach(([x, z, ry], k) => { box(0.36, 0.52, 0.24, DG.matPack[k], x, fl + 0.26, z, ry); box(0.26, 0.2, 0.09, DG.matPack[k], x + Math.sin(ry) * 0.16, fl + 0.2, z + Math.cos(ry) * 0.16, ry);
+      const rl = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.4, 10), DG.matRoll); rl.rotation.set(0, ry, Math.PI / 2); rl.position.set(x, fl + 0.6, z); root.add(rl); });
+    const fr = (() => { const c = document.createElement('canvas'); c.width = 192; c.height = 128; const g = c.getContext('2d'); g.fillStyle = '#1f3f94'; g.fillRect(0, 0, 64, 128); g.fillStyle = '#f4f4f0'; g.fillRect(64, 0, 64, 128); g.fillStyle = '#d6303a'; g.fillRect(128, 0, 64, 128);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.Mesh(new THREE.PlaneGeometry(0.75, 0.5), new THREE.MeshLambertMaterial({ map: t })); })(); fr.rotation.y = Math.PI; fr.position.set(-1.2, fl + 1.6, W / 2 - 0.05); root.add(fr);
+    const pc = label('WINGFIELD\nBACKPACKERS', 0.6, 0.3, '#f4f1e6', '#3a3a3a', 26); pc.rotation.y = Math.PI; pc.position.set(0.3, fl + 1.75, W / 2 - 0.05); root.add(pc);
+    box(0.13, 0.16, 0.3, M.boot, -0.9, fl + 0.08, W / 2 - 0.3); box(0.13, 0.16, 0.3, M.boot, -0.72, fl + 0.08, W / 2 - 0.27); box(0.13, 0.16, 0.3, M.boot, 0.4, fl + 0.08, W / 2 - 0.32, 0.4);
     box(1.3, 0.012, 0.8, M.blanket, 0.2, fl + 0.006, 0.45);
   } else if (U.kind === 'mess') {
     // kitchen bench with a sink, a microwave and a kettle; the tall fridge; a table and two chairs
