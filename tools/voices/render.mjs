@@ -20,7 +20,7 @@ const ocker = (p) => p
   .replace(/ə(?=[ ,.!?;:]|$)/g, 'ɐ');                                            // final schwa opens: "mate-ah"
 // Dima: a heavy Russian accent on top of American English: "ees" for is, rolled r, v for w, z for th, kh for h,
 // "liftink", no flaps, and the voiced consonants at the ends of words devoiced ("gut day")
-const RU_WORD = { 'do svidaniya': 'dəsvʲidˈanʲijə', 'da': 'dˈa', 'dima': 'dʲˈima', 'vodka': 'vˈotkə', 'pfft': 'pfː' };
+const RU_WORD = { 'do svidaniya': 'dəsvʲidˈanʲijə', 'da': 'dˈa', 'dima': 'dʲˈima', 'vodka': 'vˈotkə', 'pfft': 'pfː', 'leilx': 'lˈɛil' };
 const russki = (p) => p
   .replace(/ɚ/g, 'ɛr').replace(/ɜː?ɹ?/g, 'ɛr').replace(/ɹ/g, 'r').replace(/ɾ/g, 't')
   .replace(/w/g, 'v').replace(/θ/g, 's').replace(/ð/g, 'z').replace(/h/g, 'x')
@@ -28,7 +28,8 @@ const russki = (p) => p
   .replace(/ŋ(?=[ ,.!?;:]|$)/g, 'ŋk')
   .replace(/([dzvɡb])(?=[ ,.!?;:]|$)/g, (m, c) => ({ d: 't', z: 's', v: 'f', ɡ: 'k', b: 'p' })[c]);
 const dmPhon = async (text) => { let t = text.replace(/[’‘]/g, "'").replace(/\.\.\./g, ', ').replace(/push-ups/gi, 'push ups');
-  const parts = []; for (const seg of t.split(/(\bDo svidaniya\b|\bDima\b|\bvodka\b|\bPfft\b|\bda\b)/i)) { if (!seg) continue; const w = RU_WORD[seg.toLowerCase()];
+  t = t.replace(/\bleil\b/gi, 'LEILX');                                                  // (the Estonian for sauna steam, said properly)
+  const parts = []; for (const seg of t.split(/(\bDo svidaniya\b|\bDima\b|\bvodka\b|\bPfft\b|\bda\b|\bLEILX\b)/i)) { if (!seg) continue; const w = RU_WORD[seg.toLowerCase()];
     parts.push(w || russki(await phonemize(seg, 'a'))); }
   return parts.join(' ').replace(/ +/g, ' ').replace(/ ([,.!?])/g, '$1').trim(); };
 const prep = (t) => t.replace(/[’‘]/g, "'").replace(/\bG'day\b/gi, 'Gidday').replace(/XXXX/g, 'four ex').replace(/'(em|ere)\b/g, '$1').replace(/\.\.\./g, ', ').replace(/(\w)in'(?=\W|$)/g, '$1ing');
