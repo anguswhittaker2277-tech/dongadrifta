@@ -3200,6 +3200,7 @@ function animateFarmer(dt) {
   }
   let fastK = false;
   if ((F.mode === 'walk' || (F.mode === 'air' && typeof MEL !== 'undefined' && MEL.cur)) && typeof melPose === 'function' && !(typeof WPN !== 'undefined' && WPN.cur)) { const o = melPose(run); if (o) { ({ shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY } = o); if (o.hipL !== undefined) hipL = o.hipL; if (o.hipR !== undefined) hipR = o.hipR; if (o.kneeL !== undefined) kneeL = o.kneeL; if (o.kneeR !== undefined) kneeR = o.kneeR; if (o.headX !== undefined) headX = o.headX; if (o.bodyRz !== undefined) bodyRz = o.bodyRz; if (o.bodyY !== undefined) bodyY = o.bodyY; if (o.bodyX !== undefined) bodyX = o.bodyX; if (o.bodyRy !== undefined) bodyRy = o.bodyRy; fastK = o.fast; } }
+  if (typeof wlDragPose === 'function' && F.mode === 'walk') { const o = wlDragPose(); if (o) { ({ shLx, shRx, shLz, shRz, elL, elR, torsoX } = o); headX = o.headX; } }
   const L = 1 - Math.exp(-(F.mode === 'emote' ? 22 : fastK ? 34 : 14) * dt);
   const lerpRot = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
   lerpRot(P.hipL, 'x', hipL); lerpRot(P.hipR, 'x', hipR); lerpRot(P.kneeL, 'x', kneeL); lerpRot(P.kneeR, 'x', kneeR);
@@ -9144,8 +9145,9 @@ const WEAPONS = {
   rpg:     { label: 'Rocket launcher', kind: 'rocket', give: 10, R: 9.5, pw: 1.25, speed: 48, reload: 1.4 },
   molotov: { label: 'Molotovs', kind: 'throw', give: 8, speed: 15, fire: 3.2 },
   flamer:  { label: 'Flamethrower', kind: 'flame', give: 60, range: 10 },          // ammo = seconds of fuel
+  axe:     { label: 'Axe', kind: 'melee', give: 1, dmg: 34 },                      // Dima's: chops trees, splits rounds, and anything else you swing it at
 };
-const WPN_ORDER = ['pistol', 'shotgun', 'rifle', 'sniper', 'minigun', 'grenade', 'sticky', 'rpg', 'molotov', 'flamer'];
+const WPN_ORDER = ['pistol', 'shotgun', 'rifle', 'sniper', 'minigun', 'grenade', 'sticky', 'rpg', 'molotov', 'flamer', 'axe'];
 const WPN = { owned: {}, ammo: {}, mag: {}, cur: null, fire: false, firePrev: false, cd: 0, reloadT: 0, spin: 0, scope: false, shots: 0, flameT: 0,
               proj: [], sticks: [], fires: [], booms: [], decals: [], splats: [], hops: [], VD: {}, hitT: 0, hitKind: '', netT: 0, told: {}, locker: null, ready: false };
 const LOCKER = { x: 41.6, z: -6.4, yaw: -Math.PI / 2 };
@@ -9221,6 +9223,7 @@ function wpnGunModel(id) {
   else if (id === 'grenade') { const s = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), WMAT.olive); s.scale.set(1, 1.15, 1); g.add(s); B(0.02, 0.03, 0.02, WMAT.gunL, 0, 0.055, 0); }
   else if (id === 'sticky') { B(0.11, 0.05, 0.08, WMAT.olive, 0, 0, 0); B(0.03, 0.02, 0.03, WMAT.red, 0.03, 0.035, 0); }
   else if (id === 'molotov') { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.16, 8), WMAT.glass); g.add(b); const n = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.02, 0.07, 6), WMAT.glass); n.position.y = 0.11; g.add(n); B(0.02, 0.05, 0.02, new THREE.MeshBasicMaterial({ color: 0xf3e2c0 }), 0, 0.16, 0); }
+  else if (id === 'axe') { const ax = wlAxe(); ax.position.set(0, -0.06, 0); ax.rotation.x = -0.25; g.add(ax); }
   else if (id === 'flamer') { C(0.02, 0.55, WMAT.gun, 0, 0.02, 0.22); C(0.045, 0.3, WMAT.red, 0, -0.06, -0.05, 10); B(0.03, 0.1, 0.04, WMAT.gun, 0, -0.03, 0.08); }
   return g;
 }
@@ -9850,7 +9853,7 @@ function wpnLockerNear() { return wpnMmLockerNear() || (WPN.locker && activeName
 function wpnOpenLocker() { WPN.lockerSet = wpnMmLockerNear() ? MM_LOCKER : WPN_ORDER; $('wSheet').querySelector('h2').textContent = WPN.lockerSet === MM_LOCKER ? 'Madman\u2019s gun locker' : 'Gun locker'; wpnSheet(); $('wSheet').classList.add('show'); }
 function wpnSheet() {
   const box = $('wGrid'); if (!box) return;
-  const kinds = { gun: 'Gun', throw: 'Throw', rocket: 'Rocket', flame: 'Fire' };
+  const kinds = { gun: 'Gun', throw: 'Throw', rocket: 'Rocket', flame: 'Fire', melee: 'Melee' };
   box.innerHTML = (WPN.lockerSet || WPN_ORDER).map(id => { const W = WEAPONS[id], own = WPN.owned[id], amt = (WPN.ammo[id] || 0) + (WPN.mag[id] || 0);
     return `<button type="button" class="w-card${own ? ' own' : ''}" data-w="${id}"><b>${W.label}</b><span>${kinds[W.kind]}${W.kind === 'flame' ? ' · fuel' : ''}</span><i>${own ? (amt >= W.give ? 'Full' : 'Top up → ' + W.give) : 'Take'}</i></button>`; }).join('');
 }
@@ -9860,12 +9863,14 @@ function wpnHud(force) {
   const draw = !armed && activeName === 'foot' && F.dead <= 0 && WPN_ORDER.some(i => WPN.owned[i]); document.body.classList.toggle('candraw', draw);
   if (draw) { const d = WPN.last && WPN.owned[WPN.last] ? WPN.last : WPN_ORDER.find(i => WPN.owned[i]); if (d !== WPN.drawKey) { WPN.drawKey = d; $('wDrawN').textContent = WEAPONS[d].label; } }
   if (!armed && !force) return;
-  if (W) { const a = WPN.ammo[id] || 0, am = W.kind === 'gun' ? (W.reload ? (WPN.mag[id] || 0) + ' / ' + a : String(a)) : W.kind === 'flame' ? Math.ceil(a) + ' s' : String(a);
-    const alt = W.scope ? (WPN.scope ? 'UNSCOPE' : 'SCOPE') : (id === 'sticky' && WPN.sticks.length) ? 'BOOM' : '', fl = W.kind === 'throw' ? 'THROW' : W.kind === 'flame' ? 'BURN' : 'FIRE', key = W.label + am + alt + fl + (WPN.reloadT > 0 ? 'r' : '');
+  if (W) { const a = WPN.ammo[id] || 0, am = W.kind === 'gun' ? (W.reload ? (WPN.mag[id] || 0) + ' / ' + a : String(a)) : W.kind === 'flame' ? Math.ceil(a) + ' s' : W.kind === 'melee' ? '' : String(a);
+    const alt = W.scope ? (WPN.scope ? 'UNSCOPE' : 'SCOPE') : (id === 'sticky' && WPN.sticks.length) ? 'BOOM' : '', fl = W.kind === 'throw' ? 'THROW' : W.kind === 'flame' ? 'BURN' : W.kind === 'melee' ? 'SWING' : 'FIRE', key = W.label + am + alt + fl + (WPN.reloadT > 0 ? 'r' : '');
     if (key !== WPN.hudKey) { WPN.hudKey = key; $('wName').textContent = W.label; $('wAmmo').textContent = WPN.reloadT > 0 ? 'reloading' : am; $('wAlt').style.display = alt ? 'grid' : 'none'; $('wAlt').textContent = alt; $('wFire').querySelector('span').textContent = fl; } }
 }
 function wpnCam(dt) {
   if (MH.pax) { mhCam(dt); return; }
+  if (wpnArmed() && WEAPONS[WPN.cur].kind === 'melee') {            // an axe: no aiming down it, the usual camera, carried in the right hand
+    if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; } if (DAZZA.can) DAZZA.can.visible = false; return; }
   if (!wpnArmed()) { if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; } if (DAZZA.root.visible === false && activeName === 'foot' && WPN.hidFarmer) { DAZZA.root.visible = true; WPN.hidFarmer = false; } return; }
   const yaw = camYawF, pit = camPitchF, cp = Math.cos(pit), sp = Math.sin(pit);
   const f = _w1.set(Math.sin(yaw) * cp, -sp, Math.cos(yaw) * cp), right = _w2.set(-Math.cos(yaw), 0, Math.sin(yaw));
@@ -9929,6 +9934,8 @@ function wpnStep(dt) {
   } else if (W.kind === 'throw' || W.kind === 'rocket') {
     if (fire && !WPN.firePrev && WPN.cd <= 0) { if ((WPN.ammo[id] || 0) > 0) { WPN.ammo[id]--; WPN.throwT = 0.35; WPN.cd = W.kind === 'rocket' ? W.reload : 0.7; if (W.kind === 'rocket') { wpnThrow(id); wpnFlashAt(wpnMuzzle(new THREE.Vector3())); } else WPN.pend = { id, t: 0.16 }; }
       else toast('None left: top up at the gun locker', 1.6); }
+  } else if (W.kind === 'melee') {
+    if (fire && !WPN.firePrev && WPN.cd <= 0) { WPN.cd = 0.75; axeSwing(); }
   } else if (W.kind === 'flame') {
     const on = fire && (WPN.ammo[id] || 0) > 0; if (on) WPN.ammo[id] = Math.max(0, WPN.ammo[id] - dt); wpnFlameStep(dt, on); if (AU.ctx) wpnFlameVoice(on);
   }
@@ -10812,19 +10819,23 @@ const DIMA_L = {
     "My grandmother lifts more than these backpackers.", "Today is chest day. Every day is chest day.", "The French boy asked me for protein. I said earn it.", "You stand like small tree. Stand like big tree.",
     "Sauna tonight? Of course sauna tonight.", "Is hot outside, da? Inside sauna is hotter. Is good."],
   talk: ["Sauna makes you strong like bear.", "First sweat, then cold water, then vodka. Is the way.", "I do two hundred push-ups before you wake up.", "Steam is good for soul, my friend.",
-    "Real sauna has birch branches. You hit yourself. Is massage.", "Löyly is spirit of steam. You must respect.", "My father built sauna with his hands. I built this with my hands. And Madman's drill.",
+    "Real sauna has birch branches. You hit yourself. Is massage.", "Leil is spirit of steam. You must respect.", "My father built sauna with his hands. I built this with my hands. And Madman's drill.",
     "Cold tub is for heart. Makes it strong like tractor.", "Never drink beer in sauna. Drink after. Many.", "You want to be strong? Chop wood. Every day chop wood."],
   bye: ["Do svidaniya, my friend.", "Go. Eat more protein.", "Go, little man. Come back stronger.", "See you in sauna.", "Drink water. Lots of water."],
   start: ["Ha! You want sauna challenge? No wood, no sauna. Take axe, go fell tree.", "Challenge? Good. Here is my axe. Fell a gum, bring it here, split it."],
   fell: ["Timber! Ha! Now drag it to chopping block.", "Good tree. Now pull it here. Use legs, not back."],
-  drag: ["Pull! Pull like tractor!", "Slow is fine. Tree does not run away."],
+  drag: ["Look at you. Like baby pulling tractor.", "Pull! Pull like tractor!", "Slow is fine. Tree does not run away."],
+  liftLog: ["Bah! Give it here. I show you how.", "Enough. Move, little man. Dima carries."],
+  carry: ["See? Is like carrying shopping.", "Light as feather. Is good log."],
+  chopBad: ["You tickle the tree.", "Tree is laughing at you.", "Swing on the green, not in the air!", "My grandmother chops faster."],
+  chopGood: ["Good! Again!", "Da, like this!", "Now you are chopping."],
   split: ["Now split. Hit in middle, not your foot.", "Rounds are ready. Show me clean splits."],
   splitGood: ["Clean split! Beautiful.", "Ha! Like butter.", "Da! Like real lumberjack."],
-  splitBad: ["No, no. Look at wood, not at me.", "Is glancing. Swing on the green.", "You tickle the wood. Hit it!"],
+  splitBad: ["No, no. Look at wood, not at me.", "Is glancing. Swing on the green.", "You tickle the wood. Hit it!", "Again. And this time, hit the wood."],
   wood: ["Good! Now light stove. Go, go!", "Now carry inside and light stove. Quickly!"],
   lit: ["Is getting hot! I am coming.", "Good fire. I bring towel."],
   sit: ["Sit. We stay longer now. No crying.", "Sit. Is long sit. Very long sit."],
-  ask: ["Water on rocks! Now!", "More steam! Is not hot yet!", "Löyly! Give me löyly!", "Throw water, little man!", "Is cold in here. More water!", "Ladle! Use ladle!"],
+  ask: ["Water on rocks! Now!", "More steam! Is not hot yet!", "Leil! Give me leil!", "Throw water, little man!", "Is cold in here. More water!", "Ladle! Use ladle!"],
   more: ["You are sleeping? More water!", "Hello? Water!", "I said water! Now!"],
   good: ["Da! Is beautiful!", "Yes! Like real Russian!", "Ahh. Now is sauna.", "Good. Good steam.", "Ooh, that one I feel in bones."],
   plunge: ["Now cold water! Run, run!", "Out! Cold tub! Go!"],
@@ -12028,7 +12039,9 @@ function dgW(u, v, U = DG) { const c = Math.cos(U.yaw), s = Math.sin(U.yaw); ret
 function dgL(x, z, U = DG) { const c = Math.cos(U.yaw), s = Math.sin(U.yaw), dx = x - U.x, dz = z - U.z; return [dx * c - dz * s, dx * s + dz * c]; }
 // literal numbers: this runs while the scan is set up, before anything else here exists
 function dgCut(x, y, z) {
-  if (x > 183.85 && x < 187.25 && z > 49.25 && z < 52.45) return y > 0.62;                                   // the black tent sauna on its pad (rebuilt as a proper one)
+  if (x > 183.85 && x < 187.8 && z > 49.25 && z < 52.45) return y > 0.62;                                    // the black tent sauna on its pad (rebuilt as a proper one), and the bits of it against the east wall
+  if (x > 183.6 && x < 184.9 && z > 42.2 && z < 43.9) return y > 0.7;                                         // the lump on the block's corner by the cold tub
+  if (x > 183.6 && x < 185.0 && z > 43.2 && z < 49.4 && y > 1.7) return true;                                  // rags of scan hanging under the east end of the breezeway roof
   if (x > 183.7 && x < 187.1 && z > 39.6 && z < 42.9) return y > 0.72;                                       // the white tank by Dima's donga (the cold tub, rebuilt)
   if (x > 168.7 && x < 183.75 && z > 39.2 && z < 55.3) return y > 0.5;                                    // under the new slab: the scanned lump, down to the dirt
   if (x > 168.95 && x < 183.9 && z > 38.75 && z < 55.9) return y > 0.8;                                   // its walls just outside the slab (the dirt there stays)
@@ -12370,7 +12383,7 @@ function dgUnit(U, gy, group) {
    you can walk into: two-tier bench, wood stove with a basket of rocks, steam, a thermometer, and an old bathtub of
    cold water outside for the plunge. Light the stove and it heats up over a minute or so; throw water on the rocks
    (loyly) for a blast of steam. Stay in too long and you pass out. Dima (next door) is a sauna fanatic: he has his own
-   menu and a challenge (wood, stove, a minute of loyly with him, then the cold tub). Madman thinks they're all mad.
+   menu and a challenge (wood, stove, a sit in the leil with him (the Estonian for sauna steam), then the cold tub). Madman thinks they're all mad.
    ================================================================ */
 const SA = { x: 185.45, z: 50.85, W: 2.6, D: 2.2, H: 2.25, fl: 0.12, yaw: Math.PI, root: null, door: null, doorA: 0, gy: 0.55, lit: false, litT: 0, temp: 24, steam: 0, heat: 0,
   puffs: [], smoke: [], tub: { x: 185.4, z: 41.25, R: 1.0, H: 0.8 }, q: null, mmT: 20, soloT: 120 + Math.random() * 90, solo: null, chip: null, haze: null, sheet: null, best: 0, done: 0 };
@@ -12578,6 +12591,7 @@ function dmThink(n, dt) {
   if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (n.st === 'dmDogs' && dmDogs(n, dt)) return;
+  if (dmWood(n, dt)) return;
   if (n.st !== 'home') { n.st = 'home'; n.t = 0; }
   const [x, z] = dmHome(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
   if (d > 0.5) { const [wx, wz] = dmVia(n.pos.x, n.pos.z, x, z); if (d < 3 && Math.abs(n.pos.z - z) < 3) dgMove(n, x, z, 1.4, dt); else npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 1.8 : 1.2, dt); return; }
@@ -12590,7 +12604,11 @@ function dmThink(n, dt) {
 }
 // fights and hurts from the shared code come through npcSay with the backpackers' French: give him his own
 function dmSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) dmSay(n, m, 2.6); return; } }
-function dmPoseHook(n, Q) { if (n.st === 'dmDogs' && DM.dogs && DM.dogs.at > 0) { const w = Math.sin(NPC.t * 9); Q.shLx = -2.5 + w * 0.35; Q.shRx = -2.5 - w * 0.35; Q.shLz = 0.5; Q.shRz = -0.5; Q.elL = Q.elR = -0.3; Q.torsoX = 0.08; Q.headX = -0.12; return; }
+function dmPoseHook(n, Q) {
+  if (n.st === 'dmWood' && DM.wood && (DM.wood.ph === 'lift' || DM.wood.ph === 'carry')) {          // the log up on his right shoulder, a hand steadying it
+    if (DM.wood.ph === 'lift') { const k = Math.min(1, DM.wood.t / 0.6); Q.shLx = Q.shRx = -0.6 - 2.0 * k; Q.elL = Q.elR = -1.4 * k; Q.torsoX = 0.4 * (1 - k); Q.kneeL = Q.kneeR = 0.6 * (1 - k); Q.hipL = Q.hipR = -0.5 * (1 - k); }
+    else { Q.shRx = -2.75; Q.shRz = -0.3; Q.elR = -1.75; Q.torsoX = 0.05; } return; }
+  if (n.st === 'dmDogs' && DM.dogs && DM.dogs.at > 0) { const w = Math.sin(NPC.t * 9); Q.shLx = -2.5 + w * 0.35; Q.shRx = -2.5 - w * 0.35; Q.shLz = 0.5; Q.shRz = -0.5; Q.elL = Q.elR = -0.3; Q.torsoX = 0.08; Q.headX = -0.12; return; }
   if (DM.flexT > 0 && n.st === 'home') { Q.shLz = 1.5; Q.shRz = -1.5; Q.shLx = -0.15; Q.shRx = -0.15; Q.elL = -1.8; Q.elR = -1.8; Q.torsoX = -0.06; Q.headX = -0.1; } }
 function dmReset() { if (DM.n) dmPlace(); DM.talkT = 12; DM.dogs = null; }
 // the dogs have got in his tub: he drops what he's doing (a sauna on his own, a soak, standing about) and goes to sort them out.
@@ -12604,6 +12622,39 @@ function dmDogAlarm(n) {
   if (n.st === 'saIn' || n.st === 'saSit' || n.st === 'saOut') { n.after = 'dogs'; if (n.st !== 'saOut') { n.st = 'saOut'; n.t = 0; } return; }      // out the door first
   if (n.st === 'saTub') { const [ex, ez] = tbEdge(0, 1.45); n.pos.set(ex, groundAt(ex, ez, SA.tubM.position.y + 1, SA.tubM.position.y), ez); n.gy = n.pos.y; }
   n.st = 'dmDogs'; n.t = 0;
+}
+// the challenge's wood: he's out there with you. He stands off to the side while you chop, and when you're dying under the
+// log he takes it off you, hoists it on his shoulder and carries it to the block; then he watches you split
+function dmWood(n, dt) {
+  const q = SA.q; if (!q || !['chop', 'fell', 'drag', 'split'].includes(q.step)) { if (n.st === 'dmWood') { n.st = 'home'; n.t = 0; } DM.wood = null; return false; }
+  const W = DM.wood || (DM.wood = { ph: 'watch', t: 0 }); W.t += dt; n.st = 'dmWood';
+  const me = plById(q.who) || plList()[0], mp = me.pos, T = wlTree();
+  const walk = (x, z, fast) => { const d = Math.hypot(x - n.pos.x, z - n.pos.z); if (d < 2.5) return dgMove(n, x, z, fast ? 1.6 : 1.2, dt);
+    if (n.pos.x > 187.6 && x > 187.6) { const [ax, az] = wlAvoid(n.pos.x, n.pos.z, x, z); dgMove(n, ax, az, fast ? 2.6 : 1.6, dt); return false; }      // out in the open: straight there, round the trees
+    let [wx, wz] = [x, z]; const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2;
+    if (n.pos.x < B.x1 + 0.4 && Math.abs(n.pos.z - zm) < 4.3) [wx, wz] = brzVia(n.pos.x, n.pos.z, B.x1 + 0.9, zm);          // out the breezeway's east end
+    else if (n.pos.x < 187.9 && n.pos.z > 46.6 && n.pos.z < 53.2 && (x > 187.9 || z > 53.2)) [wx, wz] = [188.4, n.pos.z < 50 ? 48.4 : 53.6];     // round the sauna
+    npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), fast ? 2.6 : 1.8, dt); return false; };
+  // hauling the log
+  if (W.ph === 'go') { const L = q.log; if (!L || q.step !== 'drag') { W.ph = 'watch'; return true; } const mx = (L[0] + L[2]) / 2, mz = (L[1] + L[3]) / 2;
+    if (walk(mx, mz, true) || Math.hypot(mx - n.pos.x, mz - n.pos.z) < 0.7 || W.t > 25) { W.ph = 'lift'; W.t = 0; q.drag = false; q.carry = true; npcFace(n, L[2], L[3], 99, 1); toast('Dima takes the log off you and hoists it onto his shoulder', 2.4); sfx('tree_thud', n.pos, 0.35, 1.3, 10); }
+    return true; }
+  if (W.ph === 'lift') { n.sp *= 0.6; if (W.t > 1.0) { W.ph = 'carry'; W.t = 0; dmSay(n, 'carry', 3); } return true; }
+  if (W.ph === 'carry') { const x = WL.station.x + 1.3, z = WL.station.z - 0.3;
+    if (walk(x, z, false) || Math.hypot(x - n.pos.x, z - n.pos.z) < 0.6 || W.t > 40) {      // down it goes by the block: bucked into rounds
+      q.carry = false; q.drag = false; q.step = 'split'; q.split = 0; q.roundHp = 2; W.ph = 'watch'; W.done = true; sfx('tree_thud', _w1.set(WL.station.x, WL.stY + 0.3, WL.station.z), 0.8, 1.05, 14);
+      dmSay(n, 'split'); toast('Dima drops it by the block in rounds. Split them', 2.4); }
+    return true; }
+  // you're struggling with it: he's had enough of watching
+  if (q.step === 'drag' && q.drag && (q.strugT || 0) > 3.5 && !W.done) { W.ph = 'go'; W.t = 0; dmSay(n, 'liftLog', 3); return true; }
+  // otherwise: a few metres off to the side, watching you
+  // (across the work from you and a little to one side, so he's in your view, not in it)
+  const wx = q.step === 'split' ? WL.station.x : q.log ? q.log[0] : T ? T.x : mp.x, wz = q.step === 'split' ? WL.station.z : q.log ? q.log[1] : T ? T.z : mp.z;
+  const away = Math.atan2(wx - mp.x, wz - mp.z) + (W.side || (W.side = Math.random() < 0.5 ? 0.75 : -0.75)), r = q.step === 'split' ? 2.1 : 3.0;
+  let tx = wx + Math.sin(away) * r, tz = wz + Math.cos(away) * r;
+  if (W.tx != null && Math.hypot(tx - W.tx, tz - W.tz) < 1.5) { tx = W.tx; tz = W.tz; } W.tx = tx; W.tz = tz;          // (don't shuffle about with every step you take)
+  if (Math.hypot(tx - n.pos.x, tz - n.pos.z) > 0.6) walk(tx, tz, Math.hypot(tx - n.pos.x, tz - n.pos.z) > 8); else { n.sp *= 0.7; npcFace(n, mp.x, mp.z, 4, dt); }
+  return true;
 }
 // the dogs are in his tub: over he storms, waving his arms and shouting, until they're out
 function dmDogs(n, dt) {
@@ -12639,7 +12690,7 @@ function saUI() {
   const sh = document.createElement('div'); sh.id = 'saSheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.setAttribute('aria-label', 'Dima');
   sh.innerHTML = '<div id="saCard"><div class="ch-head"><h2>Dima</h2><button id="saX" type="button" aria-label="Close">&times;</button></div><p id="saMood"></p><div id="saGrid">' +
     '<button type="button" class="w-card" data-sa="talk"><b>Talk</b><span>Ask about the sauna</span></button>' +
-    '<button type="button" class="w-card" data-sa="quest"><b>Sauna challenge</b><span>Wood, stove, a minute of löyly, then the cold tub</span></button>' +
+    '<button type="button" class="w-card" data-sa="quest"><b>Sauna challenge</b><span>Fell a gum, split it, sit in the leil, then the cold tub</span></button>' +
     '<button type="button" class="w-card" data-sa="leave"><b>Leave</b><span>Do svidaniya</span></button></div></div>';
   document.body.appendChild(sh); SA.sheet = sh;
   sh.addEventListener('click', e => { if (e.target === sh || e.target.id === 'saX') { sh.classList.remove('show'); return; } const b = e.target.closest('[data-sa]'); if (b) saChoose(b.dataset.sa); });
@@ -12647,9 +12698,9 @@ function saUI() {
 function saTalkable() { const n = saDima(); return !!n && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air' || !!saSitting()) && F.dead <= 0 && !n.veh && !n.angry && ['home', 'saSit', 'saGo', 'saIn', 'saTub'].includes(n.st) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 3.2; }
 function saMenuOpen() {
   saUI(); if (!saTalkable()) return; const n = saDima(), q = SA.q;
-  $('saMood').textContent = 'Russian, enormous, sauna fanatic. ' + (SA.done ? 'Challenges done: ' + SA.done + (SA.best ? ' · best löyly: ' + SA.best : '') : 'He reckons you won’t last a minute.');
+  $('saMood').textContent = 'Russian, enormous, sauna fanatic. ' + (SA.done ? 'Challenges done: ' + SA.done + (SA.best ? ' · best leil: ' + SA.best : '') : 'He reckons you won’t last a minute.');
   const b = SA.sheet.querySelector('[data-sa="quest"]'), busy = !!q, mine = q && (!q.who || q.who === MP.me), who = q && !mine ? (plById(q.who) || {}).name || 'your mate' : ''; b.setAttribute('aria-disabled', busy ? 'true' : 'false');
-  b.querySelector('span').textContent = mine ? 'Already on: ' + saStepText() : q ? 'He\u2019s doing it with ' + who + ' (come and sit in)' : 'Wood, stove, a minute of löyly, then the cold tub';
+  b.querySelector('span').textContent = mine ? 'Already on: ' + saStepText() : q ? 'He\u2019s doing it with ' + who + ' (come and sit in)' : 'Fell a gum, split it, sit in the leil, then the cold tub';
   SA.sheet.classList.add('show'); npcFace(n, F.pos.x, F.pos.z, 99, 1);
 }
 function saChoose(k) {
@@ -12709,7 +12760,7 @@ function wlBuild() {
   WL.log = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, WL.LOG, 9), M.bark); WL.log.visible = false; WL.log.castShadow = true; scene.add(WL.log);
   WL.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([255, 200, 120], true), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.7 })); WL.glow.scale.set(2.2, 2.2, 1); WL.glow.visible = false; scene.add(WL.glow);
   // what you carry: his axe, then the armful of split wood
-  WL.handAxe = wlAxe(); WL.handAxe.visible = false; WL.armful = new THREE.Group(); WL.armful.visible = false;
+  WL.armful = new THREE.Group(); WL.armful.visible = false;
   for (let k = 0; k < 5; k++) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.09, 0.09), M.split); p.position.set(0, (k % 2) * 0.09, (Math.floor(k / 2) - 1) * 0.1); WL.armful.add(p); }
 }
 // a fresh woodlot (the felled one grows back, as these things do between challenges)
@@ -12753,27 +12804,37 @@ function wlChop(qual) {
   T.hp -= qual === 'good' ? 24 : qual === 'ok' ? 11 : 3; q.chops = (q.chops || 0) + 1;
   const P = _w1.set(T.x, T.gy + 0.9, T.z); sfx('chop_tree', P, qual === 'miss' ? 0.55 : 1, 0.92 + Math.random() * 0.14, 14);
   if (typeof wpnPart === 'function' && WPN.chip) for (let k = 0; k < (qual === 'miss' ? 2 : 6); k++) wpnPart(WPN.chip, P, 0.6, _w2.set((Math.random() - 0.5) * 3, 1 + Math.random() * 2, (Math.random() - 0.5) * 3));
-  if (qual === 'miss') { toast('Glanced off it. Swing when the marker’s in the green', 1.4); if (!(WL.saidT > q.t)) { WL.saidT = q.t + 8; const n = saDima(); if (n) dmSay(n, 'splitBad'); } }
+  if (qual === 'miss') { toast('Glanced off it. Swing when the marker’s in the green', 1.4); wlBanter('chopBad', 3.5); } else if (qual === 'good' && Math.random() < 0.3) wlBanter('chopGood', 8);
   if (T.hp <= 0) { T.st = 'falling'; T.fall = 0; T.dir = Math.atan2(T.x - F.pos.x, T.z - F.pos.z); T.part.alive = false; q.step = 'fell'; sfx('tree_creak', _w1.set(T.x, T.gy + 2, T.z), 1, 0.9, 18); toast('Timber!', 1.4); }
 }
+// a way past the woodlot's trees (and the chopping block) for someone walking from p to t: the next point to head for
+function wlAvoid(px, pz, tx, tz) {
+  const obs = WL.trees.filter(T => T.st === 'stand').map(T => [T.x, T.z, 0.75]); obs.push([WL.station.x, WL.station.z, 0.85]);
+  const dx = tx - px, dz = tz - pz, L = Math.hypot(dx, dz) || 1, ux = dx / L, uz = dz / L; let best = null, bt = 1e9;
+  for (const [ox, oz, r] of obs) { const t = (ox - px) * ux + (oz - pz) * uz; if (t <= 0 || t >= L) continue; const off = (ox - px) * uz - (oz - pz) * ux; if (Math.abs(off) < r && t < bt) { bt = t; best = [ox, oz, r, off]; } }
+  if (!best) return [tx, tz]; const [ox, oz, r, off] = best, sd = off > 0 ? -1 : 1;          // step round it on the side we're already on
+  return [ox + uz * sd * (r + 0.6) - ux * 0.3, oz - ux * sd * (r + 0.6) - uz * 0.3];
+}
+// Dima, beside you, has something to say about that swing
+function wlBanter(k, gap) { const q = SA.q, n = saDima(); if (!q || !n || !npcAlive(n) || n.angry || (WL.saidT > q.t)) return; WL.saidT = q.t + gap; dmSay(n, k, 2.6); }
 function wlDrag(on) {
   const q = SA.q; if (!q || q.step !== 'drag' || !q.log) return; const L = q.log;
   if (!on) { q.drag = false; return; }
   const dA = Math.hypot(F.pos.x - L[0], F.pos.z - L[1]), dB = Math.hypot(F.pos.x - L[2], F.pos.z - L[3]);
   if (Math.min(dA, dB) > 2.4) return; if (dB < dA) q.log = [L[2], L[3], L[0], L[1]];          // take hold of whichever end you're at
-  q.drag = true; const n = saDima(); if (n && !(WL.saidT > q.t)) { WL.saidT = q.t + 10; dmSay(n, 'drag'); }
+  q.drag = true; q.strugT = q.strugT || 0; toast('Heavy! Heave it back to the chopping block', 2); wlBanter('drag', 3);
 }
 function wlSplit(qual) {
   const q = SA.q; if (!q || q.step !== 'split' || Math.hypot(F.pos.x - WL.station.x, F.pos.z - WL.station.z) > 2.8) return;
   const P = _w1.set(WL.station.x, WL.stY + 0.6, WL.station.z);
-  if (qual === 'miss') { sfx('chop_tree', P, 0.5, 1.15, 12); toast('Glanced off the round. Wait for the green', 1.3); if (!(WL.saidT > q.t)) { WL.saidT = q.t + 8; const n = saDima(); if (n) dmSay(n, 'splitBad'); } return; }
+  if (qual === 'miss') { sfx('chop_tree', P, 0.5, 1.15, 12); toast('Glanced off the round. Wait for the green', 1.3); wlBanter('splitBad', 3.5); return; }
   q.roundHp = (q.roundHp == null ? 2 : q.roundHp) - (qual === 'good' ? 2 : 1);
   sfx(q.roundHp <= 0 ? 'split_wood' : 'chop_tree', P, 1, 0.95 + Math.random() * 0.1, 14);
   if (typeof wpnPart === 'function' && WPN.chip) for (let k = 0; k < 5; k++) wpnPart(WPN.chip, P, 0.5, _w2.set((Math.random() - 0.5) * 2.5, 1 + Math.random() * 1.5, (Math.random() - 0.5) * 2.5));
   if (q.roundHp > 0) { toast('Not quite through. Again', 1); return; }
   q.split = (q.split || 0) + 1; q.roundHp = 2; const n = saDima();
   if (q.split >= WL.ROUNDS) { q.step = 'light'; if (n) dmSay(n, 'wood'); toast('That’s an armful. Carry it into the sauna and light the stove', 2.6); }
-  else { toast('Split ' + q.split + '/' + WL.ROUNDS, 1); if (qual === 'good' && n && !(WL.saidT > q.t)) { WL.saidT = q.t + 9; dmSay(n, 'splitGood'); } }
+  else { toast('Split ' + q.split + '/' + WL.ROUNDS, 1); if (qual === 'good' && Math.random() < 0.45) wlBanter('splitGood', 8); }
 }
 // the host's part, every frame: the tree coming down, the log behind whoever's dragging it
 function wlQuestStep(dt) {
@@ -12782,6 +12843,7 @@ function wlQuestStep(dt) {
     const D = [Math.sin(T.dir), Math.cos(T.dir)]; q.log = [T.x + D[0] * 0.2, T.z + D[1] * 0.2, T.x + D[0] * (0.2 + WL.LOG), T.z + D[1] * (0.2 + WL.LOG)]; q.step = 'drag';
     if (n) dmSay(n, 'fell'); toast('Got it down. Drag the log back to the chopping block by the sauna', 2.6); }
   if (q.step === 'drag' && q.drag && q.log) {
+    q.strugT = (q.strugT || 0) + dt;
     const L = q.log, d = Math.hypot(F.pos.x - L[0], F.pos.z - L[1]);
     if (d > 4 || activeName !== 'foot' || F.dead > 0) { q.drag = false; return; }            // let go (or knocked flat)
     if (d > 0.55) { const k = (d - 0.55) / d; L[0] += (F.pos.x - L[0]) * k; L[1] += (F.pos.z - L[1]) * k; }
@@ -12801,8 +12863,11 @@ function wlStep(dt) {
         T.crown.updateMatrixWorld(true); scene.attach(T.crown); T.pivot.visible = false; } }
   }
   // the log: lying where it fell, or behind whoever's dragging it
-  const showLog = q && q.log && (q.step === 'drag');
-  WL.log.visible = !!showLog;
+  const carried = q && q.carry && DM.n && DM.n.P, showLog = q && q.log && q.step === 'drag' && !carried;
+  WL.log.visible = !!(showLog || carried);
+  if (carried) { const sh = DM.n.P.shR, par = sh.parent; if (WL.log.parent !== par) { par.add(WL.log); WL.log.rotation.set(Math.PI / 2, 0, 0); }
+    WL.log.position.set(sh.position.x * 1.15, sh.position.y + 0.16, sh.position.z); par.updateWorldMatrix(true, false); par.getWorldScale(_w3); WL.log.scale.setScalar(1 / Math.max(0.2, _w3.x)); }
+  else if (WL.log.parent !== scene) { scene.add(WL.log); WL.log.scale.setScalar(1); }
   if (showLog) { const L = q.log, ya = groundAt(L[0], L[1], 30, 0) + 0.15, yb = groundAt(L[2], L[3], 30, 0) + 0.13;
     WL.log.position.set((L[0] + L[2]) / 2, (ya + yb) / 2, (L[1] + L[3]) / 2); WL.log.quaternion.setFromUnitVectors(eYw, _w3.set(L[0] - L[2], ya - yb, L[1] - L[3]).normalize()); }
   // the rounds waiting by the block, and the split pile
@@ -12818,39 +12883,59 @@ function wlStep(dt) {
     else if (mine.step === 'drag' && mine.log) { if (mine.drag) { gx = WL.station.x; gz = WL.station.z; gyy = WL.stY + 1.4; } else { gx = mine.log[0]; gz = mine.log[1]; gyy = groundAt(gx, gz, 30, 0) + 0.9; } }
     else if (mine.step === 'split') { gx = WL.station.x; gz = WL.station.z; gyy = WL.stY + 1.4; } }
   WL.glow.visible = gx !== null; if (gx !== null) { WL.glow.position.set(gx, gyy, gz); WL.glow.material.opacity = 0.55 + Math.sin(WL.t * 3) * 0.2; }
-  // the axe: in your hands while you're chopping and splitting, the armful while you're carrying it in
-  const P = DAZZA, holdAxe = !!mine && ['chop', 'fell', 'drag', 'split'].includes(mine.step), holdWood = !!mine && mine.step === 'light';
-  if (P && P.can && P.can.parent) { if (WL.handAxe.parent !== P.can.parent) { P.can.parent.add(WL.handAxe); WL.handAxe.position.copy(P.can.position); WL.handAxe.position.y -= 0.02; WL.handAxe.rotation.set(Math.PI / 2, 0, 0); }
-    if (WL.armful.parent !== P.torso) { P.torso.add(WL.armful); WL.armful.position.set(0, 0.25, 0.32); }
-    WL.handAxe.visible = holdAxe && activeName === 'foot'; WL.armful.visible = holdWood && activeName === 'foot'; if (holdAxe || holdWood) P.can.visible = false; }
+  // the armful while you're carrying it in (the axe is a weapon now: it's in your hand when you've got it out)
+  const P = DAZZA, holdWood = !!mine && mine.step === 'light';
+  if (P && P.torso) { if (WL.armful.parent !== P.torso) { P.torso.add(WL.armful); WL.armful.position.set(0, 0.25, 0.32); }
+    WL.armful.visible = holdWood && activeName === 'foot'; if (holdWood && P.can) P.can.visible = false; }
   WL.blockAxe.visible = !(q && ['chop', 'fell', 'drag', 'split'].includes(q.step));
   // your swing lands
   if (WL.hitIn > 0) { WL.hitIn -= dt; if (WL.hitIn <= 0) { const a = WL.hitA, qual = WL.hitQ;
-    if (mpwCli()) mpwSendAct('sa:' + a, qual); else if (a === 'chop') wlChop(qual); else wlSplit(qual); } }
+    if (a === 'free') wlFreeHit(); else if (mpwCli()) mpwSendAct('sa:' + a, qual); else if (a === 'chop') wlChop(qual); else wlSplit(qual); } }
   // the timing bar, when there's something to swing at
   const tg = wlSwingTarget(); if (tg || WL.meter) wlMeterUI();
   if (WL.meter) { const show = !!tg; WL.meter.classList.toggle('show', show);
     if (show) { WL.speed = tg.kind === 'split' ? 5.6 : 4.4; WL.meter.querySelector('b').style.left = (wlMark() * 100).toFixed(1) + '%'; const s = tg.kind === 'split' ? 'Split: hit the green' : 'Chop: hit the green'; if (WL.meterTxt !== s) { WL.meterTxt = s; WL.meter.querySelector('span').textContent = s; } } }
 }
 // slower on your feet with a log in tow
-function wlSlow() { const q = wlMine(); return q && q.drag ? 1.5 : 99; }
+function wlSlow() { const q = wlMine(); return q && q.drag ? 0.7 : 99; }
+// leaning into it, both hands behind on the log
+function wlDragPose() { const q = wlMine(); if (!q || !q.drag || activeName !== 'foot') return null; const h = Math.sin(F.t * 7) * 0.06;
+  return { shLx: 0.75 + h, shRx: 0.75 - h, shLz: 0.28, shRz: -0.28, elL: -0.25, elR: -0.25, torsoX: 0.62, headX: -0.35 }; }
+// the axe, swung with FIRE (or the button): at the tree or the block it's the challenge's timed swing; anywhere else it's a hit
+function axeSwing() {
+  const tg = wlSwingTarget(); if (tg) { wlSwing(tg.kind); return; }
+  if (activeName !== 'foot' || F.mode !== 'walk' || F.dead > 0 || WL.swingCD > 0) return;
+  WL.swingCD = 0.75; WL.hitA = 'free'; WL.hitIn = 0.3; EM.cur = WL_SWING; EM.t = 0; EM.yaw0 = F.yaw; F.mode = 'emote'; F.vel.set(0, 0, 0); F.speedH = 0;
+}
+const AXE_M = { dmg: 34, push: 3.4, lift: 2.4, big: true };
+function wlFreeHit() {
+  const fx = Math.sin(F.yaw), fz = Math.cos(F.yaw), inFront = (p, r) => { const dx = p.x - F.pos.x, dz = p.z - F.pos.z, d = Math.hypot(dx, dz); return d < r && (dx * fx + dz * fz) / (d || 1) > 0.45 && Math.abs(p.y - F.pos.y) < 1.6 ? d : null; };
+  let best = null, bd = 9;
+  for (const n of NPC.list) { if (n.veh || n.st === 'drive' || !npcAlive(n)) continue; const d = inFront(n.pos, 2.0); if (d !== null && d < bd) { bd = d; best = { n }; } }
+  for (const a of FA.pigs) { if (a.st === 'down') continue; const d = inFront(a.pos, 1.9); if (d !== null && d < bd) { bd = d; best = { a }; } }
+  if (MP.on) for (const p of MP.peers.values()) { if (p.veh) continue; const d = inFront(p.av.root.position, 1.9); if (d !== null && d < bd) { bd = d; best = { p }; } }
+  if (!best) return;
+  if (best.n) melHitAnimal(best.n, 'axe', AXE_M); else if (best.a) melHitAnimal(best.a, 'axe', AXE_M);
+  else { const R = best.p.av.root.position; wpnBloodSpray(_w4.set(R.x, R.y + 1.1, R.z), _w3.set(fx, 0.3, fz), 14); sfx('m_punch', R, 1, 0.9, 9); mpSend({ k: 'dmg', f: MP.me, to: best.p.id, dmg: 30, v: [mpR(fx * 4), 2.2, mpR(fz * 4)] }); }
+}
 function saQuestStart(n) {
   if (SA.solo) saSoloEnd();
   wlBuild(); wlReset();
   const free = WL.trees.map((T, i) => i), tree = free[Math.floor(Math.random() * free.length)];
   SA.q = { step: 'chop', t: 0, left: 360, tree, qid: Math.random().toString(36).slice(2, 7), chops: 0, drag: false, log: null, split: 0, roundHp: 2, asks: 0, hits: 0, ask: 0, askT: 9, sweat: 0, who: PX.cur ? PX.cur.id : MP.me };
-  dmSay(n, 'start'); saUI(); toast('Sauna challenge: take Dima’s axe, fell the marked gum in the woodlot past the sauna (swing on the green)', 3.6);
+  if (PX.cur) mpSend({ k: 'giveAxe', f: MP.me, to: PX.cur.id }); else { wpnTake('axe'); wpnSelect('axe'); }       // his axe, into your weapons (it's yours to keep)
+  dmSay(n, 'start'); saUI(); toast('Sauna challenge: Dima’s axe is yours. Fell the marked gum in the woodlot past the sauna (swing on the green)', 3.8);
 }
 function saStepText() { const q = SA.q; if (!q) return ''; const T = WL.trees[q.tree];
-  return q.step === 'chop' ? 'Fell the marked gum · ' + Math.max(0, Math.round(T ? T.hp : 0)) + '%' : q.step === 'fell' ? 'Timber!' : q.step === 'drag' ? (q.drag ? 'Drag it to the chopping block' : 'Grab the log') : q.step === 'split' ? 'Split the rounds ' + (q.split || 0) + '/' + WL.ROUNDS
-    : q.step === 'light' ? 'Carry it in, light the stove' : q.step === 'heat' ? 'Heating up… ' + Math.round(SA.temp) + '°C' : q.step === 'sweat' ? 'Sit it out · löyly ' + q.hits + '/' + q.asks : q.step === 'plunge' ? 'Cold tub, quick!' : ''; }
+  return q.step === 'chop' ? 'Fell the marked gum · ' + Math.max(0, Math.round(T ? T.hp : 0)) + '%' : q.step === 'fell' ? 'Timber!' : q.step === 'drag' ? (q.carry ? 'Dima’s carrying it to the block' : q.drag ? 'Drag it to the chopping block' : 'Grab the log') : q.step === 'split' ? 'Split the rounds ' + (q.split || 0) + '/' + WL.ROUNDS
+    : q.step === 'light' ? 'Carry it in, light the stove' : q.step === 'heat' ? 'Heating up… ' + Math.round(SA.temp) + '°C' : q.step === 'sweat' ? 'Sit it out · leil ' + q.hits + '/' + q.asks : q.step === 'plunge' ? 'Cold tub, quick!' : ''; }
 function saQuestEnd(win, why) {
   const q = SA.q; if (!q) return; const n = saDima();
   if (n && npcAlive(n) && !n.angry) dmSay(n, win ? 'win' : why === 'faint' ? 'faint' : why === 'slow' ? 'slow' : why === 'weak' ? 'weak' : 'fail');
   if (win && PX.cur) mpSend({ k: 'qdone', f: MP.me, to: PX.cur.id, q: 'sauna', win: 1, hits: q.hits });              // (a mate's: their tally)
   if (win && !PX.cur) { SA.done++; SA.best = Math.max(SA.best, q.hits); try { localStorage.setItem('wfy.sauna', JSON.stringify({ best: SA.best, done: SA.done })); } catch (_) {} }
-  if (win) toast('Sauna challenge done! Löyly on cue: ' + q.hits + '/' + q.asks + (q.hits >= SA.best ? ' (best)' : ''), 3.2);
-  else toast(why === 'faint' ? 'You passed out in the sauna' : why === 'left' ? 'You bailed out of the sauna early' : why === 'slow' ? 'Too slow to the cold tub' : why === 'time' ? 'Ran out of time' : why === 'weak' ? 'Not enough löyly: Dima sent you home (' + q.hits + '/' + q.asks + ')' : 'Sauna challenge off', 2.8);
+  if (win) toast('Sauna challenge done! Leil on cue: ' + q.hits + '/' + q.asks + (q.hits >= SA.best ? ' (best)' : ''), 3.2);
+  else toast(why === 'faint' ? 'You passed out in the sauna' : why === 'left' ? 'You bailed out of the sauna early' : why === 'slow' ? 'Too slow to the cold tub' : why === 'time' ? 'Ran out of time' : why === 'weak' ? 'Not enough leil: Dima sent you home (' + q.hits + '/' + q.asks + ')' : 'Sauna challenge off', 2.8);
   SA.q = null; SA.litT = Math.min(SA.litT || 0, 90); WL.hitIn = 0;
   if (n && ['saGo', 'saIn', 'saSit'].includes(n.st)) { n.st = n.st === 'saGo' ? 'home' : 'saOut'; n.t = 0; }      // (if he's already headed for the tub, he gets his dip)
 }
@@ -12935,7 +13020,7 @@ function saAct(id) {
   const q = SA.q, n = saDima();
   if (id === 'sa:talk') saMenuOpen();
   else if (id === 'sa:sit') saSitDown();
-  else if (id === 'sa:chop' || id === 'sa:split') wlSwing(id.slice(3));
+  else if (id === 'sa:chop' || id === 'sa:split') { if (WPN.cur !== 'axe') { wpnTake('axe'); wpnSelect('axe'); } wlSwing(id.slice(3)); }
   else if (id === 'sa:drag') wlDrag(true);
   else if (id === 'sa:drop') wlDrag(false);
   else if (id === 'sa:stand') saStandUp();
@@ -14701,7 +14786,7 @@ function mpwHostSend(dt) {
     for (const v of Object.values(VEH)) if (v.kind === 'ground' && v.npc && v.state) o.v[v.name] = mpwG(v);
     o.sa = [SA.lit ? 1 : 0, r1(SA.temp), r2(SA.steam)];
     if (SA.q) { const q = SA.q, T = WL.trees[q.tree]; o.sq = { who: q.who, step: q.step, left: r1(q.left), sweat: r1(q.sweat || 0), plunge: r1(q.plunge || 0), hits: q.hits, asks: q.asks, ask: r1(q.ask || 0),
-      tree: q.tree, qid: q.qid, ts: T ? T.st : 'stand', td: T ? r2(T.dir) : 0, th: T ? Math.round(T.hp) : 0, lg: q.log ? q.log.map(r2) : null, dr: q.drag ? 1 : 0, sp: q.split || 0, rh: q.roundHp }; }
+      tree: q.tree, qid: q.qid, ts: T ? T.st : 'stand', td: T ? r2(T.dir) : 0, th: T ? Math.round(T.hp) : 0, lg: q.log ? q.log.map(r2) : null, dr: q.drag ? 1 : 0, ca: q.carry ? 1 : 0, sp: q.split || 0, rh: q.roundHp }; }
     o.mh = [MH.mode, MH.ph, MH.kills, MH.goal, r1(MH.left), MH.paxId || '', r1(MH.cdG), r1(MH.cdS)];
     o.mm = [r1(MM.anger), r1(MM.refuseT), r1(MM.hostileT), VEH.ute && VEH.ute.wrecked ? 1 : 0];
     mpSend(o); }
@@ -14746,6 +14831,7 @@ function mpwRecv(m) {
   if (m.k === 'mhSeat') { mhSeatPlayer(); document.body.classList.add('pax'); mhChip(true); if (!MH.told.how) { MH.told.how = 1; toast('Drag to aim out the window · hold FIRE · 5 pigs · the clock only runs while you’re on the pigs', 3.6); } return true; }
   if (m.k === 'mhUnseat') { if (MH.pax) mhUnseat(!!m.bail); mhChip(false); document.body.classList.remove('pax'); return true; }
   if (m.k === 'mhDone') { mpwHuntDone(m); return true; }
+  if (m.k === 'giveAxe') { wpnTake('axe'); wpnSelect('axe'); return true; }
   if (m.k === 'qdone') { if (m.q === 'sauna' && m.win) { SA.done++; SA.best = Math.max(SA.best, m.hits || 0); try { localStorage.setItem('wfy.sauna', JSON.stringify({ best: SA.best, done: SA.done })); } catch (_) {} } return true; }
   // host side: what the guests do
   if (m.k === 'act' && MP.host) { mpwOnAct(m); return true; }
@@ -14875,7 +14961,7 @@ function mpwPigStep(a, dt) {
 function mpwCliQuestIn(sq) {
   if (!sq) { SA.q = null; return; }
   wlBuild(); if (!SA.q || SA.q.qid !== sq.qid) { wlReset(); SA.q = { qid: sq.qid, t: 0 }; }
-  const q = SA.q; Object.assign(q, { who: sq.who, step: sq.step, left: sq.left, sweat: sq.sweat, plunge: sq.plunge, hits: sq.hits, asks: sq.asks, ask: sq.ask, tree: sq.tree, drag: !!sq.dr, log: sq.lg, split: sq.sp, roundHp: sq.rh });
+  const q = SA.q; Object.assign(q, { who: sq.who, step: sq.step, left: sq.left, sweat: sq.sweat, plunge: sq.plunge, hits: sq.hits, asks: sq.asks, ask: sq.ask, tree: sq.tree, drag: !!sq.dr, carry: !!sq.ca, log: sq.lg, split: sq.sp, roundHp: sq.rh });
   const T = WL.trees[q.tree]; if (T) { T.hp = sq.th; if (sq.ts !== 'stand' && T.st === 'stand') { T.st = 'falling'; T.fall = 0; T.dir = sq.td; T.part.alive = false; } }
 }
 function mpwCliQuest(dt) { if (SA.q) SA.q.t = (SA.q.t || 0) + dt; }
@@ -14937,7 +15023,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _sao = saMenuOpen; saMenuOpen = function () { const r = _sao.apply(this, arguments); if (mpwCli() && SA.sheet && SA.sheet.classList.contains('show')) mpwSendAct('sa:open'); else if (SA.sheet && SA.sheet.classList.contains('show')) { DM.talkId = MP.me; DM.talkUntil = NPC.t + 25; } return r; };
   const _saa = saAct; saAct = function (id) {
     if (mpwCli() && !MPW.net) {
-      if (id === 'sa:chop' || id === 'sa:split') { wlSwing(id.slice(3)); return; }          // (it lands on the host's world a beat later)
+      if (id === 'sa:chop' || id === 'sa:split') { if (WPN.cur !== 'axe') { wpnTake('axe'); wpnSelect('axe'); } wlSwing(id.slice(3)); return; }          // (it lands on the host's world a beat later)
       if (id === 'sa:drag' || id === 'sa:drop') { mpwSendAct(id); return; }
       if (id === 'sa:light' || id === 'sa:water') { if (id === 'sa:light' && SA.q && ['chop', 'fell', 'drag', 'split'].includes(SA.q.step)) { toast('No firewood yet: fell a gum and split it first', 2); return; }
         if (id === 'sa:water' && SA.lit) { const [rx, rz] = saW(0.85, 0.55); if (AU.buf.hiss) sfx('hiss', _w1.set(rx, SA.gy + 0.8, rz), 1, 0.75, 8); for (let k = 0; k < 6; k++) saPuff(true); SA.steam = 1; }
