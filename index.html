@@ -4061,7 +4061,7 @@ function shedParking() {
   HOME.combine = { x: -150, z: 46, yaw: Math.PI };
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
-  { const [x, z] = dgW(0, 0.12, DN); HOME.farmer = { x, z, yaw: DN.yaw, indoors: true, dunny: true }; }   // you wake up in the dunny by the water tanks, facing the door (not in the bunks: they might be on fire)
+  { const [x, z] = dgW(0, 0.12, DN); HOME.farmer = { x, z, yaw: DN.yaw, indoors: true, dunny: true }; }   // you wake up in the dunny south of the water tanks, facing the door (not in the bunks: they might be on fire)
   HOME.ute = { x: 166.3, z: 50.4, yaw: -Math.PI / 2 };   // on the gravel beside the BMW, nose out to the open ground (tailgate to the dongas)   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
 
@@ -12503,8 +12503,8 @@ function dgUnit(U, gy, group) {
     solid(-L / 2 + aW / 2, fl + H / 2, W / 2, aW / 2, H / 2, 0.06), solid(L / 2 - bW / 2, fl + H / 2, W / 2, bW / 2, H / 2, 0.06), solid(du, fl + 2.05 + (H - 2.05) / 2, W / 2, dw / 2, (H - 2.05) / 2, 0.06),
     solid(0, fl + H + 0.04, 0, L / 2 + 0.17, 0.05, W / 2 + 0.17)];
 }
-/* ---------- the dunny: a corrugated-iron outhouse on the old slab by the water tanks, door facing the dongas. You wake up in it ---------- */
-const DN = { x: 192.3, z: 24.8, yaw: -0.68, W: 1.25, D: 1.25, H: 2.15, root: null, door: null, doorA: 0, gy: 0, creakT: 0 };
+/* ---------- the dunny: a corrugated-iron outhouse just south of the green water tanks, door facing the dongas. You wake up in it ---------- */
+const DN = { x: 190.6, z: 39.3, yaw: -1.25, W: 1.25, D: 1.25, H: 2.15, root: null, door: null, doorA: 0, gy: 0, creakT: 0 };
 const dnW = (u, v) => dgW(u, v, DN);
 function dnInside(p) { if (!DN.root) return false; const [u, v] = dgL(p.x, p.z, DN); return Math.abs(u) < DN.W / 2 - 0.04 && Math.abs(v) < DN.D / 2 - 0.04 && p.y > DN.gy - 0.3 && p.y < DN.gy + 1.8; }
 function dnBuild() {
