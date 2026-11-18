@@ -10842,8 +10842,11 @@ const DIMA_L = {
   win: ["Ha! Not bad! You are little bit Russian now.", "You survive! I am proud. A little."],
   fail: ["Pfft. Go home, little man."], weak: ["You sleep in sauna. Steam is half of sauna. Go home.", "Not enough steam. Again tomorrow, little man."],
   faint: ["Ha! He sleeps like baby.", "Too much! Somebody fan him."], slow: ["Too slow! Cold water is best part!", "Cold tub is waiting! You are too slow!"],
-  hurt: ["Ha! Is tickle.", "You hit like pillow.", "Was that punch? Or hug?"], angry: ["Now you make Dima angry!", "Come here. I fold you like blanket."],
-  ko: ["Ugh... lucky punch...", "Okay... okay... you win this time."], win2: ["Stay down, little man.", "Go eat protein. Then come back."],
+  hurt: ["Ha! Is tickle.", "You hit like pillow.", "Was that punch? Or hug?", "Mosquito bites harder.", "Ooh. Almost I feel it.", "Is all you have?", "My neck is thicker than your arm.", "Ow. No, wait. Is nothing."],
+  angry: ["Now you make Dima angry!", "Come here. I fold you like blanket.", "You want fight? You get fight.", "Stand still, little man!", "I bench press bigger than you.", "Run, run. Dima is coming.",
+    "Now is personal.", "I make you into protein shake.", "Come! I show you Siberian hug.", "You hit Dima? Bad idea, my friend."],
+  ko: ["Ugh... lucky punch...", "Okay... okay... you win this time.", "Ooh... I see two of you...", "Is fine... I just rest little bit...", "Next time... I warm up first..."],
+  win2: ["Stay down, little man.", "Go eat protein. Then come back.", "Ha! Like sack of potatoes.", "This is why you do squats.", "Next time, bring friends. Many friends.", "Rest. Drink water. Think about life."],
 };
 // pick a line nobody's heard lately (each list remembers the last few it gave out)
 const PICK_MEM = new WeakMap();
@@ -10981,10 +10984,59 @@ function npcWalk(n, h, sp, dt, turn = 6) {
   let d = h - n.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); n.yaw += THREE.MathUtils.clamp(d, -turn * dt, turn * dt);
   n.sp += (sp - n.sp) * Math.min(1, dt * 6);
   const nx = n.pos.x + Math.sin(n.yaw) * n.sp * dt, nz = n.pos.z + Math.cos(n.yaw) * n.sp * dt;
-  if (faWalk(nx, nz)) { n.pos.x = nx; n.pos.z = nz; } else { n.sp *= 0.3; n.stuck += dt; }
+  if (faWalk(nx, nz) || !faWalk(n.pos.x, n.pos.z)) { n.pos.x = nx; n.pos.z = nz; } else { n.sp *= 0.3; n.stuck += dt; }      // (off the walk map: any step, till they're back on it)
   pushOutOfVehicles(n.pos, 0.38);
   n.gT -= dt; if (n.gT <= 0) { n.gT = 0.1; n.gy = groundAt(n.pos.x, n.pos.z, n.pos.y + 1.4, n.gy); }
   n.pos.y = n.pos.y + (n.gy - n.pos.y) * Math.min(1, dt * 16);
+}
+/* ---------- on foot the long way round: A* over the 1 m walk grid, string-pulled, so nobody walks into a shed wall for a minute ---------- */
+function walkLOS(ax, az, bx, bz) { const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 0.4), px = -(bz - az) / (L || 1) * 0.32, pz = (bx - ax) / (L || 1) * 0.32;
+  for (let k = 0; k <= n; k++) { const u = k / Math.max(1, n), x = ax + (bx - ax) * u, z = az + (bz - az) * u; if (!faFree(x, z, 0) || !faWalk(x + px, z + pz) || !faWalk(x - px, z - pz)) return false; } return true; }      // (faFree down the middle: a parked machine blocks the line)
+function walkNear(x, z, R = 5) { const fx = Math.floor(x), fz = Math.floor(z); if (faFree(fx + 0.5, fz + 0.5, 0.15)) return [fx, fz];
+  for (let r = 1; r <= R; r++) { let best = null, bd = 1e9; for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { if (Math.max(Math.abs(di), Math.abs(dj)) !== r || !faFree(fx + di + 0.5, fz + dj + 0.5, 0.15)) continue; const d = di * di + dj * dj; if (d < bd) { bd = d; best = [fx + di, fz + dj]; } } if (best) return best; }
+  return null; }
+function walkPath(x0, z0, x1, z1) {
+  const s = walkNear(x0, z0), g = walkNear(x1, z1); if (!s || !g) return null;
+  const M = 22, i0 = Math.min(s[0], g[0]) - M, j0 = Math.min(s[1], g[1]) - M, NX = Math.max(s[0], g[0]) + M - i0 + 1, NZ = Math.max(s[1], g[1]) + M - j0 + 1, N = NX * NZ; if (N > 120000) return null;
+  const ok = new Int8Array(N).fill(-1), okA = (i, j) => { if (i < 0 || j < 0 || i >= NX || j >= NZ) return false; const k = j * NX + i; if (ok[k] < 0) ok[k] = faFree(i0 + i + 0.5, j0 + j + 0.5, 0.15) ? 1 : 0; return ok[k] === 1; };          // (faFree: parked machines count as walls)
+  const tight = (i, j) => { let c = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) if ((di || dj) && !okA(i + di, j + dj)) c++; return c; };
+  const G = new Float32Array(N).fill(1e9), from = new Int32Array(N).fill(-1), shut = new Uint8Array(N), si = (s[1] - j0) * NX + (s[0] - i0), gi = (g[1] - j0) * NX + (g[0] - i0), gx = g[0] - i0, gz = g[1] - j0, H = [];
+  const hpush = (k, f) => { H.push([f, k]); let c = H.length - 1; while (c > 0) { const p = (c - 1) >> 1; if (H[p][0] <= H[c][0]) break; [H[p], H[c]] = [H[c], H[p]]; c = p; } };
+  const hpop = () => { const top = H[0], last = H.pop(); if (H.length) { H[0] = last; let c = 0; for (;;) { const l = c * 2 + 1, r = l + 1; let m = c; if (l < H.length && H[l][0] < H[m][0]) m = l; if (r < H.length && H[r][0] < H[m][0]) m = r; if (m === c) break; [H[m], H[c]] = [H[c], H[m]]; c = m; } } return top; };
+  G[si] = 0; hpush(si, 0); let it = 0;
+  while (H.length && it++ < 60000) { const [, k] = hpop(); if (shut[k]) continue; shut[k] = 1; if (k === gi) break; const i = k % NX, j = (k - i) / NX;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { if (!di && !dj) continue; const ni = i + di, nj = j + dj; if (!okA(ni, nj) || (di && dj && (!okA(i + di, j) || !okA(i, j + dj)))) continue;
+      const nk = nj * NX + ni, c = G[k] + (di && dj ? 1.414 : 1) + tight(ni, nj) * 0.35; if (c < G[nk]) { G[nk] = c; from[nk] = k; hpush(nk, c + Math.hypot(ni - gx, nj - gz)); } } }
+  if (from[gi] < 0 && gi !== si) return null;
+  const cells = []; for (let k = gi; k >= 0; k = from[k]) { cells.push(k); if (k === si) break; } cells.reverse();
+  const pts = cells.map(k => [i0 + k % NX + 0.5, j0 + Math.floor(k / NX) + 0.5]); pts[0] = [x0, z0]; if (faWalk(x1, z1)) pts.push([x1, z1]);
+  const out = [pts[0]]; let a = 0; while (a < pts.length - 1) { let b = Math.min(pts.length - 1, a + 60); while (b > a + 1 && !walkLOS(pts[a][0], pts[a][1], pts[b][0], pts[b][1])) b--; out.push(pts[b]); a = b; }
+  return out.slice(1);
+}
+// nobody's looking: no player near the spot and the camera's well away (a hop then can't be seen)
+const npcUnseen = (x, z) => plMinD(x, z) > 45 && Math.hypot(camera.position.x - x, camera.position.z - z) > 45;
+// the nearest spot to the goal, on the line back to where they are, that nobody can see
+function npcHopSpot(x0, z0, tx, tz) { const L = Math.hypot(x0 - tx, z0 - tz);
+  for (let d = 8; d < L - 4; d += 3) { const x = tx + (x0 - tx) * d / L, z = tz + (z0 - tz) * d / L; if (npcUnseen(x, z) && faFree(x, z, 0.6)) return [x, z]; } return null; }
+function npcHop(n, x, z) { n.pos.set(x, 0, z); n.gy = n.pos.y = groundAt(x, z, 30, 0); n.sp = 0; n.stuck = 0; n.route = null; }
+// walk to a spot by a route; 'go' while walking, 'done' on arrival, 'fail' when there's no way (or it keeps getting stuck)
+function npcGoTo(n, tx, tz, sp, dt, tol = 1.5) {
+  const d = Math.hypot(tx - n.pos.x, tz - n.pos.z); if (d < 0.9) { n.route = null; return 'done'; }
+  if (!faWalk(n.pos.x, n.pos.z)) { n.route = null; npcWalk(n, Math.atan2(tx - n.pos.x, tz - n.pos.z), sp, dt); return 'go'; }        // off the walk map: straight for it till they're back on
+  let R = n.route;
+  if (!R || Math.hypot(R.goal[0] - tx, R.goal[1] - tz) > tol) R = n.route = { goal: [tx, tz], pts: null, i: 0, best: 1e9, progT: 0, tries: 0, losT: 0 };
+  if (R.noWay > 0) { R.noWay -= dt; if (R.noWay <= 0) { n.route = null; return 'fail'; }          // no route: feel the way for a few seconds, then let the caller decide
+    npcWalk(n, faSteer(n, Math.atan2(tx - n.pos.x, tz - n.pos.z), 2.5), sp, dt); return 'go'; }
+  if (!R.pts) { R.pts = walkLOS(n.pos.x, n.pos.z, tx, tz) ? [[tx, tz]] : walkPath(n.pos.x, n.pos.z, tx, tz); R.i = 0; R.best = 1e9; R.progT = 0;
+    if (!R.pts) { R.noWay = 4; return 'go'; } }
+  let w = R.pts[Math.min(R.i, R.pts.length - 1)];
+  R.losT -= dt; if (R.i < R.pts.length - 1 && (Math.hypot(w[0] - n.pos.x, w[1] - n.pos.z) < 0.8 || (R.losT <= 0 && walkLOS(n.pos.x, n.pos.z, R.pts[R.i + 1][0], R.pts[R.i + 1][1])))) { R.i++; w = R.pts[R.i]; R.best = 1e9; }
+  if (R.losT <= 0) R.losT = 0.5;
+  const dw = Math.hypot(w[0] - n.pos.x, w[1] - n.pos.z); if (dw < R.best - 0.4) { R.best = dw; R.progT = 0; } else R.progT += dt;
+  if (R.progT > 4) { if (++R.tries > 2) { n.route = null; return 'fail'; } R.pts = null; n.stuck = 0; return 'go'; }        // not getting anywhere: plan again from here
+  const h = Math.atan2(w[0] - n.pos.x, w[1] - n.pos.z), look = Math.max(0.8, Math.min(2.2, dw));
+  npcWalk(n, R.pts.length > 1 ? faSteer(n, h, look) : faSteer(n, h, 2.5), sp, dt);
+  return 'go';
 }
 // a parked machine one of them can pinch
 function npcPickVehicle(n) {
@@ -10999,7 +11051,7 @@ function npcPickVehicle(n) {
   return best;
 }
 function npcEnter(n, v) {
-  n.veh = v; v.npc = n; v.coast = false; n.st = 'drive'; n.driveT = 28 + Math.random() * 34; n.mode = 'zig'; n.modeT = 0; n.sp = 0; n.pack.visible = false;
+  n.veh = v; v.npc = n; v.coast = false; n.st = 'drive'; n.driveT = 28 + Math.random() * 34; n.mode = 'zig'; n.bpts = null; n.backN = 0; n.route = null; n.modeT = 0; n.sp = 0; n.pack.visible = false;
   const s = v.seat; (v.kind === 'ground' ? v.model.body : v.model.tilt).add(n.root); n.root.position.set(s.x, s.hip - 0.702 * s.k, s.z); n.root.quaternion.identity(); n.root.scale.setScalar(0.9 * s.k);
   npcSay(n, npcPick(NPC_L.enter)); sfx && sfx('thud', v.state.pos, 0.25, 1.3, 6);
 }
@@ -11021,6 +11073,7 @@ function npcDrive(v, dt, thr, str) {
 }
 function npcDriveAI(n, dt) {
   const v = n.veh, st = v.state; n.modeT -= dt; n.driveT -= dt; n.sayT -= dt;
+  if (n.driveT <= 0 && n.mode === 'back') { if (WPN.VD[v.name] && WPN.VD[v.name].wrecked) npcEject(n, 'wreck'); else npcDriveBack(n, v, dt); return; }
   if (n.modeT <= 0) { n.modeT = 4 + Math.random() * 5; n.mode = npcPick(NPC_MODES); n.dir = Math.random() < 0.5 ? -1 : 1; n.wpt = null; }
   const cap = v.name === 'dozer' ? 3.5 : v.name === 'truck' ? 6 : v.name === 'tractor' || v.name === 'tele' ? 6.5 : 8.5;
   let thr = 0, str = 0; const t = NPC.t;
@@ -11030,11 +11083,25 @@ function npcDriveAI(n, dt) {
   else if (n.mode === 'stopgo') { thr = Math.sin(t * 2.2 + n.ph) > 0 ? 1 : -0.2; str = Math.sin(t * 0.8) * 0.5; }
   else { // rampage: a random spot in the yard, flat out
     if (!n.wpt || Math.hypot(n.wpt[0] - st.pos.x, n.wpt[1] - st.pos.z) < 4) n.wpt = faPick(NPC.home[0] - 14, NPC.home[1] + 4, 34, 3) || [NPC.home[0] - 14, NPC.home[1] + 4];
-    let e = Math.atan2(n.wpt[0] - st.pos.x, n.wpt[1] - st.pos.z) - st.yaw; e = Math.atan2(Math.sin(e), Math.cos(e)); thr = 0.9; str = THREE.MathUtils.clamp(e * 1.6, -1, 1); }
+    let e = Math.atan2(n.wpt[0] - st.pos.x, n.wpt[1] - st.pos.z) - st.yaw; e = Math.atan2(Math.sin(e), Math.cos(e)); thr = 0.9; str = THREE.MathUtils.clamp(-e * 1.6, -1, 1); }
   if (Math.abs(st.v) > cap && thr > 0) thr = 0;
   if (n.sayT <= 0 && Math.random() < dt * 0.3) { n.sayT = 6; npcSay(n, npcPick(NPC_L.drive)); }
   npcDrive(v, dt, thr, str);
-  if (n.driveT <= 0 || (WPN.VD[v.name] && WPN.VD[v.name].wrecked)) npcEject(n, n.driveT <= 0 ? 'park' : 'wreck');
+  if (WPN.VD[v.name] && WPN.VD[v.name].wrecked) { npcEject(n, 'wreck'); return; }
+  if (n.driveT <= 0) { const dH = Math.hypot(NPC.home[0] - st.pos.x, NPC.home[1] - st.pos.z); if (dH < 30 || n.driveT < -50 || n.mode === 'stuck') npcEject(n, 'park'); else n.mode = 'back'; }
+}
+// bored of it: back toward the bunks by the drive grid's route (they leave it somewhere near and walk the rest)
+function npcDriveBack(n, v, dt) {
+  const st = v.state; n.planT = (n.planT || 0) - dt; if (n.planT <= 0 || !n.bpts) { n.planT = 3; n.bpts = drvPath(st.pos.x, st.pos.z, NPC.home[0] - 12, NPC.home[1] + 3); n.bi = 1; }
+  const P = n.bpts; let tx = NPC.home[0] - 12, tz = NPC.home[1] + 3;
+  if (P && P.length > 1) { while (n.bi < P.length - 1 && Math.hypot(P[n.bi][0] - st.pos.x, P[n.bi][1] - st.pos.z) < 6) n.bi++; [tx, tz] = P[n.bi]; }
+  const e = faAng(Math.atan2(tx - st.pos.x, tz - st.pos.z) - st.yaw), cap = v.name === 'dozer' ? 3.5 : v.name === 'truck' || v.name === 'tractor' || v.name === 'tele' ? 6 : 9;
+  let thr = Math.abs(st.v) < cap * (1 - Math.min(0.6, Math.abs(e) / 2)) ? 0.7 : 0, str = THREE.MathUtils.clamp(-e * 1.6, -1, 1);
+  if (n.backRec > 0) { n.backRec -= dt; thr = -0.6; str = -str; }
+  else if (Math.abs(st.v) < 0.4) { n.backStk = (n.backStk || 0) + dt; if (n.backStk > 2) { n.backStk = 0; n.backRec = 1.4; if ((n.backN = (n.backN || 0) + 1) > 4) n.mode = 'stuck'; } } else n.backStk = 0;
+  npcDrive(v, dt, thr, str);
+  if (n.sayT <= 0 && Math.random() < dt * 0.15) { n.sayT = 8; npcSay(n, npcPick(NPC_L.drive)); }
+  if (Math.hypot(NPC.home[0] - st.pos.x, NPC.home[1] - st.pos.z) < 30 || n.driveT < -50 || n.mode === 'stuck') { n.bpts = null; n.backN = 0; npcEject(n, 'park'); }
 }
 // out of the machine: bored, kicked out, or the thing blew up
 function npcEject(n, why) {
@@ -11114,9 +11181,13 @@ function npcThink(n, dt) {
   if (n.st === 'chase' || n.st === 'fight') {
     if (!hostile) { n.st = 'wander'; return; }
     if (dP > 34) { n.farT += dt; if (n.farT > 6) { n.st = 'wander'; n.angry = false; n.farT = 0; return; } } else n.farT = 0;
-    n.sayT -= dt; if (n.sayT <= 0) { n.sayT = 5 + Math.random() * 3; npcSay(n, npcPick(NPC_L.angry), 2.8); }
+    n.sayT -= dt; if (n.sayT <= 0) { n.sayT = (n.dima ? 7 : 5) + Math.random() * 3; npcSay(n, npcPick(NPC_L.angry), 2.8); }
     if (activeName !== 'foot' && dP < 2.6) { npcFace(n, F.pos.x, F.pos.z, 8, dt); n.sp *= 0.8; return; }      // you're in a machine: they stand there shaking a fist
-    if (n.st === 'chase') { npcWalk(n, faSteer(n, Math.atan2(dpx, dpz), 2), dP > 5 ? 4.6 : 3.6, dt, 9); if (dP < 2.2) { n.st = 'fight'; n.t = 0; n.atk = 0.5; n.atkPh = ''; } return; }
+    if (n.st === 'chase') { const spd = dP > 5 ? 4.6 : 3.6;
+      // straight at you when there's a clear run; round the sheds and fences by a route when there isn't
+      n.losT = (n.losT || 0) - dt; if (n.losT <= 0) { n.losT = 0.4; n.losOk = dP < 4 || walkLOS(n.pos.x, n.pos.z, F.pos.x, F.pos.z); }
+      if (n.losOk || npcGoTo(n, F.pos.x, F.pos.z, spd, dt, 5) === 'fail') { n.route = null; npcWalk(n, faSteer(n, Math.atan2(dpx, dpz), 2), spd, dt, 9); }
+      if (dP < 2.2) { n.st = 'fight'; n.t = 0; n.atk = 0.5; n.atkPh = ''; } return; }
     // fight: square up, wind up, throw
     npcFace(n, F.pos.x, F.pos.z, 12, dt); n.sp *= 0.85;
     if (dP > 2.9) { n.st = 'chase'; return; }
@@ -11134,17 +11205,29 @@ function npcThink(n, dt) {
   n.vehT -= dt;
   if (n.st === 'wander') {
     if (n.vehT <= 0) { n.vehT = 16 + Math.random() * 18; const v = npcPickVehicle(n); if (v && dP > 6) { n.veh = v; n.st = 'toVeh'; n.t = 0; return; } }
-    if (!n.tgt || Math.hypot(n.tgt[0] - n.pos.x, n.tgt[1] - n.pos.z) < 1 || n.stuck > 2) { n.stuck = 0; n.tgt = Math.random() < 0.4 ? null : (faPick(NPC.home[0], NPC.home[1], 16, 0.8) || null); n.idle = n.tgt ? 0 : 1.5 + Math.random() * 3; }
+    const dH = Math.hypot(NPC.home[0] - n.pos.x, NPC.home[1] - n.pos.z), far = dH > 24;
+    // a long way from the bunks (a joyride dumped them out in a paddock): the way home, with a hop if nobody's watching either end
+    if (far && n.tgt && Math.hypot(n.tgt[0] - NPC.home[0], n.tgt[1] - NPC.home[1]) > 16) n.tgt = null;
+    if (far && !n.tgt) { n.tgt = faPick(NPC.home[0], NPC.home[1], 10, 0.8) || [NPC.home[0], NPC.home[1]]; n.idle = 0; }
+    if (far && dH > 50 && npcUnseen(n.pos.x, n.pos.z)) { if (npcUnseen(n.tgt[0], n.tgt[1])) { npcHop(n, n.tgt[0], n.tgt[1]); n.tgt = null; return; }
+      n.hopT = (n.hopT || 0) - dt; if (n.hopT <= 0) { n.hopT = 3; const p = npcHopSpot(n.pos.x, n.pos.z, n.tgt[0], n.tgt[1]); if (p && Math.hypot(p[0] - n.pos.x, p[1] - n.pos.z) > 15) { npcHop(n, p[0], p[1]); return; } } }
+    if (!n.tgt || Math.hypot(n.tgt[0] - n.pos.x, n.tgt[1] - n.pos.z) < 1) { n.stuck = 0; n.route = null; n.tgt = Math.random() < 0.4 ? null : (faPick(NPC.home[0], NPC.home[1], 16, 0.8) || null); n.idle = n.tgt ? 0 : 1.5 + Math.random() * 3; }
     if (!n.tgt) { n.idle -= dt; n.sp *= 0.85; if (n.idle <= 0) n.tgt = faPick(NPC.home[0], NPC.home[1], 16, 0.8) || null; }
-    else npcWalk(n, faSteer(n, Math.atan2(n.tgt[0] - n.pos.x, n.tgt[1] - n.pos.z), 2.5), 1.3, dt);
+    else { const r = npcGoTo(n, n.tgt[0], n.tgt[1], far ? 2.3 : 1.3, dt);
+      if (r === 'fail') { n.failN = (n.failN || 0) + 1;
+        if (far && (n.failN > 2 || npcUnseen(n.pos.x, n.pos.z)) && npcUnseen(n.tgt[0], n.tgt[1])) { npcHop(n, n.tgt[0], n.tgt[1]); n.failN = 0; }
+        n.tgt = null; n.route = null; n.idle = 0.5; }
+      else if (r === 'done') n.failN = 0; }
     return;
   }
   if (n.st === 'toVeh') {
     const v = n.veh; if (!v || v.coast || v.mp || v.npc || v.name === activeName || n.t > 30) { n.veh = null; n.st = 'wander'; return; }
     const o = vehicleOBB(v); if (!o) { n.veh = null; n.st = 'wander'; return; }
     const dx = n.pos.x - o.cx, dz = n.pos.z - o.cz, gap = Math.hypot(Math.max(0, Math.abs(dx * o.fx + dz * o.fz) - o.hl), Math.max(0, Math.abs(dx * o.lx + dz * o.lz) - o.hw));
-    if (gap < 1.1) { npcEnter(n, v); return; }
-    npcWalk(n, faSteer(n, Math.atan2(o.cx - n.pos.x, o.cz - n.pos.z), 2.2), 2.6, dt);
+    if (gap < 1.1) { npcEnter(n, v); n.route = null; return; }
+    // to the near side of it (its middle is no place to walk to), by a route
+    const side = (dx * o.lx + dz * o.lz) >= 0 ? 1 : -1, ax = o.cx + o.lx * side * (o.hw + 0.6), az = o.cz + o.lz * side * (o.hw + 0.6);
+    if (npcGoTo(n, ax, az, 2.6, dt) === 'fail') { n.veh = null; n.st = 'wander'; n.route = null; }
   }
 }
 // pose: the same rig as Dazza, driven by simple state rules
@@ -11210,13 +11293,13 @@ function npcStep(dt) {
   if (mpwCli()) { mpwCliNpc(dt); return; }
   spkStep();
   for (const n of NPC.list) { plBegin(MP.on ? plFocus(n) : plList()[0]);
-    try { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.sayT -= dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
+    try { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.lineT = (n.lineT || 0) - dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
     npcPose(n, dt); }
   shedFauna(dt);
 }
 function npcReset() {
   NPC.shedWait = 0; if (!NPC.ready) return;
-  for (const n of NPC.list) { if (n.mm || n.dima) continue; if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; }
+  for (const n of NPC.list) { if (n.mm || n.dima) continue; if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; n.route = null; n.failN = 0; n.bpts = null; }
   NPC.list.forEach((n, i) => { if (!n.mm && !n.dima) npcPlace(n, i); });
 }
 // guns and blasts work on them too
@@ -12575,7 +12658,7 @@ function dmPlace() {
   n.pos.set(x, 0, z); n.gy = n.pos.y = groundAt(x, z, DG.gy + 1.5, DG.gy); n.yaw = Math.PI; n.st = 'home'; n.t = 0; n.tilt = 0; n.sp = 0; n.hp = n.max; n.angry = false; n.ko = false; n.atkPh = ''; n.bub.sp.visible = false; n.bub.time = 0;
 }
 // a line from Dima: a plain speech bubble (he speaks English, of a sort), voiced from the pack
-function dmSay(n, k, dur) { const L = DIMA_L[k]; if (!L || !n || !n.bub) return; const line = pickFresh(L); dur = dur || Math.max(2.6, Math.min(5.5, line.length * 0.07)); mmSayBub(n, line, dur); n.sayT = dur; DM.talkT = Math.max(DM.talkT, dur + 10); }
+function dmSay(n, k, dur) { const L = DIMA_L[k]; if (!L || !n || !n.bub) return; const line = pickFresh(L); dur = dur || Math.max(2.6, Math.min(5.5, line.length * 0.07)); mmSayBub(n, line, dur); n.lineT = dur; DM.talkT = Math.max(DM.talkT, dur + 10); }      // (lineT: how long he's still talking; sayT stays the fight code's taunt timer)
 // on foot to a point near home: from round the sauna, back up the east side and in at the breezeway's east end
 function dmVia(px, pz, tx, tz) {
   const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, band = (x, z) => x > B.x0 - 0.3 && x < B.x1 + 0.6 && Math.abs(z - zm) < 4.3;
@@ -12584,7 +12667,7 @@ function dmVia(px, pz, tx, tz) {
   return dgVia(px, pz, tx, tz);
 }
 function dmThink(n, dt) {
-  n.t += dt; n.sayT -= dt;
+  n.t += dt; n.lineT = (n.lineT || 0) - dt;
   if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) {        // a scrap: the shared fight code, then home
     npcThink(n, dt); if (n.st === 'wander') { n.st = 'home'; n.t = 0; n.angry = false; } return; }
   const veh = faNearT('veh', n.pos);
@@ -12666,7 +12749,7 @@ function dmDogs(n, dt) {
   D.at = (D.at || 0) + dt; n.sp *= 0.7; npcFace(n, T.x, T.z, 6, dt);
   if (D.sayT <= 0) { D.sayT = 4.5 + Math.random() * 1.5; dmSay(n, 'dogs', 3.4); }
   if (D.at > 7) CT.scare = true;                                                          // enough of that: they bail out
-  if (!D.mm && D.t > 3.8 && n.sayT < 0 && MM.n && npcAlive(MM.n) && !MM.n.veh && !MH.mode && MM.hostileT <= 0 && Math.hypot(MM.n.pos.x - n.pos.x, MM.n.pos.z - n.pos.z) < 45) { D.mm = true; D.sayT = Math.max(D.sayT, 3.6); mmSay('dogTub', 3.2, true); }
+  if (!D.mm && D.t > 3.8 && (n.lineT || 0) < 0 && MM.n && npcAlive(MM.n) && !MM.n.veh && !MH.mode && MM.hostileT <= 0 && Math.hypot(MM.n.pos.x - n.pos.x, MM.n.pos.z - n.pos.z) < 45) { D.mm = true; D.sayT = Math.max(D.sayT, 3.6); mmSay('dogTub', 3.2, true); }
   return true;
 }
 // someone (or you) in there?
@@ -13310,7 +13393,7 @@ function mmPlace() {
 }
 function mmReset() {
   if (!MM.ready) return;
-  Object.assign(MM, { anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, inUteT: 0, touchT: 0, react: null, reactT: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0, npcDriving: false, sayT: 0 });
+  Object.assign(MM, { anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, inUteT: 0, touchT: 0, react: null, reactT: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0, npcDriving: false, sayT: 0, pk: null, parkCD: 0 });
   MM.rest = null; mmMenuClose(); if (MM.sub) MM.sub.classList.remove('show'); if (typeof dgReset === 'function') dgReset();
   mmPlace();
 }
@@ -13396,7 +13479,7 @@ function mmThink(n, dt) {
     mmRun(n, o.cx, o.cz, 6.4, dt); return;
   }
   // his ute's been shoved off its spot: go and park it again
-  if (!mmUteHome() && !v.coast && activeName !== 'ute' && !v.wrecked && !v.mp && MM.hostileT <= 0 && n.st !== 'toUte') { n.st = 'toUte'; n.t = 0; }
+  if (!mmUteHome() && !v.coast && activeName !== 'ute' && !v.wrecked && !v.mp && MM.hostileT <= 0 && MM.parkCD <= 0 && n.st !== 'toUte') { n.st = 'toUte'; n.t = 0; }
   if (n.st === 'toUte') {
     if (mmUteHome() || v.wrecked || v.mp || activeName === 'ute') { n.st = 'home'; return; }
     const door = mmUteW(UTE_RIG.driver.x < 0 ? -1.75 : 1.75, UTE_RIG.door.z, _w1), d = Math.hypot(door.x - n.pos.x, door.z - n.pos.z);
@@ -13473,7 +13556,7 @@ function mmDefend(n, dt) {
 function mmSaunaWatch(n, dt) {
   if (typeof SA === 'undefined' || !SA.root) return; SA.mmT -= dt;
   if (SA.mmT > 0 || MM.hostileT > 0 || MH.mode || n.veh || !['lean', 'home', 'dgVer'].includes(n.st) || MM.sayT > 0) return;
-  if ((DM.n && DM.n.sayT > -1.5) || (SA.sheet && SA.sheet.classList.contains('show'))) return;          // not over the top of Dima
+  if ((DM.n && (DM.n.lineT || 0) > -1.5) || (SA.sheet && SA.sheet.classList.contains('show'))) return;          // not over the top of Dima
   if (Math.hypot(n.pos.x - SA.x, n.pos.z - SA.z) > 32 || !saOccupants().length) return;
   const me = activeName === 'foot' ? F.pos : S.pos; if (Math.hypot(me.x - n.pos.x, me.z - n.pos.z) > 34) return;
   SA.mmT = 50 + Math.random() * 30; n.st = 'mmPeek'; n.t = 0; MM.peek = { ph: 'go', t: 0 };      // over he goes for a look through the window
@@ -13499,7 +13582,7 @@ function mmPeek(n, dt) {
   n.sp *= 0.7; n.pos.x += (px - n.pos.x) * Math.min(1, dt * 4); n.pos.z += (pz - n.pos.z) * Math.min(1, dt * 4); n.yaw += faAng(Math.atan2(wx - px, wz - pz) - n.yaw) * Math.min(1, dt * 5);
   if (!P.said) {
     if (!saOccupants().length && P.t > 1.5) { done(60 + Math.random() * 30); return; }               // nobody in after all
-    if (P.t > 1.2 && (!DM.n || DM.n.sayT < 0 || P.t > 7)) { P.said = P.t; mmSay('sauna', 3.6, true); }   // (lets Dima finish first)
+    if (P.t > 1.2 && (!DM.n || (DM.n.lineT || 0) < 0 || P.t > 7)) { P.said = P.t; mmSay('sauna', 3.6, true); }   // (lets Dima finish first)
     return;
   }
   if (P.t - P.said > 4) done(60 + Math.random() * 40);
@@ -13532,7 +13615,7 @@ function mmYank(n) {
 function mmEnterUte(n) {
   const v = mmUte(); if (v.npc && v.npc !== n) return; n.veh = v; v.npc = n; v.coast = false; n.st = 'drive'; n.t = 0; n.sp = 0;
   const s = v.seat; v.model.body.add(n.root); n.root.position.set(s.x, s.hip - 0.702 * s.k, s.z); n.root.quaternion.identity(); n.root.scale.setScalar(n.s * s.k);
-  MM.parkPh = 'go'; MM.parkT = 0; MM.navHome = 0; if (typeof sfx === 'function') sfx('thud', v.state.pos, 0.25, 1.2, 6);
+  MM.parkPh = 'go'; MM.parkT = 0; MM.navHome = 0; MM.pk = null; if (typeof sfx === 'function') sfx('thud', v.state.pos, 0.25, 1.2, 6);
 }
 function mmLeaveUte(quiet) {
   const n = MM.n, v = n.veh; if (!v) return; if (v !== mmUte()) { mmLeaveRide(n); if (quiet) n.st = 'lean'; return; }
@@ -13607,27 +13690,96 @@ function mmPursue(n, dt) {
   if (P.stuckT > 1.1) { P.stuckT = 0; P.recT = 1.3; P.recStr = -(Math.sign(P.str) || 1); P.planT = 0; return; }
   npcDrive(r, dt, thr, P.str);
 }
+/* ---------- parking the ute: nose out west, tailgate to the dongas. Round to a spot out in front of the bay, facing out, then straight back in ---------- */
+// the bay's own frame: a metres out along the nose, b metres to the open side
+function pkW(a, b) { const h = HOME.ute, fx = Math.sin(h.yaw), fz = Math.cos(h.yaw), s = MM.pkSide || 1; return [h.x + fx * a + fz * b * s, h.z + fz * a - fx * b * s]; }
+function pkL(x, z) { const h = HOME.ute, fx = Math.sin(h.yaw), fz = Math.cos(h.yaw), s = MM.pkSide || 1, dx = x - h.x, dz = z - h.z; return [dx * fx + dz * fz, (dx * fz - dz * fx) * s]; }
+// pure pursuit: where the ute is on the line, the point a lookahead further on, and how much line is left
+function pkCarrot(P, x, z, look) {
+  const pts = P.pts, proj = (k) => { const [x0, z0] = pts[k], [x1, z1] = pts[k + 1], dx = x1 - x0, dz = z1 - z0, L2 = dx * dx + dz * dz || 1e-6, u = Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / L2)); return [u, Math.hypot(x0 + dx * u - x, z0 + dz * u - z)]; };
+  // on to the next leg only once this one's run out (or its end's close): a route that doubles back near itself mustn't skip a loop
+  let [bu, best] = proj(P.seg); while (P.seg < pts.length - 2 && (bu > 0.999 || Math.hypot(pts[P.seg + 1][0] - x, pts[P.seg + 1][1] - z) < 2.2)) { P.seg++; [bu, best] = proj(P.seg); }
+  const bs = P.seg; let rest = 0; for (let k = bs; k < pts.length - 1; k++) rest += Math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]) * (k === bs ? 1 - bu : 1);
+  let k = bs, u = bu, left = look;
+  for (;;) { const [x0, z0] = pts[k], [x1, z1] = pts[k + 1], L = Math.hypot(x1 - x0, z1 - z0) || 1e-6, rem = (1 - u) * L;
+    if (left <= rem || k >= pts.length - 2) { const uu = Math.min(1, u + left / L); return { cx: x0 + (x1 - x0) * uu, cz: z0 + (z1 - z0) * uu, rest, off: best }; }
+    left -= rem; k++; u = 0; }
+}
+// one frame of parking; 'go' while at it, 'done' once it's in, 'fail' if it can't be done
+function mmPark(dt) {
+  const v = mmUte(), st = v.state, h = HOME.ute; let P = MM.pk; const x = st.pos.x, z = st.pos.z, sp = st.v;
+  if (!P) {
+    MM.pkSide = 1;
+    const [a, b] = pkL(x, z), ye = Math.abs(faAng(st.yaw - h.yaw));
+    P = MM.pk = { ph: 'fwd', t: 0, pts: null, seg: 0, stuckT: 0, recT: 0, recStr: 1, recN: 0 };
+    if (ye < 0.5 && Math.abs(b) < 2.5 && a > -1.5 && a < 18) { if (a >= 7) pkBack(P, x, z); else P.pts = [[x, z], pkW(Math.max(a + 3, 9), b * 0.3)]; }       // nearly in already: out a bit, then back
+    else { const q = pkW(...pkEntry(a, b, ...pkNose())[0]); if (Math.hypot(q[0] - x, q[1] - z) > 20 || !drvLOS(x, z, q[0], q[1])) { DRVX.clear(); if (mhNavTo(q[0], q[1], { cruise: 10 })) P.ph = 'nav'; }
+      if (P.ph !== 'nav') pkChain(P, x, z); }
+  }
+  P.t += dt; if (P.t > 110) return 'fail';
+  const [a] = pkL(x, z);
+  if (P.ph === 'nav') { const r = MH.nav && !MH.nav.fail ? mhNavStep(dt) : 'fail'; if (r === 'go' && P.t < 80) return 'go'; MH.nav = null; pkChain(P, x, z); return 'go'; }
+  if (P.recT > 0) { P.recT -= dt; mmDrive(dt, P.ph === 'back' ? 0.45 : -0.5, P.recStr); if (P.recT <= 0) P.stuckT = 0; return 'go'; }      // backing (or pulling) off whatever it ran into
+  if (P.ph === 'fwd') {
+    const c = pkCarrot(P, x, z, 3.6), e = faAng(Math.atan2(c.cx - x, c.cz - z) - st.yaw);
+    if (c.rest < 0.9 || (c.rest < 2 && Math.abs(e) > 1.3)) { P.ph = 'stop'; return 'go'; }
+    const vt = Math.min(4.5, 1.2 + c.rest * 0.35) * (1 - Math.min(0.6, Math.abs(e) / 2)), str = THREE.MathUtils.clamp(-e * 2, -1, 1);
+    const thr = sp < vt - 0.2 ? 0.5 : sp > vt + 0.6 ? -0.45 : 0.06;
+    if (Math.abs(sp) < 0.2 && thr > 0.2) P.stuckT += dt; else P.stuckT = Math.max(0, P.stuckT - dt);
+    if (P.stuckT > 1.5) { if (++P.recN > 4) return 'fail'; P.recT = 1.3; P.recStr = -(Math.sign(str) || 1); return 'go'; }
+    mmDrive(dt, thr, str); return 'go';
+  }
+  if (P.ph === 'stop') { mmDrive(dt, sp > 0.25 ? -0.7 : sp < -0.25 ? 0.5 : 0, 0); if (Math.abs(sp) < 0.25) pkBack(P, x, z); return 'go'; }
+  if (P.ph === 'back') {
+    const c = pkCarrot(P, x, z, 2.8), e = faAng(Math.atan2(c.cx - x, c.cz - z) - st.yaw), er = faAng(e - Math.PI);
+    if (a < 0.15 || c.rest < 0.25) { P.ph = 'in'; return 'go'; }
+    const vt = Math.min(1.8, 0.45 + c.rest * 0.35), bsp = -sp, str = THREE.MathUtils.clamp(er * 2.2, -1, 1);
+    const thr = bsp < vt - 0.15 ? -0.42 : bsp > vt + 0.4 ? 0.35 : -0.04;
+    if (Math.abs(sp) < 0.15 && thr < -0.2) P.stuckT += dt; else P.stuckT = Math.max(0, P.stuckT - dt);
+    if (P.stuckT > 2) { if (a < 1.2) { P.ph = 'in'; return 'go'; } if (++P.recN > 3) return 'fail'; P.recT = 1.4; P.recStr = THREE.MathUtils.clamp(-str, -1, 1); P.redo = true; return 'go'; }
+    if (P.redo && P.recT <= 0) { P.redo = false; pkBack(P, x, z); }
+    mmDrive(dt, thr, str); return 'go';
+  }
+  if (P.ph === 'in') {      // stop, and the last few centimetres square
+    mmDrive(dt, sp < -0.2 ? 0.6 : sp > 0.2 ? -0.6 : 0, 0); P.inT = (P.inT || 0) + dt;
+    if (Math.abs(sp) < 0.2 || P.inT > 1.5) { const S2 = v.state, k = Math.min(1, dt * 5); S2.pos.x += (h.x - S2.pos.x) * k; S2.pos.z += (h.z - S2.pos.z) * k; S2.yaw += faAng(h.yaw - S2.yaw) * k; S2.v *= 0.7; S2.vx *= 0.7; S2.vz *= 0.7; P.sqT = (P.sqT || 0) + dt; }
+    if (P.sqT > 0.7) { const S2 = v.state; S2.pos.x = h.x; S2.pos.z = h.z; S2.yaw = h.yaw; S2.v = S2.vx = S2.vz = 0; MM.pk = null; return 'done'; }
+    return 'go';
+  }
+  return 'fail';
+}
+// the way in, in the bay's frame: up the lane in front of the bays (from the yard along the bay's line and a left turn, or straight
+// up it from the south), stopping past the bay with the nose up the lane; then back in on a turn. The ute turns on about 5 m.
+const PK_R = 5.8, PK_A = 2 + PK_R;
+function pkEntry(a, b, na = 0, nb = 0) {
+  if (b > 4 && a < 12) return [[PK_A, 7], [PK_A, -PK_R - 1]];                           // in the bit south of the bays: straight up the lane
+  if (nb < -0.5 && a > 5 && a < 13 && b > -4 && b < 6) return [[PK_A, -PK_R - 1]];        // in the lane already, pointing up it
+  if (na < -0.5 && a > 9 && a < 22 && b > -6 && b < 4) return [[PK_A + 1.2, b - 3.5], [PK_A, -PK_R - 2]];      // heading at the bays from the yard: a left turn up the lane
+  const L = [[24, 0]]; for (let k = 0; k <= 6; k++) { const t = k / 6 * Math.PI / 2; L.push([PK_A + PK_R - PK_R * Math.sin(t), -PK_R + PK_R * Math.cos(t)]); }
+  L.push([PK_A, -PK_R - 1]); return L;
+}
+function pkNose() { const rel = faAng(VEH.ute.state.yaw - HOME.ute.yaw); return [Math.cos(rel), (MM.pkSide || 1) * Math.sin(rel)]; }
+function pkChain(P, x, z) { P.ph = 'fwd'; P.seg = 0; P.stuckT = 0; P.recN = P.recN || 0; const [a, b] = pkL(x, z);
+  P.pts = [[x, z], ...pkEntry(a, b, ...pkNose()).map(q => pkW(q[0], q[1]))]; }
+// back in: straight if it's pointing out of the bay already, else on an arc that swings the tail round into it
+function pkBack(P, x, z) { const [a, b] = pkL(x, z), [na, nb] = pkNose();
+  P.ph = 'back'; P.seg = 0; P.stuckT = 0; P.recN = P.recN || 0;
+  if (na > 0.75 && Math.abs(b) < 4 && a > 1) { P.pts = [[x, z], pkW(Math.max(2.5, a - 5), b * 0.15), pkW(-0.3, 0)]; return; }     // pointing out of the bay already: straight back
+  if (!(nb < -0.5 && b < -2 && a > 4)) { if ((P.redoN = (P.redoN || 0) + 1) > 3) { P.ph = 'x'; return; } pkChain(P, x, z); return; }      // not lined up: round again
+  const R = THREE.MathUtils.clamp(-b, 5.4, 7.5); P.pts = [[x, z]];
+  for (let k = 1; k <= 7; k++) { const t = k / 7 * Math.PI / 2; P.pts.push(pkW(a - R + R * Math.cos(t), b + R * Math.sin(t))); }
+  P.pts.push(pkW(-0.3, 0)); }
 function mmDriveThink(n, dt) {
   const v = mmUte(), st = v.state, h = HOME.ute; MM.parkT += dt;
-  if (!st || v.wrecked) { mmLeaveUte(false); return; }
-  const dx = h.x - st.pos.x, dz = h.z - st.pos.z, d = Math.hypot(dx, dz);
-  if (MM.parkPh === 'go' && (d > 22 || MM.navHome)) {
-    // a long way from his spot (you drove it off): take the route home, then shuffle it in
-    const fx = Math.sin(h.yaw), fz = Math.cos(h.yaw);
-    if (!MM.navHome) { DRVX.clear(); MM.navHome = mhNavTo(h.x - fx * 2.5, h.z - fz * 2.5, { via: [h.x - fx * 13, h.z - fz * 13], cruise: 10 }) ? 1 : 2; }
-    if (MM.navHome === 1 && MM.parkT < 150 && mhNavStep(dt) === 'go') return;
-    MM.navHome = 0; MH.nav = null;
-    if (d > 14 && faCamD(st.pos) > 60) { st.pos.x = h.x - fx * 4; st.pos.z = h.z - fz * 4; st.pos.y = groundAt(st.pos.x, st.pos.z, 30, st.pos.y) + 0.05; st.yaw = h.yaw; st.v = st.vx = st.vz = 0; }      // couldn't get there, and nobody's looking
-    MM.parkPh = 'settle'; MM.parkT = 0; return;
-  }
+  if (!st || v.wrecked) { MM.pk = null; mmLeaveUte(false); return; }
   if (MM.parkPh === 'go') {
-    // drive at the spot, forwards or backwards (whichever points the ute at it better), then shuffle it in
-    const e = faAng(Math.atan2(dx, dz) - st.yaw), back = Math.abs(e) > 1.7 && d < 18;
-    let thr = back ? -0.4 : 0.45, str = THREE.MathUtils.clamp((back ? faAng(e - Math.PI) : -e) * 1.8, -1, 1);
-    if (Math.abs(st.v) > (d < 6 ? 2 : 4.5)) thr = 0;
-    if (Math.abs(st.v) < 0.15) MM.stuckT = (MM.stuckT || 0) + dt; else MM.stuckT = 0;
-    if (d < 2.2 || MM.parkT > 30 || MM.stuckT > 3) { MM.parkPh = 'settle'; MM.parkT = 0; MM.stuckT = 0; }
-    mmDrive(dt, thr, str); return;
+    const r = mmPark(dt); if (r === 'go') return;
+    if (r === 'done') { engineOff(v); mmLeaveUte(false); return; }
+    // couldn't: a shuffle if it's nearly there, a hop home if nobody's looking, otherwise he leaves it where it is for a while
+    MM.pk = null; MH.nav = null; const d = Math.hypot(h.x - st.pos.x, h.z - st.pos.z);
+    if (d < 4) { MM.parkPh = 'settle'; MM.parkT = 0; return; }
+    if (faCamD(st.pos) > 60 && plMinD(st.pos.x, st.pos.z) > 45) { st.pos.x = h.x; st.pos.z = h.z; st.pos.y = groundAt(h.x, h.z, 30, st.pos.y) + 0.05; st.yaw = h.yaw; st.v = st.vx = st.vz = 0; engineOff(v); mmLeaveUte(false); return; }
+    MM.parkCD = 45; mmDrive(dt, 0, 0); engineOff(v); mmLeaveUte(false); return;
   }
   if (MM.parkPh === 'settle') {
     mmDrive(dt, 0, 0); const S2 = v.state, k = Math.min(1, dt * 1.6);
@@ -13640,7 +13792,7 @@ function mmDriveThink(n, dt) {
 function mmStep(dt) {
   if (!MM.ready) { if (NPC.ready && VEH.ute && VEH.ute.state && HOME.ute && FA.ready) mmBuild(); else return; }
   dt = Math.min(dt, 0.05); MM.t += dt; const n = MM.n, v = mmUte();
-  MM.sayT -= dt; MM.scareT -= dt;
+  MM.sayT -= dt; MM.scareT -= dt; MM.parkCD = (MM.parkCD || 0) - dt;
   if (mpwCli()) { if (typeof dgStep === 'function') dgStep(dt); mpwCliDogs(dt); mmMenuStep(); return; }
   if (typeof dgStep === 'function') dgStep(dt);
   if (typeof mmAimCheck === 'function') mmAimCheck(dt);
@@ -14508,10 +14660,12 @@ function mhDriveThink(n, dt) {
       return;
     }
     case 'home': {
-      const r = mhNavStep(dt);
-      if (r === 'done' || r === 'fail' || MH.t > 100) { MH.ph = 'park'; MH.t = 0; MM.parkPh = 'settle'; MM.parkT = 0;
+      const r = mmPark(dt); if (r === 'go' && MH.t < 120) return;
+      if (r === 'done') { engineOff(v); mhFinish(); return; }
+      MM.pk = null; MH.nav = null;
+      { MH.ph = 'park'; MH.t = 0; MM.parkPh = 'settle'; MM.parkT = 0;
         // couldn't get there: a quick fade and he's home (better than a ute sliding across the paddock)
-        if (Math.hypot(home.x - st.pos.x, home.z - st.pos.z) > 14) { if (MH.pax || faCamD(st.pos) < 120) { MH.fadeT = 0.7; if (MH.fade) MH.fade.style.opacity = '1'; } st.pos.x = home.x - fx * 4; st.pos.z = home.z - fz * 4; st.yaw = home.yaw; st.v = st.vx = st.vz = 0; } }
+        if (Math.hypot(home.x - st.pos.x, home.z - st.pos.z) > 14) { if (MH.pax || faCamD(st.pos) < 120) { MH.fadeT = 0.7; if (MH.fade) MH.fade.style.opacity = '1'; } st.pos.x = home.x; st.pos.z = home.z; st.yaw = home.yaw; st.v = st.vx = st.vz = 0; } }
       return;
     }
     case 'park': {
@@ -14537,7 +14691,7 @@ function mhHome(why) {
   if (why === 'win') mhSay('win', true); else if (why === 'timeout') mhSay('timeout', true);
   MH.ph = 'loadHome'; MH.t = 0; mhChip(MH.mode === 'guided' && MH.pax);
 }
-function mhGoHome() { const h = HOME.ute, fx = Math.sin(h.yaw), fz = Math.cos(h.yaw); if (!mhNavTo(h.x - fx * 2.5, h.z - fz * 2.5, { via: [h.x - fx * 13, h.z - fz * 13], cruise: 10 })) MH.nav = { fail: true }; MH.ph = 'home'; MH.t = 0; }
+function mhGoHome() { MM.pk = null; MH.nav = null; MH.ph = 'home'; MH.t = 0; }      // (mmPark takes it from here: the route back, round, and reversed in)
 function mhFinish() {
   const why = MH.endWhy, mode = MH.mode, n = MM.n;
   MM.dogs.forEach(d => { if (d.mode !== 'tray') mmDogTray(d); });
@@ -15051,7 +15205,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
