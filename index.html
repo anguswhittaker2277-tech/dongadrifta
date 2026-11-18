@@ -5682,7 +5682,7 @@ function playAt(buf, pos, vol = 1, rate = 1, ref = 8) {
   else g.connect(AU.master);
   s.start();
 }
-const sfx = (name, pos, vol, rate, ref) => playAt(typeof sndPick === 'function' ? sndPick(name) : AU.buf[name], pos, vol, rate, ref);
+let sfx = (name, pos, vol, rate, ref) => playAt(typeof sndPick === 'function' ? sndPick(name) : AU.buf[name], pos, vol, rate, ref);
 
 function audioInit() {
   if (AU.ctx || AU.busy) return;
@@ -7944,8 +7944,13 @@ function faThreats() {
   const T = FA.threats; T.length = 0; const v = activeVeh();
   if (!v || isRemote(v)) T.push({ kind: 'foot', x: F.pos.x, y: F.pos.y, z: F.pos.z, sp: typeof MEL !== 'undefined' && MEL.cur ? 0 : F.speedH || 0, walk: F.mode === 'walk' });   // mid-move they're too surprised to run
   if (v && v.kind === 'ground') T.push({ kind: 'veh', x: S.pos.x, y: S.pos.y, z: S.pos.z, sp: Math.abs(S.v), dir: Math.sign(S.v) || 1, fx: Math.sin(S.yaw), fz: Math.cos(S.yaw), f: V.front, r: V.rear, w: V.halfW, name: activeName, horn: AU.hornOn });
+  if (MP.on && MP.host) for (const p of MP.peers.values()) { const pv = p.veh && VEH[p.veh], last = p.buf[p.buf.length - 1]; if (!last) continue;
+    if (!pv) { const R = p.av.root.position, pp = p.prevP || (p.prevP = R.clone()), sp = Math.min(12, pp.distanceTo(R) * 60); pp.copy(R); T.push({ kind: 'foot', x: R.x, y: R.y, z: R.z, sp, walk: last.m === 'walk', id: p.id }); }
+    else if (pv.kind === 'ground' && pv.state) { const st = pv.state; T.push({ kind: 'veh', x: st.pos.x, y: st.pos.y, z: st.pos.z, sp: Math.abs(st.v || 0), dir: Math.sign(st.v || 0) || 1, fx: Math.sin(st.yaw), fz: Math.cos(st.yaw), f: pv.spec.front, r: pv.spec.rear, w: pv.spec.halfW, name: p.veh, horn: false, id: p.id }); } }
   if (v && v.kind === 'air' && !v.st.landed && !v.st.crashed) { const A = v.st; T.push({ kind: 'air', x: A.pos.x, y: A.pos.y, z: A.pos.z, sp: Math.hypot(A.vel.x, A.vel.z), agl: A.pos.y - faTop(A.pos.x, A.pos.z), name: activeName, A, multi: !v.P.plane && !v.P.gyro }); }
 }
+// the nearest threat of a kind to a point (with mates about there can be several)
+function faNearT(kind, p) { let best = null, bd = 1e9; for (const t of FA.threats) { if (t.kind !== kind) continue; const d = Math.hypot(t.x - p.x, t.z - p.z); if (d < bd) { bd = d; best = t; } } return best; }
 function faunaScare(pos, r) { if (FA.ready) FA.scareQ.push({ x: pos.x, z: pos.z, r, y: pos.y }); }
 // strongest reason to run, as a flee heading (or null)
 function faDanger(a, footR, footRunR, vehR, airR) {
@@ -7980,7 +7985,7 @@ function pigStep(a, dt) {
   if (a.st === 'tumble') return pigTumble(a, dt);
   if (a.st === 'down') { a.downT += dt; return; }
   if (a.bailT > 0) { a.bailT -= dt; a.sp *= 0.85; if (a.heldBy) { a.strT = (a.strT || 0) + dt; a.yaw += Math.sin(a.strT * 6.5) * 1.8 * dt; a.sp = 0; if (a.M && a.M.root) a.M.root.rotation.z = Math.sin(a.strT * 17) * 0.06; } if (a.bailBy) a.yaw += faAng(Math.atan2(a.bailBy.x - a.pos.x, a.bailBy.z - a.pos.z) - a.yaw) * Math.min(1, dt * 5); a.gruntT -= dt; if (a.gruntT <= 0) { a.gruntT = 0.8 + Math.random(); faSay(a.pos, Math.random() < 0.5 ? 'fa_squeal' : 'fa_grunt2', 1, 1, 22); } return; }   // bailed up by the dogs: stands its ground
-  const veh = FA.threats.find(t => t.kind === 'veh'), foot = FA.threats.find(t => t.kind === 'foot');
+  const veh = faNearT('veh', a.pos), foot = faNearT('foot', a.pos);
   // hit by the machine?
   if (veh && veh.sp > 2.2) { const dx = a.pos.x - veh.x, dz = a.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx, R = 0.32 * a.s;
     if (f > -veh.r - R && f < veh.f + R + 0.1 && Math.abs(l) < veh.w + R && Math.abs(a.pos.y - veh.y) < 2.5) return pigHit(a, veh, l); }
@@ -8097,7 +8102,7 @@ const wHip = p => 0.2 * Math.cos(p[0]) + 0.22 * Math.cos(p[0] + p[1]) + 0.03;
 const wMix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 function walStep(w, dt) {
   w.t += dt;
-  const veh = FA.threats.find(t => t.kind === 'veh'), foot = FA.threats.find(t => t.kind === 'foot');
+  const veh = faNearT('veh', w.pos), foot = faNearT('foot', w.pos);
   // machines: always get out of the way, early
   if (veh && veh.sp > 1.2) {
     const dx = w.pos.x - veh.x, dz = w.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx, fwd = f * veh.dir;
@@ -8351,14 +8356,16 @@ function faunaStep(dt) {
   if (!FA.ready) return;
   dt = Math.min(dt, 0.05); FA.t += dt;
   faBlockers(); faThreats();
-  for (const a of FA.pigs.slice()) { pigStep(a, dt); const vis = faCamD(a.pos) < 140; a.M.root.visible = vis; if (vis) pigPose(a, dt); }
+  for (const a of FA.pigs.slice()) { if (a.mirror) { mpwPigStep(a, dt); continue; }
+    const q = MP.on ? plNearest(a.pos.x, a.pos.z, true) : null; plBegin(q && !q.local && Math.hypot(q.pos.x - a.pos.x, q.pos.z - a.pos.z) < 45 ? q : null);
+    try { pigStep(a, dt); } finally { plEnd(); } const vis = faCamD(a.pos) < 140; a.M.root.visible = vis; if (vis) pigPose(a, dt); }
   for (const G of FA.groups.slice()) { G.t += dt; G.moveT -= dt;
     if (G.st !== 'leave' && G.t > G.life) G.st = 'leave';
     if (G.st !== 'leave' && G.moveT <= 0) { G.moveT = 35 + Math.random() * 25; G.center = faPick(G.anchor ? G.anchor[0] : G.center[0], G.anchor ? G.anchor[1] : G.center[1], G.anchor ? 14 : 25, 1) || G.center; }
     for (const a of G.pigs.slice()) { const far = faCamD(a.pos) > 70;
-      if (a.st === 'down' && a.downT > 90 && far) removePig(a);
+      if (a.st === 'down' && a.downT > 90 && far && plMinD(a.pos.x, a.pos.z) > 70) removePig(a);
       else if (G.st === 'leave' && G.exit && a.st !== 'down' && a.st !== 'tumble' && Math.hypot(a.pos.x - G.exit[0], a.pos.z - G.exit[1]) < 3 && faCamD(a.pos) > 25) removePig(a); } }
-  FA.pigT -= dt; if (FA.pigT <= 0) { FA.pigT = 160 + Math.random() * 160; if (!PH.on && FA.groups.length < 2) spawnPigs(); }
+  FA.pigT -= dt; if (FA.pigT <= 0) { FA.pigT = 160 + Math.random() * 160; if (!PH.on && FA.groups.length < 2 && !mpwCli()) spawnPigs(); }
   for (const w of FA.wal) { walStep(w, dt); const vis = faCamD(w.pos) < 140; w.M.root.visible = vis; if (vis) walPose(w, dt); }
   galahStep(dt); magpieStep(dt); crowStep(dt); eagleStep(dt);
   for (const f of FA.fx.slice()) { f.life -= dt; f.vel.multiplyScalar(Math.exp(-2.5 * dt)); f.vel.y -= 1.2 * dt; f.m.position.addScaledVector(f.vel, dt); f.m.rotation.x += f.spin.x * dt; f.m.rotation.z += f.spin.z * dt;
@@ -8841,6 +8848,7 @@ function mpSend(o) { if (MP.on && MP.tx) MP.tx.send(o); }
 function mpRecv(m) {
   if (!m || m.f === MP.me) return;
   if (m.to && m.to !== MP.me) return;
+  if (typeof mpwRecv === 'function' && mpwRecv(m)) return;
   if (m.k === 'hi' && MP.host) {
     const used = new Set(MP.roster.map(r => r.slot)); let slot = 2; while (used.has(slot) && slot < 4) slot++;
     if (!MP.roster.some(r => r.id === m.f)) MP.roster.push({ id: m.f, slot, name: m.name || 'Mate' });
@@ -10861,18 +10869,16 @@ function voxStop(who) { const c = VOX.cur[who]; if (c) { for (const s of c) try 
 const voxNearDima = () => { const n = typeof DM !== 'undefined' && DM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos; return Math.hypot(n.pos.x - me.x, n.pos.z - me.z) < 7 || (SA.sheet && SA.sheet.classList.contains('show')); };
 const voxNearMadman = () => { const n = MM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos, p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z) < 5 || (MM.sheet && MM.sheet.classList.contains('show')); };
 function voxSay(n, text) {
-  if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return;
-  if (!VOX.head) { voxLoad(); return; }                       // (the first line kicks off the download; it's said as a bubble)
-  const who = n.mm ? 'mm' : n.dima ? 'dm' : VOX_WHO[n.name]; if (!who) return;
-  const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = activeName === 'foot' ? F.pos : S.pos, d = Math.hypot(p.x - me.x, p.z - me.z);
-  if (d > 32) return;
+  if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return 0;
+  if (!VOX.head) { voxLoad(); return 0; }                     // (the first line kicks off the download; it's said as a bubble)
+  const who = voxWho(n); if (!who) return 0;
+  const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = plRealPos(), d = Math.hypot(p.x - me.x, p.z - me.z);
+  if (d > 32) return 0;
   const now = AU.ctx.currentTime;
-  if (who !== 'mm' && who !== 'dm' && (VOX.mmUntil > now || VOX.dmUntil > now || voxNearMadman() || voxNearDima())) return;          // no French chatter over Madman or Dima
-  if (who === 'mm' && VOX.dmUntil > now && voxNearDima()) return;                                   // and Madman doesn't cut Dima off while you're with him (his bubble still shows)
   let parts;
   if (who === 'mm') parts = voxSplit(text); else if (who === 'dm') { const e = VOX.head.dm && VOX.head.dm[voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
-  if (!parts || !parts.length) return;
-  if (who === 'mm') { for (const k of Object.keys(VOX.cur)) if (k !== 'dm' || !voxNearDima()) voxStop(k); } else if (who === 'dm') { for (const k of Object.keys(VOX.cur)) if (k !== 'mm') voxStop(k); } else voxStop(who);
+  if (!parts || !parts.length) return 0;
+  voxStop(who);
   const g = AU.ctx.createGain(); g.gain.value = THREE.MathUtils.clamp(1.25 - d / 26, 0.12, 1) * (who === 'mm' ? 1.15 : 0.95); g.connect(AU.master);
   const total = parts.reduce((s, e) => s + e[2] + (e[3] ? 0.12 : 0.05), 0); if (who === 'mm') VOX.mmUntil = now + total + 0.2; if (who === 'dm') VOX.dmUntil = now + total + 0.2;
   const tok = VOX.cur[who] = [];
@@ -10882,10 +10888,15 @@ function voxSay(n, text) {
     bufs.forEach((b, i) => { if (!b) return; const s = AU.ctx.createBufferSource(); s.buffer = b; s.connect(g); s.start(t); tok.push(s); t += b.duration + (parts[i][3] ? 0.12 : 0.05); });
     if (who === 'mm') VOX.mmUntil = t + 0.2; if (who === 'dm') VOX.dmUntil = t + 0.2;
   });
+  return total;
 }
+const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : VOX_WHO[n.name];
 document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
   if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; } if (n.dima) { dmSayNpc(n, line); return; }     // Madman never gets the backpackers' French: map to his own lines
+  spkLine(n, 'fr', line, dur);
+}
+function bubDrawFr(n, line, dur) {
   const [fr, en] = line, B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
   x.fillStyle = 'rgba(255,255,255,.96)'; x.strokeStyle = 'rgba(30,30,40,.8)'; x.lineWidth = 4; x.beginPath(); x.roundRect ? x.roundRect(6, 6, 628, 130, 26) : x.rect(6, 6, 628, 130); x.fill(); x.stroke();
   x.beginPath(); x.moveTo(300, 134); x.lineTo(320, 166); x.lineTo(340, 134); x.closePath(); x.fillStyle = 'rgba(255,255,255,.96)'; x.fill();
@@ -10894,7 +10905,6 @@ function npcSay(n, line, dur = 3.2) {
   fs = 28; x.font = 'italic 600 ' + fs + 'px system-ui,sans-serif'; while (x.measureText(en).width > 590 && fs > 16) { fs -= 2; x.font = 'italic 600 ' + fs + 'px system-ui,sans-serif'; }
   x.fillStyle = '#5b5f66'; x.fillText(en, 320, 98);
   B.t.needsUpdate = true; B.sp.visible = true; B.time = dur; B.sp.material.opacity = 1;
-  voxSay(n, fr);
 }
 function npcBuild() {
   NPC.ready = true;
@@ -11037,7 +11047,7 @@ function npcThink(n, dt) {
   const dpx = F.pos.x - n.pos.x, dpz = F.pos.z - n.pos.z, dP = Math.hypot(dpx, dpz);
   if (n.st === 'drive') { if (n.veh) npcDriveAI(n, dt); else n.st = 'wander'; return; }
   // run over by the player's machine
-  const veh = FA.threats.find(t => t.kind === 'veh');
+  const veh = faNearT('veh', n.pos);
   if (veh && veh.sp > 2.5 && npcAlive(n)) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (n.st === 'tumble') {
@@ -11152,7 +11162,11 @@ function spawnShedPig(first) {
 function npcStep(dt) {
   if (!NPC.ready) { if (FA.ready && STRUCTS.ready && HOME.bmw && VEH.bmw && VEH.bmw.state) npcBuild(); else return; }
   dt = Math.min(dt, 0.05); NPC.t += dt;
-  for (const n of NPC.list) { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.sayT -= dt; } else dmThink(n, dt); } else npcThink(n, dt); npcPose(n, dt); }
+  if (mpwCli()) { mpwCliNpc(dt); return; }
+  spkStep();
+  for (const n of NPC.list) { plBegin(MP.on ? plFocus(n) : plList()[0]);
+    try { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.sayT -= dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
+    npcPose(n, dt); }
   shedFauna(dt);
 }
 function npcReset() {
@@ -11950,6 +11964,7 @@ const MM_BARK_B64 = {"tank1": "SUQzBAAAAAAAIlRTU0UAAAAOAAADTGF2ZjYzLjEuMTAyAAAAA
 const MG = { v: null, dog: 'Tank' };          // scratch vector for the aim check; which dog last grabbed a pig
 // he notices when you aim a gun at him (on foot, close, crosshair on him for a moment)
 function mmAimCheck(dt) {
+  if (PX.cur) return;                                         // (your aim, from your camera: not something to judge for a mate)
   const n = MM.n; MM.aimSaidT = Math.max(0, (MM.aimSaidT || 0) - dt);
   if (!n || MH.pax || activeName !== 'foot' || typeof WPN === 'undefined' || !WPN.cur || WEAPONS[WPN.cur].kind !== 'gun' || MM.anger > 80) { MM.aimT = 0; return; }
   const dx = n.pos.x - camera.position.x, dy = n.pos.y + 1.2 - camera.position.y, dz = n.pos.z - camera.position.z, L = Math.hypot(dx, dy, dz);
@@ -12524,7 +12539,7 @@ function dmThink(n, dt) {
   n.t += dt; n.sayT -= dt;
   if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) {        // a scrap: the shared fight code, then home
     npcThink(n, dt); if (n.st === 'wander') { n.st = 'home'; n.t = 0; n.angry = false; } return; }
-  const veh = FA.threats.find(t => t.kind === 'veh');
+  const veh = faNearT('veh', n.pos);
   if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (n.st === 'dmDogs' && dmDogs(n, dt)) return;
@@ -12586,21 +12601,21 @@ function saTalkable() { const n = saDima(); return !!n && activeName === 'foot' 
 function saMenuOpen() {
   saUI(); if (!saTalkable()) return; const n = saDima(), q = SA.q;
   $('saMood').textContent = 'Russian, enormous, sauna fanatic. ' + (SA.done ? 'Challenges done: ' + SA.done + (SA.best ? ' · best löyly: ' + SA.best : '') : 'He reckons you won’t last a minute.');
-  const b = SA.sheet.querySelector('[data-sa="quest"]'), busy = !!q || MH.mode; b.setAttribute('aria-disabled', busy ? 'true' : 'false');
-  b.querySelector('span').textContent = q ? 'Already on: ' + saStepText() : MH.mode ? 'Not while Madman’s out hunting' : 'Wood, stove, a minute of löyly, then the cold tub';
+  const b = SA.sheet.querySelector('[data-sa="quest"]'), busy = !!q, mine = q && (!q.who || q.who === MP.me), who = q && !mine ? (plById(q.who) || {}).name || 'your mate' : ''; b.setAttribute('aria-disabled', busy ? 'true' : 'false');
+  b.querySelector('span').textContent = mine ? 'Already on: ' + saStepText() : q ? 'He\u2019s doing it with ' + who + ' (come and sit in)' : 'Wood, stove, a minute of löyly, then the cold tub';
   SA.sheet.classList.add('show'); npcFace(n, F.pos.x, F.pos.z, 99, 1);
 }
 function saChoose(k) {
-  const n = saDima(); SA.sheet.classList.remove('show'); if (!n) return;
+  const n = saDima(); if (SA.sheet && !PX.cur) SA.sheet.classList.remove('show'); if (!n) return;
   if (k === 'talk') dmSay(n, 'talk');
   else if (k === 'leave') dmSay(n, 'bye');
-  else if (k === 'quest' && !SA.q && !MH.mode) saQuestStart(n);
+  else if (k === 'quest' && !SA.q) saQuestStart(n);
 }
 // ---- the challenge ----
 const SA_WOOD = [[196.5, 37.5], [158.5, 61.5], [193.5, 63.5]];
 function saQuestStart(n) {
   if (SA.solo) saSoloEnd();
-  SA.q = { step: 'wood', t: 0, left: 240, wood: 0, piles: [], asks: 0, hits: 0, ask: 0, askT: 9, sweat: 0 };
+  SA.q = { step: 'wood', t: 0, left: 240, wood: 0, piles: [], asks: 0, hits: 0, ask: 0, askT: 9, sweat: 0, who: PX.cur ? PX.cur.id : MP.me };
   const tex = SA.woodTex || (SA.woodTex = radialTex([255, 200, 120], true));
   for (const [x, z] of SA_WOOD) { const g = new THREE.Group(), y = groundAt(x, z, 6, 0); g.position.set(x, y, z); scene.add(g);
     for (let k = 0; k < 5; k++) { const lg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 7), SA.mats.wood); lg.rotation.z = Math.PI / 2; lg.rotation.y = (k - 2) * 0.12; lg.position.set(0, 0.08 + (k % 2) * 0.12 + Math.floor(k / 3) * 0.12, (k % 3 - 1) * 0.14); g.add(lg); }
@@ -12614,7 +12629,9 @@ function saQuestEnd(win, why) {
   const q = SA.q; if (!q) return; const n = saDima();
   for (const p of q.piles) scene.remove(p.g);
   if (n && npcAlive(n) && !n.angry) dmSay(n, win ? 'win' : why === 'faint' ? 'faint' : why === 'slow' ? 'slow' : 'fail');
-  if (win) { SA.done++; SA.best = Math.max(SA.best, q.hits); try { localStorage.setItem('wfy.sauna', JSON.stringify({ best: SA.best, done: SA.done })); } catch (_) {}
+  if (win && PX.cur) mpSend({ k: 'qdone', f: MP.me, to: PX.cur.id, q: 'sauna', win: 1, hits: q.hits });              // (a mate's: their tally)
+  if (win && !PX.cur) { SA.done++; SA.best = Math.max(SA.best, q.hits); try { localStorage.setItem('wfy.sauna', JSON.stringify({ best: SA.best, done: SA.done })); } catch (_) {} }
+  if (win) {
     toast('Sauna challenge done! Löyly on cue: ' + q.hits + (q.hits >= SA.best ? ' (best)' : ''), 3.2); }
   else toast(why === 'faint' ? 'You passed out in the sauna' : why === 'left' ? 'You bailed out of the sauna early' : why === 'slow' ? 'Too slow to the cold tub' : why === 'time' ? 'Ran out of time' : 'Sauna challenge off', 2.6);
   SA.q = null; SA.litT = Math.min(SA.litT || 0, 90);
@@ -12707,7 +12724,7 @@ function saAct(id) {
     for (let k = 0; k < 6; k++) saPuff(true);
     if (q && q.step === 'sweat' && q.ask > 0) { q.ask = 0; q.hits++; if (n) dmSay(n, 'good'); }
   } else if (id === 'sa:tub') {
-    const hot = SA.heat > 30 || (q && q.step === 'plunge'); saTubIn();
+    const hot = SA.heat > 30 || (q && q.step === 'plunge'); if (!PX.cur) saTubIn();
     if (q && q.step === 'plunge') saQuestEnd(true); else toast(hot ? 'Brrrr!' : 'Brrrr! Freezing', 1.6);
   }
 }
@@ -12724,7 +12741,7 @@ function saStep(dt) {
   SA.mats.int.emissive.setRGB(SA.lit ? 0.12 : 0.04, SA.lit ? 0.07 : 0.03, SA.lit ? 0.03 : 0.01);
   // the door opens for whoever's at it
   const [dx, dz] = saW(-0.55, SA.D / 2), near = (p) => Math.hypot(p.x - dx, p.z - dz) < 1.5, M = saDima();
-  const want = near(F.pos) || (M && near(M.pos)); SA.doorA += ((want ? 1 : 0) - SA.doorA) * Math.min(1, dt * 4); SA.door.rotation.y = 1.5 * SA.doorA;
+  const want = plAnyNear(dx, dz, 1.5) || (M && near(M.pos)); SA.doorA += ((want ? 1 : 0) - SA.doorA) * Math.min(1, dt * 4); SA.door.rotation.y = 1.5 * SA.doorA;
   // steam inside, smoke out the chimney
   if (SA.lit && Math.random() < dt * (1.5 + SA.steam * 6)) saPuff(false);
   for (const p of SA.puffs) { if (p.life <= 0) continue; p.life -= dt; p.sp.position.addScaledVector(p.v, dt); p.v.multiplyScalar(Math.exp(-0.8 * dt));
@@ -12736,12 +12753,17 @@ function saStep(dt) {
   if (me) SA.heat = Math.min(100, SA.heat + dt * Math.max(0, feel - 60) / 26);      // (a minute at full heat is fine; keep piling on steam and you'll go) else SA.heat = Math.max(0, SA.heat - dt * 1.6);
   if (me && SA.heat >= 100 && (F.mode === 'walk' || saSitting() === 'bench')) {               // passed out: you come to outside the door
     if (saSitting()) { EM.cur = null; F.mode = 'walk'; }
-    const [ox, oz] = saDoorOut(); standFarmerAt({ x: ox, y: groundAt(ox, oz, SA.gy + 2, SA.gy), z: oz + 0.4 }, 0, true); startTumble(new THREE.Vector3(0, 1.5, 1.2)); SA.heat = 55; if (SA.q) saQuestEnd(false, 'faint'); else toast('You passed out in the sauna. Easy, champ', 2.4); }
-  saQuestStep(dt); saSoloTick(dt); tbStep(dt);
+    const [ox, oz] = saDoorOut(); standFarmerAt({ x: ox, y: groundAt(ox, oz, SA.gy + 2, SA.gy), z: oz + 0.4 }, 0, true); startTumble(new THREE.Vector3(0, 1.5, 1.2)); SA.heat = 55; const mine = SA.q && (!SA.q.who || SA.q.who === MP.me);
+    if (mine && mpwCli()) { mpwSendAct('sa:faint'); toast('You passed out in the sauna', 2.6); } else if (mine) saQuestEnd(false, 'faint'); else toast('You passed out in the sauna. Easy, champ', 2.4); }
+  if (mpwCli()) mpwCliQuest(dt);
+  else { if (SA.q && SA.q.who && SA.q.who !== MP.me && !plById(SA.q.who)) saQuestEnd(false, 'left');         // they've left the game
+    if (SA.q) plWith(plById(SA.q.who) || plList()[0], () => saQuestStep(dt)); saSoloTick(dt); }
+  tbStep(dt);
+  const myQ = SA.q && (!MP.on || !SA.q.who || SA.q.who === MP.me) ? SA.q : null;
   // HUD
-  if (!SA.chip && (me || SA.q)) saUI();
-  if (SA.chip) { const show = me || !!SA.q; SA.chip.classList.toggle('show', show);
-    if (show) { const q = SA.q, txt = q ? saStepText() : Math.round(SA.temp) + '°C' + (SA.lit ? '' : ' · stove cold'); if (txt !== SA.chipTxt) { SA.chipTxt = txt; SA.chip.querySelector('b').textContent = txt; }
+  if (!SA.chip && (me || myQ)) saUI();
+  if (SA.chip) { const show = me || !!myQ; SA.chip.classList.toggle('show', show);
+    if (show) { const q = myQ, txt = q ? saStepText() : Math.round(SA.temp) + '°C' + (SA.lit ? '' : ' · stove cold'); if (txt !== SA.chipTxt) { SA.chipTxt = txt; SA.chip.querySelector('b').textContent = txt; }
       SA.chip.querySelector('.bar').style.display = me ? 'block' : 'none'; SA.chip.querySelector('.bar i').style.width = Math.round(SA.heat) + '%';
       const tm = q ? (q.step === 'sweat' ? Math.ceil(q.sweat) + 's' : q.step === 'plunge' ? Math.ceil(q.plunge) + 's' : (q.step === 'wood' || q.step === 'light') ? Math.floor(q.left / 60) + ':' + String(Math.floor(q.left % 60)).padStart(2, '0') : '') : ''; SA.chip.querySelector('.tm').textContent = tm; } }
   if (SA.haze) SA.haze.style.opacity = me ? Math.min(0.75, Math.max(0, (feel - 45) / 70) + SA.steam * 0.25).toFixed(3) : '0';
@@ -12800,10 +12822,11 @@ function dgStuckIn(n, dt) {
 function dgStep(dt) {
   if (!DG.root) return; const n = MM.n;
   const [dx, dz] = dgPt('step'), near = (p) => Math.hypot(p.x - dx, p.z - dz) < 1.9;
-  const want = DG.want || near(F.pos) || (n && near(n.pos)); DG.want = 0;
+  const want = DG.want || plAnyNear(dx, dz, 1.9) || (n && near(n.pos)); DG.want = 0;
   DG.doorA += ((want ? 1 : 0) - DG.doorA) * Math.min(1, dt * 4); DG.door.rotation.y = -1.45 * DG.doorA;
-  for (const U of DG_UNITS) { if (U === DG || !U.door) continue; const [ux, uz] = dgW(DG.du, DG.W / 2 - 0.2, U), by = (p) => Math.hypot(p.x - ux, p.z - uz) < 1.9, w = by(F.pos) || (n && by(n.pos)); U.doorA += ((w ? 1 : 0) - U.doorA) * Math.min(1, dt * 4); U.door.rotation.y = -1.45 * U.doorA; }
+  for (const U of DG_UNITS) { if (U === DG || !U.door) continue; const [ux, uz] = dgW(DG.du, DG.W / 2 - 0.2, U), by = (p) => Math.hypot(p.x - ux, p.z - uz) < 1.9, w = plAnyNear(ux, uz, 1.9) || (n && by(n.pos)) || (DM.n && U.kind === 'dima' && by(DM.n.pos)); U.doorA += ((w ? 1 : 0) - U.doorA) * Math.min(1, dt * 4); U.door.rotation.y = -1.45 * U.doorA; }
   const dP = Math.hypot(F.pos.x - DG.x, F.pos.z - DG.z), on = dP < 22 || (n && dgInside(n.pos)); DG.light.intensity += ((on ? 1 : 0) - DG.light.intensity) * Math.min(1, dt * 3); for (const U of DG_UNITS) if (U.bulb) U.bulb.visible = DG.light.intensity > 0.2; DG.mats.int.emissive.setRGB(0.16 * DG.light.intensity, 0.13 * DG.light.intensity, 0.08 * DG.light.intensity);
+  if (mpwCli()) return;
   // you, inside
   const inside = activeName === 'foot' && !MH.pax && F.dead <= 0 && dgInside(F.pos);
   if (!inside) { DG.inT = 0; if (DG.warnT > 0) DG.warnT -= dt; else DG.warnN = 0; if (dP > 12) DG.okSaid = false; return; }
@@ -12924,8 +12947,8 @@ function mmSayNpc(n, line, dur) {
   if (key === 'hurt' && MM.hurtSaidT > MM.t) return; if (key === 'hurt') MM.hurtSaidT = MM.t + 1.4;
   mmSay(key, Math.min(dur || 3, 3), force || key === 'hostile' && MM.sayT <= 0);
 }
-function mmSayBub(n, line, dur) {
-  if (typeof line !== 'string' || !line) return; voxSay(n, line);
+function mmSayBub(n, line, dur) { if (typeof line !== 'string' || !line) return; spkLine(n, 'b', line, dur); }
+function bubDraw(n, line, dur) {
   const B = n.bub, x = B.c.getContext('2d'); x.clearRect(0, 0, 640, 170);
   x.font = '800 38px system-ui,sans-serif'; const words = line.split(' '), rows = []; let cur = '';
   for (const w of words) { const t = cur ? cur + ' ' + w : w; if (x.measureText(t).width > 580 && cur) { rows.push(cur); cur = w; } else cur = t; } if (cur) rows.push(cur);
@@ -13025,7 +13048,7 @@ function mmThink(n, dt) {
     return;
   }
   // run over by whatever you're driving
-  const veh = FA.threats.find(t => t.kind === 'veh');
+  const veh = faNearT('veh', n.pos);
   if (veh && veh.sp > 2.5 && !n.veh) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (typeof dgStuckIn === 'function' && dgStuckIn(n, dt)) return;
@@ -13306,6 +13329,7 @@ function mmStep(dt) {
   if (!MM.ready) { if (NPC.ready && VEH.ute && VEH.ute.state && HOME.ute && FA.ready) mmBuild(); else return; }
   dt = Math.min(dt, 0.05); MM.t += dt; const n = MM.n, v = mmUte();
   MM.sayT -= dt; MM.scareT -= dt;
+  if (mpwCli()) { if (typeof dgStep === 'function') dgStep(dt); mpwCliDogs(dt); mmMenuStep(); return; }
   if (typeof dgStep === 'function') dgStep(dt);
   if (typeof mmAimCheck === 'function') mmAimCheck(dt);
   if (MM.grabbed) { const g = MM.grabbed; MM.grabbed = null; if (!MH.mode) { MH.grabbed = null; if (n && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 60) mmSay(mhPick('grab'), 0, true); } }
@@ -13437,7 +13461,7 @@ function mmChoose(k) {
   const cross = MM.anger >= 30 || MM.refuseT > 0;
   if (k === 'talk') { mmSay(cross ? 'annoyed' : 'talk', 0, true); for (const d of MM.dogs) d.wag = 3; mmMenuClose(); }
   else if (k === 'leave') { mmSay('bye', 2.2, true); mmMenuClose(); }
-  else if (k === 'solo' || k === 'hunt') { const ms = mhMenuState()[k]; if (ms) { mmSay(MP.on ? 'multi' : cross ? 'annoyed' : ms.startsWith('Dogs') ? mhPick('cooldown') : 'annoyed', 0, true); return; } if (k === 'hunt') mhStartGuided(); else mhStartSolo(); }
+  else if (k === 'solo' || k === 'hunt') { const ms = mhMenuState()[k]; if (ms) { mmSay(cross ? 'annoyed' : ms.startsWith('Dogs') ? mhPick('cooldown') : 'annoyed', 0, true); return; } if (k === 'hunt') mhStartGuided(); else mhStartSolo(); }
 }
 
 /* ================================================================
@@ -13684,11 +13708,12 @@ function phDrop(mob) {
 }
 const phLiveCount = () => PH.mobs.reduce((s, m) => s + (m.G ? m.members.length : 0), 0);
 function phStep(dt) {
+  if (mpwCli()) return;                                       // (a guest's pigs are the host's)
   if (!PH.ready) { if (FA.ready && HOME.farmer) { PH.ready = true; phLoad(); } else return; }
   dt = Math.min(dt, 0.1); phTick(dt, false);
   const cam = camera.position;
   for (const mob of PH.mobs) {
-    const Z = PH_ZONES[mob.zi], G = mob.G, cx = G ? G.center[0] : Z[0], cz = G ? G.center[1] : Z[1], d = Math.hypot(cx - cam.x, cz - cam.z);
+    const Z = PH_ZONES[mob.zi], G = mob.G, cx = G ? G.center[0] : Z[0], cz = G ? G.center[1] : Z[1], d = Math.min(Math.hypot(cx - cam.x, cz - cam.z), MP.on ? plMinD(cx, cz) : 1e9);
     mob.far = d > 60;
     if (!G && d < PH.matR && phLiveCount() + mob.members.length <= PH.liveCap + 4) phLive(mob);
     else if (G && d > PH.dropR && !mob.members.some(m => m.a && (m.a.st === 'flee' || m.a.st === 'charge'))) phDrop(mob);
@@ -14064,7 +14089,7 @@ const mhDogsHome = () => MM.dogs.every(d => d.mode === 'tray');
 /* ================= starting a hunt ================= */
 function mhMenuState() {
   const cross = MM.anger >= 30 || MM.refuseT > 0, ute = VEH.ute;
-  const why = MP.on ? 'Not in multiplayer yet' : MH.mode ? 'He’s busy' : cross ? 'He’s not in the mood' : ute.wrecked ? 'The ute’s cooked' : !mmUteHome() ? 'The ute’s not parked' : '';
+  const why = MH.mode ? (MH.paxId && MH.paxId !== MP.me && plById(MH.paxId) ? 'Out hunting with ' + plById(MH.paxId).name : 'He’s busy') : cross ? 'He’s not in the mood' : ute.wrecked ? 'The ute’s cooked' : !mmUteHome() ? 'The ute’s not parked' : '';
   const cd = (t) => t > 0 ? 'Dogs need a rest (' + Math.floor(t / 60) + ':' + String(Math.ceil(t % 60)).padStart(2, '0') + ')' : '';
   return { hunt: why || cd(MH.cdG), solo: why || cd(MH.cdS) };
 }
@@ -14072,7 +14097,9 @@ function mhStartGuided() {
   const st = mhMenuState(); if (st.hunt) { mhSay(st.hunt.startsWith('Dogs') ? 'cooldown' : 'annoyed', true); return false; }
   DRVX.clear(); MH.navFails = 0; MH.bad = []; MH.blockAt = []; MH.stuckAt = []; Object.assign(MH, { mode: 'guided', ph: 'board', t: 0, tt: 0, kills: 0, left: MH.limit, mob: null, visited: [], nav: null, stopT: 0, bailed: null, said: {}, missT: 0 });
   MH.seen = new Set(FA.pigs.filter(a => a.st === 'down'));
-  mmMenuClose(); mhSeatPlayer(); mhSay('start', true); MM.n.st = 'mhBoard'; MM.n.t = 0; MM.idleT = 60;
+  mmMenuClose(); MM.n.st = 'mhBoard'; MM.n.t = 0; MM.idleT = 60;
+  if (PX.cur) { MH.paxId = PX.cur.id; mpSend({ k: 'mhSeat', f: MP.me, to: PX.cur.id }); mhSay('start', true); return true; }      // a mate rides shotgun: their phone seats them
+  MH.paxId = MP.me; mhSeatPlayer(); mhSay('start', true);
   document.body.classList.add('pax'); mhChip(true);
   if (!MH.told.how) { MH.told.how = 1; toast('Drag to aim out the window · hold FIRE · 5 pigs \u00b7 the clock only runs while you\u2019re on the pigs', 3.6); }
   return true;
@@ -14202,10 +14229,12 @@ function mhGoHome() { const h = HOME.ute, fx = Math.sin(h.yaw), fz = Math.cos(h.
 function mhFinish() {
   const why = MH.endWhy, mode = MH.mode, n = MM.n;
   MM.dogs.forEach(d => { if (d.mode !== 'tray') mmDogTray(d); });
-  if (MH.pax) mhUnseat(false);
+  const remote = MH.paxId && MH.paxId !== MP.me ? MH.paxId : null;
+  if (MH.pax) mhUnseat(false); else if (remote) mpSend({ k: 'mhUnseat', f: MP.me, to: remote, bail: 0 });
   mmLeaveUte(false); n.st = 'home'; MM.dgPlan = 'hunt';
   const S_ = MH.stats;
-  if (mode === 'guided') {
+  if (mode === 'guided' && remote) { mpSend({ k: 'mhDone', f: MP.me, to: remote, why, kills: MH.kills, goal: MH.goal, secs: Math.round(MH.limit - MH.left) }); MH.cdG = 60; }
+  else if (mode === 'guided') {
     if (why === 'win') { S_.g++; S_.k += MH.kills; const secs = Math.round(MH.limit - MH.left); if (!S_.best || secs < S_.best) S_.best = secs;
       const got = mhReward(150); toast('Hunt done: ' + MH.kills + ' pigs in ' + fmtT(secs) + (got ? ' · ' + got : ''), 3.4); }
     else { S_.k += MH.kills; if (MH.kills) { const got = mhReward(40 * MH.kills); toast('Hunt over: ' + MH.kills + ' of ' + MH.goal + ' pigs' + (got ? ' · ' + got : ''), 3); } }
@@ -14227,11 +14256,12 @@ function mhReward(n) {
 function mhFail(why) {
   if (!MH.mode) return;
   if (MH.pax) mhUnseat(why === 'wreck' || why === 'dead' || Math.abs((VEH.ute.state || { v: 0 }).v) > 2);
+  else if (MH.paxId && MH.paxId !== MP.me) mpSend({ k: 'mhUnseat', f: MP.me, to: MH.paxId, bail: why === 'wreck' || Math.abs((VEH.ute.state || { v: 0 }).v) > 2 ? 1 : 0 });
   MM.dogs.forEach(d => { if (d.mode === 'jump') mmDogTray(d); else if (d.mode !== 'tray') d.task = 'return'; });
   const n = MM.n; if (n.veh && why !== 'wreck') { /* he drives home on his own */ MH.mode = 'return'; mhHome('fail'); mhChip(false); return; }
   mhEnd();
 }
-function mhEnd() { MH.mode = ''; MH.ph = ''; MH.nav = null; MH.mob = null; MH.bailed = null; mhChip(false); document.body.classList.remove('pax'); for (const a of FA.pigs) a.bailT = 0; }
+function mhEnd() { MH.paxId = null; MH.mode = ''; MH.ph = ''; MH.nav = null; MH.mob = null; MH.bailed = null; mhChip(false); document.body.classList.remove('pax'); for (const a of FA.pigs) a.bailT = 0; }
 function mhAbort() {     // you got out
   if (!MH.pax) return; const v = VEH.ute, st = v.state, moving = Math.abs(st.v) > 2;
   mhUnseat(moving); mhSay('quit', true);
@@ -14248,11 +14278,12 @@ function phCull(mob) {
 /* ================= per frame ================= */
 function mhStep(dt) {
   if (!MM.ready) return; dt = Math.min(dt, 0.05);
+  if (mpwCli()) { mpwCliHunt(dt); return; }
   MH.sayT -= dt; MH.tt = (MH.tt || 0) + dt; if (MH.cdG > 0) MH.cdG -= dt; if (MH.cdS > 0) MH.cdS -= dt;
   const v = VEH.ute, n = MM.n;
   if (MH.mode) {
     // anything that should end it
-    if (MP.on && MH.mode !== 'return') mhFail('mp');
+    if (MH.paxId && MH.paxId !== MP.me && !plById(MH.paxId)) mpwHuntOut(MH.paxId);            // whoever was riding shotgun has left the game
     if (MH.pax && F.dead > 0) { mhFail('dead'); }
     if (MH.mode && v.wrecked) { if (n.veh) mmLeaveUte(false); mhFail('wreck'); }
     if (MH.mode && n.st !== 'drive' && n.st !== 'mhBoard') { mhFail('madman'); if (MH.mode === 'return') mhEnd(); }
@@ -14299,11 +14330,414 @@ function mhChipStep() {
   if (key !== MH.chipKey) { MH.chipKey = key; MH.chip.querySelector('b').textContent = k; const tm = MH.chip.querySelector('.tm'); tm.textContent = MH.ph === 'home' || MH.ph === 'park' || MH.ph === 'loadHome' ? 'heading home' : MH.ph === 'stop' || MH.ph === 'side' ? s : s + ' \u00b7 driving'; tm.classList.toggle('lo', t < 30); }
 }
 
+
+/* ================================================================
+   WHO SAYS WHAT, WHEN: NPCs take turns.
+   Every NPC line comes through spkLine. On each phone, lines from anyone within earshot of that phone's player take turns:
+   while one is being said the next waits (bubble and voice together), and a line meant for you (your menu choice, your
+   quest, Madman talking to you) goes ahead of chatter. Out of earshot it's just the bubble. So two players talking to Dima
+   and to Madman at once each hear their own conversation, and neither one is cut short or switched off.
+   ================================================================ */
+const SPK = { q: [], floor: null, to: null, net: false, HEAR: 22 };
+const spkNow = () => performance.now() / 1000;
+function spkLine(n, kind, line, dur) {
+  if (!n || !n.bub || !line) return;
+  const to = SPK.to || null;
+  if (MP.on) {
+    if (!MP.host) { if (!SPK.net) return; }                                   // a guest says only what the host's NPCs say
+    else mpSend({ k: 'say', f: MP.me, i: n.name, kd: kind, ln: line, dur: Math.round((dur || 3) * 100) / 100, ad: to });     // (ad, not to: everyone gets it)
+  }
+  spkOffer({ n, kind, line, dur: dur || 3, to, at: spkNow() });
+}
+function spkDist(n) { const me = plRealPos(), p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z); }
+function spkOffer(L) {
+  L.pri = L.to && L.to === MP.me ? 2 : 1;
+  const F0 = SPK.floor, now = spkNow();
+  if (spkDist(L.n) > SPK.HEAR) { spkShow(L, false); return; }                // out of earshot: just the bubble
+  const busy = F0 && F0.until > now && F0.n !== L.n && spkDist(F0.n) < SPK.HEAR + 4;
+  if (!busy) { spkShow(L, true); return; }
+  if (L.pri > F0.pri) { voxStop(voxWho(F0.n)); spkShow(L, true); return; }    // a line meant for you goes ahead of chatter
+  SPK.q = SPK.q.filter(o => o.n !== L.n); SPK.q.push(L);                      // anything else waits its turn
+}
+function spkShow(L, voice) {
+  const n = L.n; if (!n.bub) return;
+  if (L.kind === 'fr') bubDrawFr(n, L.line, L.dur); else bubDraw(n, L.line, L.dur);
+  const v = voice ? voxSay(n, L.kind === 'fr' ? L.line[0] : L.line) || 0 : 0;
+  if (v) n.bub.time = Math.max(n.bub.time, v + 0.5);
+  if (voice) SPK.floor = { n, pri: L.pri, until: spkNow() + (v ? v + 0.15 : Math.min(L.dur * 0.7, 2.6)) };
+}
+function spkStep() {
+  if (!SPK.q.length) return; const now = spkNow(), F0 = SPK.floor;
+  SPK.q = SPK.q.filter(L => now - L.at < (L.pri > 1 ? 9 : 3) && L.n.bub);
+  if (!SPK.q.length || (F0 && F0.until > now && spkDist(F0.n) < SPK.HEAR + 4)) return;
+  let best = 0; for (let i = 1; i < SPK.q.length; i++) if (SPK.q[i].pri > SPK.q[best].pri) best = i;
+  spkOffer(SPK.q.splice(best, 1)[0]);
+}
+
+/* ================================================================
+   PLAYERS, FROM THE NPCs' SIDE
+   The NPC code was written about "the player": F.pos, activeName, S.pos. With mates in the game each NPC deals with one
+   player at a time (the one who hit it, the one in Madman's ute, the one on the quest, the one it's talking to, or else
+   the nearest), and while it thinks, those globals are that player. Anything it does to them goes to their phone.
+   ================================================================ */
+const PX = { saved: null, cur: null, v1: new THREE.Vector3(), v2: new THREE.Vector3(), v3: new THREE.Vector3(), list: null, listT: -1 };
+function plRealPos() { if (PX.saved) return PX.saved.me; const v = activeVeh(); return !v ? F.pos : v.kind === 'air' ? v.st.pos : S.pos; }
+function plList() {
+  if (PX.listT === MPW.frame && PX.list) return PX.list;
+  const v = activeVeh(), L = [{ id: MP.me, local: true, pos: plRealPos(), veh: v ? activeName : null, mode: F.mode, dead: F.dead > 0, w: typeof WPN !== 'undefined' ? WPN.cur : null, name: MP.name }];
+  if (MP.on) for (const p of MP.peers.values()) { const last = p.buf[p.buf.length - 1]; if (!last) continue; const pv = p.veh && VEH[p.veh];
+    const pos = pv ? (pv.kind === 'air' ? pv.st.pos : pv.state && pv.state.pos) : p.av.root.position; if (!pos) continue;
+    L.push({ id: p.id, local: false, p, pos, veh: p.veh || null, mode: p.veh ? 'seated' : (last.m || 'walk'), dead: last.m === 'down' && (p.downT || 0) > 6, w: last.w || null, name: p.name }); }
+  PX.list = L; PX.listT = MPW.frame; return L;
+}
+const plById = (id) => id ? plList().find(q => q.id === id) || null : null;
+function plNearest(x, z, skipDead) { let best = null, bd = 1e9; for (const q of plList()) { if (skipDead && q.dead) continue; const d = Math.hypot(q.pos.x - x, q.pos.z - z); if (d < bd) { bd = d; best = q; } } return best; }
+function plMinD(x, z) { let bd = 1e9; for (const q of plList()) bd = Math.min(bd, Math.hypot(q.pos.x - x, q.pos.z - z)); return bd; }
+function plAnyNear(x, z, r) { return plMinD(x, z) < r; }
+// which player this NPC is dealing with
+function plFocus(n) {
+  const L = plList(); if (L.length < 2) return L[0];
+  let pin = null;
+  if (n.foeId && n.angry) pin = plById(n.foeId);
+  if (!pin && n.mm) pin = L.find(q => q.veh === 'ute') || plById(MH.paxId) || (MM.talkUntil > MM.t ? plById(MM.talkId) : null);
+  if (!pin && n.dima) pin = (SA.q ? plById(SA.q.who) : null) || (DM.talkUntil > NPC.t ? plById(DM.talkId) : null);
+  if (pin) { n.focusId = pin.id; return pin; }
+  let best = L[0], bd = 1e9;
+  for (const q of L) { const d = Math.hypot(q.pos.x - n.pos.x, q.pos.z - n.pos.z) + (q.id === n.focusId ? -3 : 0) + (q.dead ? 60 : 0); if (d < bd) { bd = d; best = q; } }
+  n.focusId = best.id; return best;
+}
+// for the length of fn, the player is q
+function plBegin(q) {
+  SPK.to = q ? q.id : null;
+  if (!q || q.local || PX.saved) return;
+  PX.saved = { me: plRealPos(), pos: F.pos, an: activeName, mode: F.mode, dead: F.dead, vel: F.vel, spd: F.speedH, spos: S.pos, sv: S.v, svx: S.vx, svz: S.vz, syaw: S.yaw, cs: camShake, w: typeof WPN !== 'undefined' ? WPN.cur : null };
+  PX.cur = q; F.pos = PX.v1.copy(q.pos); activeName = q.veh || 'foot'; F.mode = q.veh ? 'seated' : q.mode; F.dead = q.dead ? 1 : 0; F.vel = PX.v3.set(0, 0, 0); F.speedH = 0;
+  if (typeof WPN !== 'undefined') WPN.cur = q.w || null;
+  if (q.veh) { const st = VEH[q.veh] && VEH[q.veh].state; S.pos = PX.v2.copy(q.pos); if (st) { S.v = st.v || 0; S.vx = st.vx || 0; S.vz = st.vz || 0; S.yaw = st.yaw || 0; } }
+}
+function plEnd() {
+  SPK.to = null; if (!PX.saved) return; const s = PX.saved;
+  F.pos = s.pos; activeName = s.an; F.mode = s.mode; F.dead = s.dead; F.vel = s.vel; F.speedH = s.spd; S.pos = s.spos; S.v = s.sv; S.vx = s.svx; S.vz = s.svz; S.yaw = s.syaw; camShake = s.cs;
+  if (typeof WPN !== 'undefined') WPN.cur = s.w;
+  PX.saved = null; PX.cur = null;
+}
+function plWith(q, fn) { const keep = SPK.to; plBegin(q); try { return fn(); } finally { plEnd(); SPK.to = keep; } }
+// what an NPC does to a player on another phone goes to that phone
+{
+  const _tum = startTumble; startTumble = function (vel) { if (PX.cur) { mpSend({ k: 'ptum', f: MP.me, to: PX.cur.id, v: [mpR(vel.x), mpR(vel.y), mpR(vel.z)] }); return; } return _tum.apply(this, arguments); };
+  const _hurt = wpnHurt; wpnHurt = function (dmg, vel, how) { if (PX.cur) { mpSend({ k: 'pdmg', f: MP.me, to: PX.cur.id, dmg, v: vel ? [mpR(vel.x), mpR(vel.y), mpR(vel.z)] : null, how }); return; } return _hurt.apply(this, arguments); };
+  const _toast = toast; toast = function (s, d) { if (PX.cur) { mpSend({ k: 'toast', f: MP.me, to: PX.cur.id, s, d }); return; } return _toast.apply(this, arguments); };
+  const _say = say; say = function () { if (PX.cur) return; return _say.apply(this, arguments); };
+  const _sfa = standFarmerAt; standFarmerAt = function () { if (PX.cur) return; return _sfa.apply(this, arguments); };
+  const _bail = bailGround; bailGround = function () { if (PX.cur) return; return _bail.apply(this, arguments); };
+  const _exit = exitVehicle; exitVehicle = function () { if (PX.cur) return; return _exit.apply(this, arguments); };
+  const _cseq = cancelSeq; cancelSeq = function () { if (PX.cur) return; return _cseq.apply(this, arguments); };
+  const _sact = setActive; setActive = function () { if (PX.cur) return; return _sact.apply(this, arguments); };
+  const _mmc = mmMenuClose; mmMenuClose = function () { if (PX.cur) return; return _mmc.apply(this, arguments); };
+  const _chip = mhChip; mhChip = function () { if (PX.cur) return; return _chip.apply(this, arguments); };
+  // Madman hauling someone out of his ute: on their phone
+  const _yank = mmYank; mmYank = function (n) {
+    if (PX.cur) { const q = PX.cur; if (activeName !== 'ute') return; mpSend({ k: 'yank', f: MP.me, to: q.id }); if (q.p && q.p.veh === 'ute') { mpRelease(q.p, 'ute'); q.p.block = { veh: 'ute', until: MP.clock + 2.5 }; }
+      mmSay('yank', 2.4, true); return; }
+    return _yank.apply(this, arguments); };
+}
+
+/* ================================================================
+   MULTIPLAYER, PHASE 2: ONE SHARED WORLD
+   The host's phone runs the people and animals (Madman, Dima, the backpackers, the dogs, the pigs), the sauna and the
+   quests, and sends everyone else how they look ~10 times a second; everyone else just draws that. Anything a player does
+   to that world (a menu choice, a sauna action, a shot or a punch) goes to the host, which does it as that player.
+   ================================================================ */
+const MPW = { frame: 0, sendT: 0, pigT: 0, parkT: 0, buf: new Map(), dbuf: [], vbuf: new Map(), pigs: new Map(), pigId: 0, npcV: new Set(), net: false, cli: false, sim: false, q: null, lastW: 0 };
+const mpwHost = () => !MP.on || MP.host;
+const mpwCli = () => MP.on && !MP.host;
+const _mpwP = new THREE.Vector3(), _mpwQ = new THREE.Quaternion(), _mpwQ2 = new THREE.Quaternion();
+const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100;
+const npcByName = (nm) => NPC.list.find(n => n.name === nm) || null;
+function mpwSendAct(a, x) { mpSend({ k: 'act', f: MP.me, a, x }); }
+// a ground machine's placement, the same shape the players send for theirs
+function mpwG(v) { const st = v.state, T = v.model; return [st.pos.x, st.pos.y, st.pos.z, st.yaw || 0, st.pitch || 0, st.roll || 0, T.body.rotation.x, T.body.rotation.z, T.body.position.y, st.steer || 0, st.v || 0].map(mpR); }
+
+/* ---------- host: what everyone else needs to see ---------- */
+function mpwNpcSnap(n) {
+  const R = n.root, inV = R.parent && R.parent !== scene && n.veh ? n.veh.name : '';
+  return [n.name, inV, mpR(R.position.x), mpR(R.position.y), mpR(R.position.z), mpR(R.quaternion.x), mpR(R.quaternion.y), mpR(R.quaternion.z), mpR(R.quaternion.w), mpR(R.scale.x),
+    MP_JOINTS(n.P).map(mpR), n.st, (n.angry ? 1 : 0) | (n.ko ? 2 : 0) | (R.visible ? 4 : 0) | (n.pack && n.pack.visible ? 8 : 0), Math.round(n.hp || 0), mpR(n.pos.x), mpR(n.pos.y), mpR(n.pos.z)];
+}
+function mpwDogSnap(d) { const M = d.M, R = M.root; if (d.mode === 'tray' || R.parent !== scene) return [0]; return [1, mpR(R.position.x), mpR(R.position.y), mpR(R.position.z), mpR(R.rotation.y), d.st, mpR(d.spd || 0), mpR(M.body.position.y), d.barkPh > 0 ? 1 : 0]; }
+function mpwHostSend(dt) {
+  if (!MP.on || !MP.host || !NPC.ready) return;
+  MPW.sendT -= dt;
+  if (MPW.sendT <= 0) { MPW.sendT = 0.1;
+    const o = { k: 'w', f: MP.me, t: MP.clock, n: NPC.list.map(mpwNpcSnap), d: MM.ready ? MM.dogs.map(mpwDogSnap) : [], v: {} };
+    for (const v of Object.values(VEH)) if (v.kind === 'ground' && v.npc && v.state) o.v[v.name] = mpwG(v);
+    o.sa = [SA.lit ? 1 : 0, r1(SA.temp), r2(SA.steam)];
+    if (SA.q) { const q = SA.q; o.sq = { who: q.who, step: q.step, wood: q.wood, left: r1(q.left), sweat: r1(q.sweat || 0), plunge: r1(q.plunge || 0), hits: q.hits, asks: q.asks, ask: r1(q.ask || 0), got: q.piles.map(p => p.got ? 1 : 0) }; }
+    o.mh = [MH.mode, MH.ph, MH.kills, MH.goal, r1(MH.left), MH.paxId || '', r1(MH.cdG), r1(MH.cdS)];
+    o.mm = [r1(MM.anger), r1(MM.refuseT), r1(MM.hostileT), VEH.ute && VEH.ute.wrecked ? 1 : 0];
+    mpSend(o); }
+  // the pigs (the ones anybody's near), a bit less often
+  MPW.pigT -= dt;
+  if (MPW.pigT <= 0) { MPW.pigT = 0.2; const P = [];
+    for (const a of FA.pigs) { let near = false; for (const p of MP.peers.values()) if (Math.hypot(p.av.root.position.x - a.pos.x, p.av.root.position.z - a.pos.z) < 170) { near = true; break; } if (!near) continue;
+      const id = a.nid || (a.nid = ++MPW.pigId), R = a.M.root, e = [id, a.kind, r2(a.s || 1), mpR(R.position.x), mpR(R.position.y), mpR(R.position.z), mpR(a.yaw || 0), a.st, r2(a.sp || 0)];
+      if (a.st === 'tumble' || a.st === 'down') e.push(mpR(R.quaternion.x), mpR(R.quaternion.y), mpR(R.quaternion.z), mpR(R.quaternion.w));
+      P.push(e); }
+    mpSend({ k: 'pg', f: MP.me, t: MP.clock, p: P }); }
+  // where every parked machine is (they get shoved about, and NPCs park them)
+  MPW.parkT -= dt;
+  if (MPW.parkT <= 0) { MPW.parkT = 1; const o = {};
+    for (const v of Object.values(VEH)) if (v.kind === 'ground' && v.state && v.state.pos && !v.npc && !v.mp && v.name !== activeName && !v.coast) o[v.name] = mpwG(v);
+    mpSend({ k: 'pv', f: MP.me, v: o }); }
+}
+
+/* ---------- guest: taking it in ---------- */
+function mpwRecv(m) {
+  if (m.k === 'w') { MPW.lastW = MP.clock; MPW.hostId = m.f; const hp = MP.peers.get(m.f);
+    for (const e of m.n) { let B = MPW.buf.get(e[0]); if (!B) MPW.buf.set(e[0], B = []); B.push({ t: m.t, e }); if (B.length > 12) B.shift(); }
+    MPW.dbuf.push({ t: m.t, d: m.d }); if (MPW.dbuf.length > 12) MPW.dbuf.shift();
+    const seen = new Set(Object.keys(m.v));
+    for (const nm of seen) { let B = MPW.vbuf.get(nm); if (!B) MPW.vbuf.set(nm, B = []); B.push({ t: m.t, g: m.v[nm] }); if (B.length > 12) B.shift(); }
+    for (const nm of [...MPW.vbuf.keys()]) if (!seen.has(nm)) { MPW.vbuf.delete(nm); const v = VEH[nm]; if (v && v.mp === '#npc') { v.mp = null; v.npc = null; if (v.state) { v.state.v = v.state.vx = v.state.vz = 0; } } }
+    SA.lit = !!m.sa[0]; SA.temp = m.sa[1]; if (m.sa[2] > SA.steam + 0.4) for (let k = 0; k < 6; k++) saPuff(true); SA.steam = m.sa[2];
+    mpwCliQuestIn(m.sq || null);
+    const h = m.mh; Object.assign(MH, { mode: h[0], ph: h[1], kills: h[2], goal: h[3], left: h[4], paxId: h[5] || null, cdG: h[6], cdS: h[7] });
+    MM.anger = m.mm[0]; MM.refuseT = m.mm[1]; MM.hostileT = m.mm[2]; if (VEH.ute) VEH.ute.wrecked = !!m.mm[3];
+    void hp; return true; }
+  if (m.k === 'pg') { mpwPigsIn(m); return true; }
+  if (m.k === 'pv') { for (const nm in m.v) { const v = VEH[nm], g = m.v[nm]; if (!v || !v.state || v.npc || v.mp || nm === activeName || SEQ.veh === v || v.coast) continue;
+      const st = v.state; if (Math.hypot(st.pos.x - g[0], st.pos.z - g[2]) > 0.3 || Math.abs(faAng((st.yaw || 0) - g[3])) > 0.06 || Math.abs(st.pos.y - g[1]) > 0.3) { mpDriveCopy(null, v, { g }, null, 0, 0); st.pitch = g[4]; st.roll = g[5]; } }
+    return true; }
+  if (m.k === 'say') { const n = npcByName(m.i); if (n) { SPK.net = true; const keep = SPK.to; SPK.to = m.ad || null; try { spkLine(n, m.kd, m.ln, m.dur); } finally { SPK.net = false; SPK.to = keep; } } return true; }
+  if (m.k === 'snd') { if (m.b != null && typeof mmBarkSfx === 'function') mmBarkSfx(m.b, _mpwP.set(...m.p), m.n); else if (m.fa) faSay(_mpwP.set(...m.p), m.n, m.vol, m.rate, m.ref); else sfx(m.n, _mpwP.set(...m.p), m.vol, m.rate, m.ref); return true; }
+  if (m.k === 'toast') { toast(m.s, m.d); return true; }
+  if (m.k === 'ptum') { if (activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air' || F.mode === 'emote')) { if (F.mode === 'emote') endEmote(); startTumble(new THREE.Vector3(...m.v)); camShake = Math.max(camShake, 0.4); } return true; }
+  if (m.k === 'pdmg') { wpnHurt(m.dmg, m.v ? new THREE.Vector3(...m.v) : null, m.how); return true; }
+  if (m.k === 'yank') { if (activeName === 'ute') { const n = MM.n; _mpwYankLocal(n); } return true; }
+  if (m.k === 'mhSeat') { mhSeatPlayer(); document.body.classList.add('pax'); mhChip(true); if (!MH.told.how) { MH.told.how = 1; toast('Drag to aim out the window · hold FIRE · 5 pigs · the clock only runs while you’re on the pigs', 3.6); } return true; }
+  if (m.k === 'mhUnseat') { if (MH.pax) mhUnseat(!!m.bail); mhChip(false); document.body.classList.remove('pax'); return true; }
+  if (m.k === 'mhDone') { mpwHuntDone(m); return true; }
+  if (m.k === 'qdone') { if (m.q === 'sauna' && m.win) { SA.done++; SA.best = Math.max(SA.best, m.hits || 0); try { localStorage.setItem('wfy.sauna', JSON.stringify({ best: SA.best, done: SA.done })); } catch (_) {} } return true; }
+  // host side: what the guests do
+  if (m.k === 'act' && MP.host) { mpwOnAct(m); return true; }
+  if ((m.k === 'wnpc' || m.k === 'wpig' || m.k === 'mel') && MP.host) { mpwOnHit(m); return true; }
+  return false;
+}
+// the yank, on the phone of whoever's in the ute (Madman's on the host; this is just you being hauled out)
+function _mpwYankLocal() {
+  cancelSeq(); const st = mmUteSt(), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw), side = UTE_RIG.driver.x < 0 ? -1 : 1, ox = fz * side, oz = -fx * side;
+  const spot = mmUteW(side * 1.4, UTE_RIG.door.z, new THREE.Vector3()); spot.y = groundAt(spot.x, spot.z, st.pos.y + 2, st.pos.y) + 0.4;
+  S.v = S.vx = S.vz = 0; const v = VEH.ute; if (v && v.state) { v.state.v = v.state.vx = v.state.vz = 0; }
+  setActive('foot'); standFarmerAt({ x: spot.x, y: spot.y, z: spot.z }, Math.atan2(ox, oz), true);
+  startTumble(new THREE.Vector3(ox * 3.2, 2.6, oz * 3.2)); camShake = Math.max(camShake, 0.4); toast('Madman dragged you out of his ute', 2.2);
+}
+// a guest's hunt is over: their reward and their tally
+function mpwHuntDone(m) {
+  const S_ = MH.stats;
+  if (m.why === 'win') { S_.g++; S_.k += m.kills; if (!S_.best || m.secs < S_.best) S_.best = m.secs; const got = mhReward(150); toast('Hunt done: ' + m.kills + ' pigs in ' + fmtT(m.secs) + (got ? ' · ' + got : ''), 3.4); }
+  else { S_.k += m.kills; if (m.kills) { const got = mhReward(40 * m.kills); toast('Hunt over: ' + m.kills + ' of ' + m.goal + ' pigs' + (got ? ' · ' + got : ''), 3); } }
+  STORE.set('wfy.hunt', S_);
+}
+
+/* ---------- host: doing what a guest asked, as them ---------- */
+function mpwOnAct(m) {
+  const q = plById(m.f); if (!q) return;
+  MPW.net = true;
+  try { plWith(q, () => {
+    const a = m.a;
+    if (a === 'mmc') mmChoose(m.x);
+    else if (a === 'mm:open') { MM.talkId = q.id; MM.talkUntil = MM.t + 25; MM.sayT = Math.max(MM.sayT, 1.5); }
+    else if (a === 'mm:close') { if (MM.talkId === q.id) MM.talkUntil = 0; }
+    else if (a === 'sac') saChoose(m.x);
+    else if (a === 'sa:open') { DM.talkId = q.id; DM.talkUntil = NPC.t + 25; }
+    else if (a === 'sa:close') { if (DM.talkId === q.id) DM.talkUntil = 0; }
+    else if (a === 'sa:light' || a === 'sa:water' || a === 'sa:tub') saAct(a);
+    else if (a === 'sa:faint') { if (SA.q && SA.q.who === q.id) saQuestEnd(false, 'faint'); }
+    else if (a === 'mh:out') mpwHuntOut(q.id);
+    else if (a === 'npc:kick') { const n = npcByName(m.x); if (n && n.veh && n.st === 'drive' && !n.mm) { sfx('m_punch', n.veh.state.pos, 0.9, 0.8, 8); npcEject(n, 'kick'); toast('Kicked out of the ' + (n.look.name || '') + '’s joyride', 1.6); } }
+  }); } finally { MPW.net = false; }
+}
+// a guest's shot or punch landing on an NPC or a pig
+function mpwOnHit(m) {
+  const q = plById(m.f); if (!q) return;
+  plWith(q, () => {
+    if (m.k === 'wnpc') { const n = npcByName(m.i); if (n) { n.foeId = q.id; npcShot(n, new THREE.Vector3(...m.d), m.dmg, new THREE.Vector3(...m.p), m.head); } }
+    else if (m.k === 'wpig') { const a = FA.pigs.find(a => a.nid === m.id); if (a) wpnPigShot(a, new THREE.Vector3(...m.d), m.dmg, new THREE.Vector3(...m.p)); }
+    else if (m.k === 'mel') { const n = m.i ? npcByName(m.i) : null, a = m.id ? FA.pigs.find(a => a.nid === m.id) : null;
+      if (n) { n.foeId = q.id; npcHit(n, m.kind, m.M); } else if (a) melHitPig(a, m.kind, m.M); }
+  });
+}
+// the guest riding shotgun has got out
+function mpwHuntOut(id) {
+  if (!MH.mode || MH.paxId !== id) return;
+  MH.paxId = null; mhSay('quit', true); MH.cdG = 45; MH.mode = 'return'; mhHome('quit');
+}
+
+/* ---------- guest: drawing the host's world ---------- */
+function mpwHostOff() { const hp = MPW.hostId && MP.peers.get(MPW.hostId); return hp && hp.offs.length ? hp.off : 0; }
+function mpwSample(B, rt) {
+  if (!B || !B.length) return null;
+  if (rt >= B[B.length - 1].t) return { a: B[B.length - 1], b: null, k: 0 };
+  if (rt <= B[0].t) return { a: B[0], b: null, k: 0 };
+  let i = B.length - 1; while (i > 0 && B[i - 1].t > rt) i--;
+  const a = B[i - 1], b = B[i]; return { a, b, k: THREE.MathUtils.clamp((rt - a.t) / Math.max(1e-3, b.t - a.t), 0, 1) };
+}
+function mpwRt() { return MP.clock - mpwHostOff() - 0.12; }
+function mpwCliNpc(dt) {
+  spkStep(); const rt = mpwRt();
+  for (const n of NPC.list) {
+    const s = mpwSample(MPW.buf.get(n.name), rt); if (s) mpwApplyNpc(n, s.a.e, s.b ? s.b.e : null, s.k);
+    const B = n.bub, R = n.root; if (B.time > 0) { B.time -= dt; R.getWorldPosition(_w2); B.sp.position.set(_w2.x, _w2.y + (n.st === 'drive' ? 2.4 : 2.45) * Math.max(1, n.s / 0.9), _w2.z); B.sp.material.opacity = Math.min(1, B.time * 2.5); if (B.time <= 0) B.sp.visible = false; }
+  }
+}
+function mpwApplyNpc(n, a, b, k) {
+  const vn = a[1], v = vn ? VEH[vn] : null, par = v ? (v.kind === 'ground' ? v.model.body : v.model.tilt) : scene;
+  if (b && b[1] !== vn) { b = null; k = 0; }
+  const R = n.root; if (R.parent !== par) par.add(R);
+  const L = (i) => b ? a[i] + (b[i] - a[i]) * k : a[i];
+  R.position.set(L(2), L(3), L(4)); _mpwQ.set(a[5], a[6], a[7], a[8]); if (b) { _mpwQ2.set(b[5], b[6], b[7], b[8]); R.quaternion.slerpQuaternions(_mpwQ, _mpwQ2, k); } else R.quaternion.copy(_mpwQ); R.scale.setScalar(L(9));
+  const ja = a[10], jb = b ? b[10] : ja, P = n.P, J = [P.hipL.rotation, 'x', P.hipR.rotation, 'x', P.kneeL.rotation, 'x', P.kneeR.rotation, 'x', P.shL.rotation, 'x', P.shL.rotation, 'z', P.shR.rotation, 'x', P.shR.rotation, 'z', P.elL.rotation, 'x', P.elR.rotation, 'x',
+    P.torso.rotation, 'x', P.torso.rotation, 'y', P.body.rotation, 'z', P.head.rotation, 'x', P.head.rotation, 'y', P.body.position, 'y', P.belly.scale, 'y'];
+  for (let q = 0; q < 17; q++) J[q * 2][J[q * 2 + 1]] = ja[q] + (jb[q] - ja[q]) * k;
+  if (P.vest) P.vest.scale.y = P.belly.scale.y;
+  const cur = b && k > 0.5 ? b : a, fl = cur[12];
+  n.st = cur[11]; n.angry = !!(fl & 1); n.ko = !!(fl & 2); R.visible = !!(fl & 4); if (n.pack) n.pack.visible = !!(fl & 8); n.hp = cur[13];
+  n.pos.set(L(14), L(15), L(16));
+  if ((n.veh && n.veh !== v) || (!v && n.veh)) { if (n.veh.npc === n) n.veh.npc = null; n.veh = null; }
+  if (v) { n.veh = v; v.npc = n; }
+}
+function mpwCliVeh(dt) {
+  const rt = mpwRt();
+  for (const [nm, B] of MPW.vbuf) { const v = VEH[nm]; if (!v || nm === activeName) continue; if (v.mp && v.mp !== '#npc') continue;
+    v.mp = '#npc'; v.coast = false; const s = mpwSample(B, rt); if (s) mpDriveCopy(null, v, s.a, s.b, s.k, dt); }
+}
+function mpwCliDogs(dt) {
+  if (!MM.ready) return; const s = mpwSample(MPW.dbuf, mpwRt()); if (!s) return;
+  MM.dogs.forEach((d, i) => {
+    const a = s.a.d[i], b = s.b ? s.b.d[i] : null; if (!a) return; const M = d.M; d.t += dt; d.barkPh = Math.max(0, (d.barkPh || 0) - dt); d.wag = Math.max(0, (d.wag || 0) - dt);
+    if (a[0] === 0) { if (d.mode !== 'tray') mmDogTray(d); mmDogPose(d, dt); return; }
+    if (d.mode === 'tray' || M.root.parent !== scene) { scene.attach(M.root); d.mode = 'ground'; }
+    const bb = b && b[0] === 1 ? b : null, k = bb ? s.k : 0, L = (j) => bb ? a[j] + (bb[j] - a[j]) * k : a[j];
+    M.root.position.set(L(1), L(2), L(3)); M.root.rotation.set(0, bb ? mpLerpA(a[4], bb[4], k) : a[4], 0); d.pos.copy(M.root.position);
+    d.st = (bb && k > 0.5 ? bb : a)[5]; d.spd = L(6); if (a[8] && !d.barkPh) d.barkPh = 0.2; d.look = 0;
+    mmDogPose(d, dt); M.body.position.y = L(7);
+    if (d.spd > 0.5) { d.gal = (d.gal || 0) + dt * (4 + d.spd * 1.6); const A = Math.min(0.9, 0.3 + d.spd * 0.08); M.legs.forEach((Lg, j) => { Lg.rotation.x = Math.sin(d.gal + (Lg.front ? 0 : Math.PI) + (j % 2) * 0.5) * A; Lg.lower.rotation.x = Math.max(0, Math.sin(d.gal + (Lg.front ? 0 : Math.PI) - 1)) * A; }); }
+  });
+}
+// the pigs: mirrors of the host's, drawn with the usual pose
+function mpwPigsIn(m) {
+  const seen = new Set();
+  for (const e of m.p) { const id = e[0]; seen.add(id); let a = MPW.pigs.get(id);
+    if (!a) { const M = buildPig(e[1]); M.root.scale.setScalar(e[2]); if (!M.root.parent) scene.add(M.root);
+      a = { M, nid: id, mirror: true, kind: e[1], boar: e[1] === 'boar', s: e[2], pos: new THREE.Vector3(e[3], e[4], e[5]), tgt: new THREE.Vector3(e[3], e[4], e[5]), yaw: e[6], tyaw: e[6], sp: 0, st: e[7], t: 0, ph: Math.random() * 6, gy: e[4], q: new THREE.Quaternion(), tq: new THREE.Quaternion(), G: { pigs: [] } };
+      a.G.pigs.push(a); MPW.pigs.set(id, a); FA.pigs.push(a); }
+    a.tgt.set(e[3], e[4], e[5]); a.tyaw = e[6]; if (a.st !== e[7]) a.t = 0; a.st = e[7]; a.tsp = e[8]; if (Math.abs(a.s - e[2]) > 0.01) { a.s = e[2]; a.M.root.scale.setScalar(a.s); }
+    if (e.length > 9) a.tq.set(e[9], e[10], e[11], e[12]); a.miss = 0; }
+  for (const [id, a] of MPW.pigs) if (!seen.has(id) && ++a.miss > 3) { MPW.pigs.delete(id); if (FA.pigs.includes(a)) removePig(a); }
+}
+function mpwPigStep(a, dt) {
+  const k = 1 - Math.exp(-10 * dt); a.pos.lerp(a.tgt, k); a.yaw += faAng(a.tyaw - a.yaw) * k; a.sp += ((a.tsp || 0) - a.sp) * k; a.gy = a.pos.y; a.t += dt;
+  const vis = faCamD(a.pos) < 140; a.M.root.visible = vis; if (!vis) return;
+  if (a.st === 'tumble' || a.st === 'down') { a.M.root.position.copy(a.pos); a.M.root.quaternion.slerp(a.tq, k); return; }
+  pigPose(a, dt); a.M.root.position.y = a.pos.y;
+}
+// the sauna challenge, as the guests see it (the glowing woodpiles, and the chip if it's theirs)
+function mpwCliQuestIn(sq) {
+  if (!sq) { if (SA.q) { for (const p of SA.q.piles) scene.remove(p.g); SA.q = null; } return; }
+  if (!SA.q) { SA.q = { piles: [] }; const tex = SA.woodTex || (SA.woodTex = radialTex([255, 200, 120], true));
+    for (const [x, z] of SA_WOOD) { const g = new THREE.Group(), y = groundAt(x, z, 6, 0); g.position.set(x, y, z); scene.add(g);
+      for (let k = 0; k < 5; k++) { const lg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 7), SA.mats.wood); lg.rotation.z = Math.PI / 2; lg.rotation.y = (k - 2) * 0.12; lg.position.set(0, 0.08 + (k % 2) * 0.12 + Math.floor(k / 3) * 0.12, (k % 3 - 1) * 0.14); g.add(lg); }
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 })); glow.scale.set(2.2, 2.2, 1); glow.position.y = 0.5; g.add(glow);
+      SA.q.piles.push({ g, glow, x, z, got: false }); } }
+  const q = SA.q; Object.assign(q, { who: sq.who, step: sq.step, wood: sq.wood, left: sq.left, sweat: sq.sweat, plunge: sq.plunge, hits: sq.hits, asks: sq.asks, ask: sq.ask });
+  sq.got.forEach((g, i) => { const p = q.piles[i]; if (p && g && !p.got) { p.got = true; scene.remove(p.g); } });
+}
+function mpwCliQuest(dt) { const q = SA.q; if (!q) return; q.t = (q.t || 0) + dt; for (const p of q.piles) if (!p.got) p.glow.material.opacity = 0.55 + Math.sin(q.t * 3 + p.x) * 0.2; }
+// the hunt on a guest's phone: their seat in the ute (if it's them riding) and the chip
+function mpwCliHunt(dt) {
+  if (!MM.ready) return; const v = VEH.ute;
+  if (MH.pax) { if (!MH.mode) { mhUnseat(false); mhChip(false); document.body.classList.remove('pax'); return; }
+    F.speedH = 0; const body = v.model.body; body.updateMatrixWorld(true); body.localToWorld(F.pos.set(UTE_RIG.passenger.x, UTE_RIG.passenger.hip - 0.6, UTE_RIG.passenger.z)); document.body.classList.add('pax');
+    if (F.dead > 0) { mhUnseat(true); mhChip(false); document.body.classList.remove('pax'); mpwSendAct('mh:out'); } }
+  mhChipStep();
+  if (MH.fadeT > 0) { MH.fadeT -= dt; if (MH.fade) MH.fade.style.opacity = String(Math.min(1, MH.fadeT * 2)); }
+}
+
+/* ---------- switching between running the world and mirroring it ---------- */
+function mpwFrame(dt) {
+  MPW.frame++;
+  const cli = mpwCli();
+  if (cli !== MPW.cli) { MPW.cli = cli; if (cli) mpwCliBegin(); else mpwCliEnd(); }
+  if (cli) { mpwCliVeh(dt); if (MP.clock - MPW.lastW > 6 && MPW.lastW > 0) { /* the host has gone quiet: mpLeave will sort it */ } }
+  else mpwHostSend(dt);
+}
+function mpwCliBegin() {
+  // the host's world replaces ours: our own pigs go (theirs arrive), the quests and hunts are theirs to run
+  for (const a of FA.pigs.slice()) if (!a.mirror) removePig(a);
+  if (typeof PH !== 'undefined' && PH.mobs) { PH.buildQ.length = 0; for (const mob of PH.mobs) { for (const m of mob.members) m.a = null; mob.G = null; } }
+  FA.groups.length = 0;
+  if (SA.q) { for (const p of SA.q.piles) scene.remove(p.g); SA.q = null; }
+  if (MH.mode && !MH.pax) mhEnd();
+  SPK.q.length = 0;
+}
+function mpwCliEnd() {
+  // back on our own: the mirrors become ordinary again
+  for (const a of FA.pigs.slice()) if (a.mirror) removePig(a); MPW.pigs.clear();
+  for (const nm of MPW.vbuf.keys()) { const v = VEH[nm]; if (v && v.mp === '#npc') { v.mp = null; v.npc = null; } } MPW.vbuf.clear(); MPW.buf.clear(); MPW.dbuf.length = 0;
+  for (const n of NPC.list) { if (n.root.parent !== scene) scene.attach(n.root); n.root.scale.setScalar(n.s); n.veh = null; n.root.quaternion.identity(); n.tilt = 0; n.sp = 0; n.angry = false; n.ko = false; n.hp = n.max || 100;
+    n.gy = n.pos.y = groundAt(n.pos.x, n.pos.z, n.pos.y + 2, n.pos.y); n.st = n.mm ? 'home' : n.dima ? 'home' : 'wander'; n.t = 0; n.atkPh = ''; }
+  for (const v of Object.values(VEH)) if (v.npc && !v.npc.veh) v.npc = null;
+  if (MM.ready) for (const d of MM.dogs) if (d.mode !== 'tray') mmDogTray(d);
+  if (SA.q) { for (const p of SA.q.piles) scene.remove(p.g); SA.q = null; }
+  if (MH.pax) { mhUnseat(false); document.body.classList.remove('pax'); } MH.mode = ''; MH.paxId = null; mhChip(false);
+}
+// the host's world sim makes noises: the guests near them hear them too
+function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; for (const p of MP.peers.values()) if (Math.hypot(p.av.root.position.x - pos.x, p.av.root.position.z - pos.z) < 45) { o.k = 'snd'; o.f = MP.me; o.p = [mpR(pos.x), mpR(pos.y), mpR(pos.z)]; mpSend(o); return; } }
+{
+  const _fs = faSay; faSay = function (pos, name, vol = 1, rate = 1, ref = 10) { mpwSnd({ fa: 1, n: name, vol, rate, ref }, pos); return _fs.apply(this, arguments); };
+  const _sx = sfx; sfx = function (name, pos, vol, rate, ref) { if (pos && pos.isVector3) mpwSnd({ n: name, vol, rate, ref }, pos); return _sx.apply(this, arguments); };
+  const _bk = mmBarkSfx; mmBarkSfx = function (i, pos, kind) { mpwSnd({ b: i, n: kind }, pos); return _bk.apply(this, arguments); };
+  const sim = (fn) => function () { const k = MPW.sim; MPW.sim = true; try { return fn.apply(this, arguments); } finally { MPW.sim = k; } };
+  const _mms = mmStep; mmStep = sim(function (dt) { const n = MM.n; if (!MP.on || mpwCli() || !n) return _mms.apply(this, arguments); return plWith(plFocus(n), () => _mms.call(this, dt)); });
+  saStep = sim(saStep); mhStep = sim(mhStep); faunaStep = sim(faunaStep); phStep = sim(phStep);
+  const _ns = npcStep; npcStep = function (dt) { const k = MPW.sim; MPW.sim = true; try { mpwFrame(dt); return _ns.apply(this, arguments); } finally { MPW.sim = k; } };
+}
+// the guests' own actions on the host's world go to the host
+{
+  const asMe = (fn) => function () { const keep = SPK.to; if (!keep) SPK.to = MP.me; try { return fn.apply(this, arguments); } finally { SPK.to = keep; } };
+  const _mmc = mmChoose; mmChoose = function (k) { if (mpwCli() && !MPW.net) { mmMenuClose(); mpwSendAct('mmc', k); mpwSendAct('mm:close'); return; } return asMe(_mmc).apply(this, arguments); };
+  const _sac = saChoose; saChoose = function (k) { if (mpwCli() && !MPW.net) { if (SA.sheet) SA.sheet.classList.remove('show'); mpwSendAct('sac', k); mpwSendAct('sa:close'); return; } return asMe(_sac).apply(this, arguments); };
+  const _mmo = mmMenuOpen; mmMenuOpen = function () { const r = _mmo.apply(this, arguments); if (mpwCli() && MM.sheet && MM.sheet.classList.contains('show')) mpwSendAct('mm:open'); else if (MM.sheet && MM.sheet.classList.contains('show')) { MM.talkId = MP.me; MM.talkUntil = MM.t + 25; } return r; };
+  const _sao = saMenuOpen; saMenuOpen = function () { const r = _sao.apply(this, arguments); if (mpwCli() && SA.sheet && SA.sheet.classList.contains('show')) mpwSendAct('sa:open'); else if (SA.sheet && SA.sheet.classList.contains('show')) { DM.talkId = MP.me; DM.talkUntil = NPC.t + 25; } return r; };
+  const _saa = saAct; saAct = function (id) {
+    if (mpwCli() && !MPW.net) {
+      if (id === 'sa:light' || id === 'sa:water') { if (id === 'sa:light' && SA.q && SA.q.step === 'wood') { toast('No wood. Grab the glowing piles first (' + SA.q.wood + '/3)', 2); return; }
+        if (id === 'sa:water' && SA.lit) { const [rx, rz] = saW(0.85, 0.55); if (AU.buf.hiss) sfx('hiss', _w1.set(rx, SA.gy + 0.8, rz), 1, 0.75, 8); for (let k = 0; k < 6; k++) saPuff(true); SA.steam = 1; }
+        mpwSendAct(id); return; }
+      if (id === 'sa:tub') { const hot = SA.heat > 30 || (SA.q && SA.q.who === MP.me && SA.q.step === 'plunge'); saTubIn(); toast(hot ? 'Brrrr!' : 'Brrrr! Freezing', 1.6); mpwSendAct(id); return; }
+    }
+    return asMe(_saa).apply(this, arguments); };
+  const _mha = mhAct; mhAct = function (id) { if (mpwCli() && id === 'mh:out' && MH.pax) { const moving = Math.abs((VEH.ute.state || { v: 0 }).v) > 2; mhUnseat(moving); mhChip(false); document.body.classList.remove('pax'); mpwSendAct('mh:out'); return; } return asMe(_mha).apply(this, arguments); };
+  const _kick = npcKick; npcKick = function () { if (mpwCli()) { const n = npcKickTarget(); if (!n) return; sfx('m_punch', n.veh.state.pos, 0.9, 0.8, 8); camShake = Math.max(camShake, 0.3); mpwSendAct('npc:kick', n.name); return; } return asMe(_kick).apply(this, arguments); };
+  // shots and punches on the host's NPCs and pigs
+  const _shot = npcShot; npcShot = function (n, d, dmg, P, head) { if (mpwCli() && !MPW.net) { wpnBloodSpray(P, d, Math.min(26, 5 + dmg * 0.5)); mpSend({ k: 'wnpc', f: MP.me, i: n.name, d: [d.x, d.y, d.z].map(mpR), dmg, p: [P.x, P.y, P.z].map(mpR), head: !!head }); return; }
+    if (!PX.cur && !MPW.net) n.foeId = MP.me; return _shot.apply(this, arguments); };
+  const _pig = wpnPigShot; wpnPigShot = function (a, d, dmg, P) { if (mpwCli() && a.mirror) { wpnBloodSpray(P, d, Math.min(26, 4 + dmg * 0.5)); faSay(a.pos, Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.25, 1 / (a.s || 1), 25); mpSend({ k: 'wpig', f: MP.me, id: a.nid, d: [d.x, d.y, d.z].map(mpR), dmg, p: [P.x, P.y, P.z].map(mpR) }); return; } return _pig.apply(this, arguments); };
+  const _mel = melHitAnimal; melHitAnimal = function (a, kind, M) {
+    if (mpwCli() && (a.npc || a.mirror)) { const p = a.pos || F.pos; sfx('m_punch', _w1.set(p.x, p.y + 1, p.z), M.big ? 1 : 0.75, 0.95, 9); camShake = Math.max(camShake, M.big ? 0.35 : 0.16); MEL.slowT = M.big ? 0.2 : 0.06;
+      mpSend({ k: 'mel', f: MP.me, i: a.npc ? a.name : null, id: a.mirror ? a.nid : null, kind, M: { dmg: M.dmg, push: M.push, lift: M.lift, big: !!M.big } }); return; }
+    if (a.npc && !PX.cur) a.foeId = MP.me; return _mel.apply(this, arguments); };
+}
+// everyone near enough counts as being near (doors, Madman's light)
+{
+  const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
+}
+
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
