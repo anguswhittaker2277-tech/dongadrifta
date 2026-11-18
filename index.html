@@ -10880,6 +10880,7 @@ const NPC_L = {
   help: [['Tu nous aides ? Prends une planche derrière.', 'Give us a hand? Grab a sheet round the back.'], ['Super ! Les planches sont derrière.', 'Great! The sheets are round the back.']],
   nailGood: [['Parfait !', 'Perfect!'], ['Bien joué !', 'Nice one!'], ['Comme un pro !', 'Like a pro!']],
   nailBad: [['Tape sur le clou, pas à côté !', 'Hit the nail, not next to it!'], ['Aïe ! Attention à tes doigts !', 'Ouch! Mind your fingers!'], ['Doucement, c’est tordu.', 'Easy, that one’s bent.']],
+  wait: [['Je t’attends, hein !', 'I’m waiting on you, eh!'], ['À toi ! Une planche de plus !', 'Your turn! One more sheet!'], ['Je ne peux pas tout faire tout seul !', 'I can’t do it all on my own!']],
   built: [['C’est comme neuf ! Merci, mon pote !', 'Good as new! Thanks, mate!'], ['Ouf ! On a de nouveau un toit !', 'Phew! We’ve got a roof again!']],
   // Alexandre, up on the hill with his rifle
   hunt: [['Je chasse juste le cochon !', 'I’m just hunting pigs!'], ['Quoi ? Je chasse le sanglier, moi.', 'What? I’m hunting boar.'], ['Chut ! Tu fais fuir les cochons.', 'Shh! You’re scaring off the pigs.']],
@@ -12502,12 +12503,12 @@ function dgUnit(U, gy, group) {
 }
 /* ================================================================
    THE BUNKS FIRE (Nov 2026): shoot the gas bottle by the backpackers' barbie (or blow it up, or set it alight) and it goes
-   up; the bunk donga burns down to a charred shell. Then one of the backpackers starts putting it back up: plywood from the
-   timber pile round the back, one sheet at a time, nailed on. Give them a hand: grab a sheet from the pile, carry it over,
+   up; the bunk donga burns down to a charred shell. Then one of the backpackers wants to put it back up, but not on his own: he waits for
+   someone to help, and works only while you are, never more than a sheet ahead of you. Give him a hand: grab a sheet from the pile, carry it over,
    nail it up (three good nails on the timing bar). Twelve sheets and it's back as it was, new gas bottle and all.
    The host runs it; everyone else draws it from what the host sends (state, time, progress, who's carrying a sheet).
    ================================================================ */
-const BB = { st: 'ok', t: 0, prog: 0, N: 12, heat: 0, help: {}, who: null, shownSt: '', shownProg: -1, fl: [], sm: [], voice: null, mats: new Map(), saidT: 0, mmT: 0, nailT: 0, ruin: null, build: null, pile: null };
+const BB = { st: 'ok', t: 0, prog: 0, N: 12, heat: 0, help: {}, byPl: 0, byNpc: 0, askT: 0, who: null, shownSt: '', shownProg: -1, fl: [], sm: [], voice: null, mats: new Map(), saidT: 0, mmT: 0, nailT: 0, ruin: null, build: null, pile: null };
 const bbU = () => DG_UNITS[2];
 function bbBottleP(out) { if (!BB.bottle) return null; BB.bottle.updateWorldMatrix(true, false); return BB.bottle.getWorldPosition(out); }
 const bbPileXZ = () => dgW(0.2, -DG.W / 2 - 2.0, bbU());
@@ -12618,7 +12619,8 @@ function bbStep(dt) {
   if (host) { BB.t += dt; BB.saidT -= dt;
     if (BB.st === 'leak' && BB.t > 0.9) bbBoom();
     else if (BB.st === 'fire' && BB.t > 34) { BB.st = 'ruin'; BB.t = 0; }
-    else if (BB.st === 'ruin' && BB.t > 6) { BB.st = 'build'; BB.t = 0; BB.prog = 0; BB.help = {}; bbPickBuilder(); }
+    else if (BB.st === 'ruin' && BB.t > 6) { BB.st = 'build'; BB.t = 0; BB.prog = 0; BB.help = {}; BB.byPl = 0; BB.byNpc = 0; bbPickBuilder(); }
+    if (BB.st === 'build' && !BB.who && (BB.pickT = (BB.pickT || 0) - dt) <= 0) { BB.pickT = 5; bbPickBuilder(); }       // (nobody free to do it yet: look again in a bit)
     if (BB.st === 'build' && BB.prog >= BB.N) bbDone();
     if (BB.mmT > 0) { BB.mmT -= dt; if (BB.mmT <= 0) { if (MM.n && npcAlive(MM.n) && !MM.n.veh && MM.n.pos.distanceTo(DG.root.position) < 60) mmSay('bunkFire', 3, true); if (DM.n && npcAlive(DM.n) && !DM.n.veh) setTimeout(() => { if (BB.st === 'fire' || BB.st === 'ruin') dmSay(DM.n, 'fire', 3); }, 4200); } }
     for (const id of Object.keys(BB.help)) if (id !== MP.me && !plById(id)) delete BB.help[id];     // (gone from the game)
@@ -12657,9 +12659,22 @@ function bbPickBuilder() {
 }
 const bbBuilder = n => BB.st === 'build' && BB.who === n.name;
 // his part (on the host): to the pile, a sheet, round to a spot on the wall, a few seconds' hammering, and again
+// someone's helping and is about (not gone off somewhere): he works only then, and never gets more than a sheet ahead of you
+function bbHelperNear() { for (const id in BB.help) { const q = plById(id); if (q && bbSiteD(q.pos.x, q.pos.z) < 60) return q; } return null; }
+const bbCanWork = () => !!bbHelperNear() && BB.byNpc <= BB.byPl;
+const bbWaitXZ = () => dgW(-DG.L / 2 - 1.1, -0.6, bbU());
 function bbBuildThink(n, dt) {
   const [px, pz] = bbPileXZ();          // (n.t ticks in npcThink)
-  if (!n.bbPh) { n.bbPh = 'toPile'; n.bbK = (n.bbK || 0); }
+  if (!n.bbPh) { n.bbPh = 'wait'; n.bbK = (n.bbK || 0); }
+  BB.askT -= dt;
+  // waiting on you: by the west end where you'll see him, hands on hips, asking anyone who comes by
+  if ((n.bbPh === 'toPile' || n.bbPh === 'pick' || n.bbPh === 'rest' || n.bbPh === 'watch') && !bbCanWork()) n.bbPh = 'wait';
+  if (n.bbPh === 'wait') { const [wx, wz] = bbWaitXZ(), r = Math.hypot(wx - n.pos.x, wz - n.pos.z) > 0.9 ? npcGoTo(n, wx, wz, 1.6, dt) : 'done';
+    if (r === 'done') { n.st = 'bbWait'; n.sp *= 0.7; const q = plNearest(n.pos.x, n.pos.z, true), dq = q ? Math.hypot(q.pos.x - n.pos.x, q.pos.z - n.pos.z) : 1e9;
+      if (q && dq < 16) npcFace(n, q.pos.x, q.pos.z, 3, dt); else n.yaw += faAng(-Math.PI / 2 - n.yaw) * Math.min(1, dt * 2);
+      if (q && dq < 14 && BB.askT <= 0) { BB.askT = 18; const joined = !!BB.help[q.id]; plWith(q, () => npcSay(n, npcPick(joined ? NPC_L.wait : NPC_L.help), 3)); } }
+    else n.st = 'bbWalk';
+    if (bbCanWork()) n.bbPh = 'toPile'; return; }
   if (n.bbPh !== n.bbWas) { n.bbWas = n.bbPh; n.bbPhT = 0; } n.bbPhT += dt;
   // snagged on a corner for a while: out of sight he's just there; in sight, near enough is good enough
   const stuck = (n.bbPh === 'toPile' || n.bbPh === 'toSite') && n.bbPhT > 18, [gx, gz] = n.bbPh === 'toSite' ? dgW(...BB_SPOTS[n.bbK], bbU()) : [px + 0.9, pz];
@@ -12669,7 +12684,7 @@ function bbBuildThink(n, dt) {
   if (n.bbPh === 'toSite') { n.st = 'bbCarry'; const [sx, sz] = dgW(...BB_SPOTS[n.bbK], bbU()), r = npcGoTo(n, sx, sz, 1.5, dt); if (r === 'done') { n.bbPh = 'nail'; n.t = 0; } else if (r === 'fail') { n.bbK = (n.bbK + 1) % BB_SPOTS.length; } return; }
   if (n.bbPh === 'nail') { n.st = 'bbNail'; const [u, v] = BB_SPOTS[n.bbK], [cx, cz] = dgW(Math.max(-DG.L / 2, Math.min(DG.L / 2, u)), Math.max(-DG.W / 2, Math.min(DG.W / 2, v)), bbU()); npcFace(n, cx, cz, 6, dt); n.sp *= 0.6;
     n.nailT = (n.nailT || 0) - dt; if (n.nailT <= 0) { n.nailT = 0.62; sfx('chop_tree', _w1.set(cx, DG.gy + 1.2, cz), 0.45, 1.7 + Math.random() * 0.2, 12); }
-    if (n.t > 8.5) { if (BB.prog < BB.N) BB.prog++; n.bbPh = 'rest'; n.t = 0; if (BB.saidT <= 0 && Math.random() < 0.35) { BB.saidT = 25; npcSay(n, npcPick(NPC_L.build), 2.6); } } return; }
+    if (n.t > 8.5) { if (BB.prog < BB.N) { BB.prog++; BB.byNpc++; } n.bbPh = 'rest'; n.t = 0; if (BB.saidT <= 0 && Math.random() < 0.35) { BB.saidT = 25; npcSay(n, npcPick(NPC_L.build), 2.6); } } return; }
   if (n.bbPh === 'rest') { n.st = 'bbWalk'; n.sp *= 0.8; if (n.t > 5 + Math.random() * 0.5) n.bbPh = 'toPile'; return; }          // (a breather: he's not in a hurry)
   if (n.bbPh === 'watch') { n.st = 'bbWalk'; n.sp *= 0.8; if (BB.prog + bbCarried() < BB.N) n.bbPh = 'toPile'; return; }
 }
@@ -12714,11 +12729,11 @@ function bbNail(qual, pid) {
   sfx(qual === 'miss' ? 'g_tink' : 'chop_tree', _w1.set(p.x, p.y + 1.2, p.z), qual === 'miss' ? 0.6 : 0.7, qual === 'miss' ? 1.6 : 1.75, 12);
   if (qual === 'miss') { if (n && npcAlive(n) && BB.saidT <= 0) { BB.saidT = 5; npcSay(n, npcPick(NPC_L.nailBad), 2.4); } if (mine) toast('Bent it. Swing when the marker’s in the green', 1.4); else mpSend({ k: 'toast', f: MP.me, to: pid, s: 'Bent it. Swing when the marker’s in the green', d: 1.4 }); return; }
   h.nails = (h.nails || 0) + (qual === 'good' ? 1 : 0.5);
-  if (h.nails >= 3) { h.carry = false; h.nails = 0; BB.prog = Math.min(BB.N, BB.prog + 1); const s = 'Sheet up! ' + BB.prog + '/' + BB.N; if (mine) toast(s, 1.4); else mpSend({ k: 'toast', f: MP.me, to: pid, s, d: 1.4 });
+  if (h.nails >= 3) { h.carry = false; h.nails = 0; BB.prog = Math.min(BB.N, BB.prog + 1); BB.byPl++; const s = 'Sheet up! ' + BB.prog + '/' + BB.N; if (mine) toast(s, 1.4); else mpSend({ k: 'toast', f: MP.me, to: pid, s, d: 1.4 });
     if (n && npcAlive(n) && BB.saidT <= 0 && Math.random() < 0.6) { BB.saidT = 8; npcSay(n, npcPick(NPC_L.nailGood), 2.2); } }
 }
 function bbDone() {
-  BB.st = 'ok'; BB.t = 0; BB.prog = 0; const helped = Object.keys(BB.help); BB.help = {};
+  BB.st = 'ok'; BB.t = 0; BB.prog = 0; BB.byPl = 0; BB.byNpc = 0; const helped = Object.keys(BB.help); BB.help = {};
   const n = BB.who && npcByName(BB.who); BB.who = null; if (n) { n.st = 'wander'; n.bbPh = null; npcSay(n, npcPick(NPC_L.built), 3.4); }
   for (const id of helped) { const s = 'The bunks are back up. The backpackers owe you one'; if (id === MP.me) toast(s, 3); else mpSend({ k: 'toast', f: MP.me, to: id, s, d: 3 }); }
   if (!helped.length) bbToastAll('The backpackers have got their bunks back up', 2.4);
@@ -12729,18 +12744,20 @@ function bbChipStep() {
   if (!BB.chip && show) { const st = document.createElement('style'); st.textContent = '#bbChip{position:fixed;z-index:8;left:50%;top:calc(52px + env(safe-area-inset-top,0px));transform:translateX(-50%);display:none;padding:6px 12px;border-radius:14px;background:rgba(22,26,25,.82);color:#fff;font:700 13px var(--font);pointer-events:none}#bbChip.show{display:block}#bbChip b{color:#e8c46a}';
     document.head.appendChild(st); const el = document.createElement('div'); el.id = 'bbChip'; el.className = 'ui'; document.body.appendChild(el); BB.chip = el; }
   if (!BB.chip) return; BB.chip.classList.toggle('show', show); if (!show) return;
-  const txt = '<span>REBUILD</span> <b>' + BB.prog + '/' + BB.N + '</b> · ' + (me.carry ? (bbNailTarget() ? 'nail it up' : 'carry it to the bunks') : 'grab a sheet round the back');
+  const nb = BB.who && npcByName(BB.who), waits = nb && nb.st === 'bbWait' && !me.carry;
+  const txt = '<span>REBUILD</span> <b>' + BB.prog + '/' + BB.N + '</b> · ' + (me.carry ? (bbNailTarget() ? 'nail it up' : 'carry it to the bunks') : waits ? (BB.who + '’s waiting on you: grab a sheet round the back') : 'grab a sheet round the back');
   if (BB.chipTxt !== txt) { BB.chipTxt = txt; BB.chip.innerHTML = txt; }
 }
 // the builder's poses: arms full of ply, or one arm swinging the hammer
 function bbPoseHook(n, Q) {
-  if (n.st === 'bbCarry') { Q.shLx = -0.75; Q.shRx = -0.75; Q.shLz = 0.55; Q.shRz = -0.55; Q.elL = -1.2; Q.elR = -1.2; Q.torsoX = 0.08; }
+  if (n.st === 'bbWait') { Q.shLx = -0.25; Q.shRx = -0.25; Q.shLz = 0.95; Q.shRz = -0.95; Q.elL = -1.9; Q.elR = -1.9; Q.headY = Math.sin(NPC.t * 0.7) * 0.2; }
+  else if (n.st === 'bbCarry') { Q.shLx = -0.75; Q.shRx = -0.75; Q.shLz = 0.55; Q.shRz = -0.55; Q.elL = -1.2; Q.elR = -1.2; Q.torsoX = 0.08; }
   else if (n.st === 'bbNail') { const w = Math.sin(NPC.t * 10.1); Q.shRx = -1.9 + w * 0.8; Q.shRz = -0.2; Q.elR = -0.5 - Math.max(0, w) * 0.5; Q.shLx = -1.1; Q.shLz = 0.2; Q.elL = -0.6; Q.torsoX = 0.1; Q.headX = 0.1; }
 }
 // the net: what the host sends, and taking it in
 function bbNetOut() { const h = {}; for (const id in BB.help) h[id] = [BB.help[id].carry ? 1 : 0, BB.help[id].nails || 0]; return [BB.st, r1(BB.t), BB.prog, BB.who || '', h]; }
 function bbNetIn(b) { if (!b) return; if (b[0] !== BB.st) BB.t = b[1]; else if (Math.abs(BB.t - b[1]) > 1) BB.t = b[1]; BB.st = b[0]; BB.prog = b[2]; BB.who = b[3] || null; BB.help = {}; for (const id in b[4]) BB.help[id] = { carry: !!b[4][id][0], nails: b[4][id][1] }; }
-function bbReset() { BB.st = 'ok'; BB.t = 0; BB.prog = 0; BB.help = {}; BB.who = null; BB.heat = 0; BB.mmT = 0; if (BB.ruin) bbApply(); for (const n of NPC.list) n.bbPh = null; }
+function bbReset() { BB.st = 'ok'; BB.t = 0; BB.prog = 0; BB.byPl = 0; BB.byNpc = 0; BB.askT = 0; BB.help = {}; BB.who = null; BB.heat = 0; BB.mmT = 0; if (BB.ruin) bbApply(); for (const n of NPC.list) n.bbPh = null; }
 
 /* ================================================================
    THE SNIPER (Nov 2026): Alexandre's taken to the edge of the woods north of the yard with a scoped rifle, "hunting pigs".
