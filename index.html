@@ -12318,16 +12318,16 @@ const saDoorOut = () => saW(-0.55, SA.D / 2 + 1.0), saDoorIn = () => saW(-0.55, 
 const saFeel = () => SA.temp + SA.steam * 16;
 // on foot to the sauna door (it faces north, at the breezeway's east end): through the breezeway, never through the rooms
 function saVia(px, pz) {
-  const B = DG_BLOCK, D = saDoorOut(), zm = (DG_UNITS[2].z + DG.z) / 2, sx1 = SA.x + SA.W / 2, sz0 = SA.z - SA.D / 2;
+  const B = DG_BLOCK, D = saDoorOut(), zm = (DG_UNITS[2].z + DG.z) / 2, sx1 = SA.x + SA.W / 2, sz0 = SA.z - SA.D / 2, ex = sx1 + 1.25;
   if (px > B.x1 - 0.2) {                                                                       // east of the block
     if (pz < sz0 - 0.2) return D;                                                              //   north of the sauna: the door's right there
-    if (px < sx1 + 0.5) return pz > SA.z ? [sx1 + 1.0, pz] : [sx1 + 1.0, sz0 - 0.8];          //   beside or behind it: out to its east side
-    return [sx1 + 1.0, sz0 - 0.9];                                                             //   east of it: up that side and round to the door
+    if (px < sx1 + 0.5) return pz > SA.z ? [ex, pz] : [ex, sz0 - 0.8];                        //   beside or behind it: out to its east side
+    return [ex, sz0 - 0.9];                                                                    //   east of it: up that side and round to the door
   }
-  if (px > B.x0 - 0.3 && Math.abs(pz - zm) < 4.3) return [B.x1 + 0.9, zm];                   // in the breezeway: out its east end
-  if (pz > B.z1 + 0.4) return px > B.x1 - 1 ? [sx1 + 1.0, pz] : [B.x1 + 0.9, B.z1 + 1.6];     // south of the block: along to its SE corner
+  if (px > B.x0 - 0.3 && Math.abs(pz - zm) < 4.3) return px > 178.4 ? [B.x1 + 0.9, zm] : [B.x0 - 1.0, zm];   // in the breezeway: out the east end (or, west of the table, out the mouth)
+  if (pz > B.z1 + 0.4) return px > B.x1 - 1 ? [ex, pz] : [B.x1 + 0.9, B.z1 + 1.7];          // south of the block: along to its SE corner
   if (pz < B.z0 - 0.4) return px > B.x1 - 1 ? [sx1 + 1.6, 44.2] : [B.x1 + 1.2, B.z0 - 1.6];   // north of it: along to the NE corner, then east of the tub and down
-  return Math.abs(pz - zm) < 3 ? [B.x0 + 1.0, zm] : [B.x0 - 1.0, zm];                        // car park and west: in at the breezeway's west end
+  return [B.x0 - 1.2, B.z1 + 1.8];                                                            // car park and west: round the SW corner and along the south side
 }
 function saBuild() {
   const gs = []; for (let k = 0; k < 9; k++) { const g = rawGround(SA.x + (k % 3 - 1) * 1.1, SA.z + (Math.floor(k / 3) - 1) * 0.9, 20); if (g > 0.1 && g < 0.9) gs.push(g); }
@@ -13053,6 +13053,7 @@ function mmThink(n, dt) {
     if (d < 0.8 || (n.t > 30 && (d < 6 || faCamD(n.pos) > 60)) || n.t > 90) { mmEnterUte(n); return; }
     mmRun(n, door.x, door.z, d > 12 ? 4.2 : d > 4 ? 2.4 : 1.6, dt); return;
   }
+  if (n.st === 'mmPeek') { mmPeek(n, dt); return; }
   // his donga
   if (DG_ST.includes(n.st) && dgThink(n, dt, dP)) return;
   // back to his spot at the tailgate
@@ -13125,7 +13126,33 @@ function mmSaunaWatch(n, dt) {
   if ((DM.n && DM.n.sayT > -1.5) || (SA.sheet && SA.sheet.classList.contains('show'))) return;          // not over the top of Dima
   if (Math.hypot(n.pos.x - SA.x, n.pos.z - SA.z) > 32 || !saOccupants().length) return;
   const me = activeName === 'foot' ? F.pos : S.pos; if (Math.hypot(me.x - n.pos.x, me.z - n.pos.z) > 34) return;
-  SA.mmT = 50 + Math.random() * 30; mmSay('sauna', 3.4, true);
+  SA.mmT = 50 + Math.random() * 30; n.st = 'mmPeek'; n.t = 0; MM.peek = { ph: 'go', t: 0 };      // over he goes for a look through the window
+}
+// at the sauna's front window: hands cupped to the glass, a good long look, then he tells them what he thinks
+function mmPeek(n, dt) {
+  const P = MM.peek || (MM.peek = { ph: 'go', t: 0 }); P.t += dt;
+  const [px, pz] = saW(0.7, SA.D / 2 + 0.45), [wx, wz] = saW(0.7, SA.D / 2), d = Math.hypot(px - n.pos.x, pz - n.pos.z);
+  const done = (gap) => { P.ph = 'back'; P.t = 0; SA.mmT = Math.max(SA.mmT, gap); };
+  if (P.ph === 'back') {                                       // home the way he came: down the sauna's east side, along the south of the block, to the car park
+    const B = DG_BLOCK, sx1 = SA.x + SA.W / 2, ex = sx1 + 1.25;
+    const via = n.pos.x > B.x1 - 0.5 && n.pos.z < B.z1 + 1.0 ? (n.pos.x < ex - 0.3 ? [ex, Math.min(n.pos.z, SA.z - SA.D / 2 - 0.9)] : [ex, B.z1 + 1.8]) : n.pos.z > B.z1 + 0.4 && n.pos.x > B.x0 - 0.5 ? [B.x0 - 1.2, B.z1 + 1.8] : null;
+    if (!via || P.t > 60) { n.st = 'home'; n.t = 0; MM.peek = null; return; }
+    if (!P.off) { if (dgMove(n, ex, SA.z - SA.D / 2 - 0.9, 1.4, dt) || P.t > 6) P.off = true; return; }        // first a step back off the glass and along to the corner
+    npcWalk(n, faSteer(n, Math.atan2(via[0] - n.pos.x, via[1] - n.pos.z), 2), 1.5, dt); return;
+  }
+  if (P.ph === 'go') {
+    if (P.t > 70) { done(40); return; }
+    if (d < 0.2) { P.ph = 'look'; P.t = 0; return; }
+    if (d < 3) { dgMove(n, px, pz, 1.3, dt); return; }
+    const [vx, vz] = saVia(n.pos.x, n.pos.z); npcWalk(n, faSteer(n, Math.atan2(vx - n.pos.x, vz - n.pos.z), 2), 1.7, dt); return;
+  }
+  n.sp *= 0.7; n.pos.x += (px - n.pos.x) * Math.min(1, dt * 4); n.pos.z += (pz - n.pos.z) * Math.min(1, dt * 4); n.yaw += faAng(Math.atan2(wx - px, wz - pz) - n.yaw) * Math.min(1, dt * 5);
+  if (!P.said) {
+    if (!saOccupants().length && P.t > 1.5) { done(60 + Math.random() * 30); return; }               // nobody in after all
+    if (P.t > 1.2 && (!DM.n || DM.n.sayT < 0 || P.t > 7)) { P.said = P.t; mmSay('sauna', 3.6, true); }   // (lets Dima finish first)
+    return;
+  }
+  if (P.t - P.said > 4) done(60 + Math.random() * 40);
 }
 function mmBanter(n, dt) {
   MM.frogT = (MM.frogT === undefined ? 20 : MM.frogT) - dt;
@@ -13333,6 +13360,9 @@ function mmParkHome() {
 function mmPoseHook(n, Q, dt) {
   const look = (tx, tz, lim) => { const a = faAng(Math.atan2(tx - n.pos.x, tz - n.pos.z) - n.yaw); return THREE.MathUtils.clamp(a, -lim, lim); };
   const dP = Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z);
+  if (n.st === 'mmPeek' && MM.peek && MM.peek.ph === 'look') {                    // nose to the glass, hands cupped round his eyes
+    Q.torsoX = 0.28; Q.headX = 0.12; Q.headY = 0; Q.shLx = Q.shRx = -2.05; Q.shLz = 0.12; Q.shRz = -0.12; Q.elL = Q.elR = -2.2; Q.hipL = Q.hipR = -0.12; Q.kneeL = Q.kneeR = 0.1; n.tilt = 0; return;
+  }
   if (n.st === 'lean') {
     Q.torsoX = -0.16; Q.bodyY = 0.74; Q.hipL = -0.22; Q.hipR = -0.08; Q.kneeL = 0.12; Q.kneeR = 0.05;
     Q.shLx = 0.55; Q.shLz = 0.42; Q.elL = -0.5;                                  // left arm back on the tailgate
