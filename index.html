@@ -3374,7 +3374,7 @@ function footCam(dt) {
     camYawF += d * (1 - Math.exp(-1.4 * dt));
   }
   // dancing: the camera swings round to the front and drifts slowly round him
-  if (F.mode === 'emote' && EM.cur) {
+  if (F.mode === 'emote' && EM.cur && !EM.cur.sit) {
     let d = (EM.yaw0 + Math.PI + Math.sin(EM.t * 0.35) * 0.6) - camYawF; d = Math.atan2(Math.sin(d), Math.cos(d));
     camYawF += d * (1 - Math.exp(-2.2 * dt)); camPitchF += (0.12 - camPitchF) * (1 - Math.exp(-2 * dt));
   }
@@ -3398,9 +3398,9 @@ function footCam(dt) {
   lookAt.lerp(lookTarget, 1 - Math.exp(-14 * dt));
   camera.position.copy(camPos);
   // under the dongas' roofs (the rooms and the breezeway): through his eyes, so you can see the place instead of the back of a wall
-  const fpWant = !inSeq && F.mode !== 'emote' && F.mode !== 'tumble' && typeof dgUnder === 'function' && dgUnder(F.pos) ? 1 : 0;
+  const fpWant = !inSeq && (F.mode !== 'emote' || (EM.cur && EM.cur.sit)) && F.mode !== 'tumble' && typeof dgUnder === 'function' && dgUnder(F.pos) ? 1 : 0;
   F.fpK = fresh ? fpWant : (F.fpK || 0) + (fpWant - (F.fpK || 0)) * (1 - Math.exp(-8 * dt)); F.fp = F.fpK > 0.5;
-  if (F.fpK > 0.01) { const p = camPitchF - 0.3, cy = Math.cos(p), eye = _v2.set(F.pos.x, F.pos.y + 1.58, F.pos.z); camera.position.lerp(eye, F.fpK);
+  if (F.fpK > 0.01) { const p = camPitchF - 0.3, cy = Math.cos(p), eye = _v2.set(F.pos.x, F.pos.y + (F.mode === 'emote' && EM.cur && EM.cur.sit ? 1.36 : 1.58), F.pos.z); camera.position.lerp(eye, F.fpK);
     _v3.set(eye.x + Math.sin(camYawF) * cy * 4, eye.y - Math.sin(p) * 4, eye.z + Math.cos(camYawF) * cy * 4).lerp(lookAt, 1 - F.fpK);
     if (camShake > 0) camera.position.addScaledVector(_v1.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), 0.3 * camShake);
     camera.lookAt(_v3); return; }
@@ -6934,6 +6934,12 @@ const pulse = (t, bpm, ph = 0) => 0.5 - 0.5 * Math.cos(((t * bpm / 60 + ph) % 1)
 function emotePose(id, t) {
   const p = { hipL: 0, hipR: 0, kneeL: 0, kneeR: 0, shLx: 0.05, shRx: 0.05, shLz: 0.32, shRz: -0.32, elL: -0.25, elR: -0.3, torsoX: 0, torsoY: 0, bodyRz: 0, headX: 0, headY: 0, bodyY: 0, flip: 0, lift: 0, spin: 0 };
   const E = EMOTES.find(e => e.id === id), beat = E && E.bpm ? t * E.bpm / 60 : 0, b = Math.floor(beat), f = beat - b;
+  if (id === 'sit') {                     // sat down: on the sauna bench, or up to the chest in the cold tub, hands on the knees
+    const tub = EM.cur && EM.cur.sit === 'tub', br = Math.sin(t * 1.6) * 0.02;
+    p.hipL = p.hipR = -1.5; p.kneeL = p.kneeR = tub ? 1.75 : 1.45; p.shLx = p.shRx = tub ? -0.35 : -1.0; p.shLz = tub ? 0.55 : 0.2; p.shRz = tub ? -0.55 : -0.2; p.elL = p.elR = tub ? -0.25 : -0.6;
+    p.torsoX = (tub ? -0.05 : 0.12) + br; p.headX = (tub ? -0.05 : 0.08) + Math.sin(t * 0.5) * 0.04; p.headY = Math.sin(t * 0.33) * 0.35;
+    return p;
+  }
   if (id === 'flip') {
     // crouch, spring, tuck and rotate backwards, land
     if (t < 0.25) { const k = t / 0.25; p.hipL = p.hipR = -0.9 * k; p.kneeL = p.kneeR = 1.5 * k; p.shLx = p.shRx = 0.9 * k; p.bodyY = -0.25 * k; }
@@ -7037,13 +7043,13 @@ function emoteMusic(E) {
 }
 function stopEmoteMusic() { if (EM.src) { const s = EM.src; ramp(EM.gain.gain, 0, 0.15); setTimeout(() => { try { s.stop(); } catch (_) {} }, 400); EM.src = null; } }
 function startEmote(id) {
-  if (activeName !== 'foot' || !F.onGround || (F.mode !== 'walk' && F.mode !== 'emote')) { toast('Get your feet on the ground first', 1.4); return; }
+  if (activeName !== 'foot' || !F.onGround || (F.mode !== 'walk' && F.mode !== 'emote') || saSitting()) { toast('Get your feet on the ground first', 1.4); return; }
   const E = EMOTES.find(e => e.id === id); if (!E) return;
   EM.cur = E; EM.t = 0; EM.yaw0 = F.yaw; F.mode = 'emote'; F.vel.set(0, 0, 0); F.speedH = 0;
   audioInit(); emoteMusic(E); closeEmoteWheel();
   if (id === 'flip' && AU.buf.steps) playAt(AU.buf.steps[0], F.pos, 0.6, 0.8, 5);
 }
-function endEmote() { if (F.mode === 'emote') { F.mode = 'walk'; F.yaw = EM.yaw0; } EM.cur = null; stopEmoteMusic(); }
+function endEmote() { if (EM.cur && EM.cur.sit) { saStandUp(); return; } if (F.mode === 'emote') { F.mode = 'walk'; F.yaw = EM.yaw0; } EM.cur = null; stopEmoteMusic(); }
 function emoteStep(dt) {
   if (F.mode !== 'emote' || !EM.cur) return false;
   EM.t += dt;
@@ -10784,6 +10790,8 @@ LAD_ON = true;
    ================================================================ */
 const NPC = { list: [], ready: false, t: 0, told: {}, center: new THREE.Vector3(), anchor: [0, 0], shedT: 3, shedWait: 0, kickCD: 0 };
 const DIMA_L = {
+  dogs: ['Hey! Get out of my tub, stupid dogs!', 'No, no, no! Is not dog bath! Is Dima bath!', 'Madman! Your dogs are in my ice bath again!'],
+  dogsOut: ['Now is full of fur. Disgusting.', 'Every time. Every time with these dogs.'],
   idle: ["Is good day for lifting, da?", "You look weak. Come, I show you gym.", "In Russia, sauna is one hundred degrees. Here is cute.", "Protein shake is breakfast of champion.", "Madman says I am crazy. Madman has no muscles."],
   talk: ["Sauna makes you strong like bear.", "First sweat, then cold water, then vodka. Is the way.", "I do two hundred push-ups before you wake up.", "Steam is good for soul, my friend."],
   bye: ["Do svidaniya, my friend.", "Go. Eat more protein."],
@@ -10823,7 +10831,7 @@ function npcBubble(n) {
    as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, url: 'voices-v1.bin', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0 };
+const VOX = { on: true, url: 'voices-v1.bin', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
 const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
 // the same normalising the recording script used, so the game's text finds its clips
@@ -10849,6 +10857,8 @@ function voxSplit(text) {
   return w.length ? go(0) : null;
 }
 function voxStop(who) { const c = VOX.cur[who]; if (c) { for (const s of c) try { s.stop(); } catch (_) {} VOX.cur[who] = null; } }
+// with Dima (his menu open, him talking, or you right beside him) nobody talks over him either
+const voxNearDima = () => { const n = typeof DM !== 'undefined' && DM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos; return Math.hypot(n.pos.x - me.x, n.pos.z - me.z) < 7 || (SA.sheet && SA.sheet.classList.contains('show')); };
 const voxNearMadman = () => { const n = MM.n; if (!n || !npcAlive(n)) return false; const me = activeName === 'foot' ? F.pos : S.pos, p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z) < 5 || (MM.sheet && MM.sheet.classList.contains('show')); };
 function voxSay(n, text) {
   if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return;
@@ -10857,19 +10867,20 @@ function voxSay(n, text) {
   const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = activeName === 'foot' ? F.pos : S.pos, d = Math.hypot(p.x - me.x, p.z - me.z);
   if (d > 32) return;
   const now = AU.ctx.currentTime;
-  if (who !== 'mm' && who !== 'dm' && (VOX.mmUntil > now || voxNearMadman())) return;          // no French chatter over Madman
+  if (who !== 'mm' && who !== 'dm' && (VOX.mmUntil > now || VOX.dmUntil > now || voxNearMadman() || voxNearDima())) return;          // no French chatter over Madman or Dima
+  if (who === 'mm' && VOX.dmUntil > now && voxNearDima()) return;                                   // and Madman doesn't cut Dima off while you're with him (his bubble still shows)
   let parts;
   if (who === 'mm') parts = voxSplit(text); else if (who === 'dm') { const e = VOX.head.dm && VOX.head.dm[voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
   if (!parts || !parts.length) return;
-  if (who === 'mm') { for (const k of Object.keys(VOX.cur)) voxStop(k); } else voxStop(who);
+  if (who === 'mm') { for (const k of Object.keys(VOX.cur)) if (k !== 'dm' || !voxNearDima()) voxStop(k); } else if (who === 'dm') { for (const k of Object.keys(VOX.cur)) if (k !== 'mm') voxStop(k); } else voxStop(who);
   const g = AU.ctx.createGain(); g.gain.value = THREE.MathUtils.clamp(1.25 - d / 26, 0.12, 1) * (who === 'mm' ? 1.15 : 0.95); g.connect(AU.master);
-  const total = parts.reduce((s, e) => s + e[2] + (e[3] ? 0.12 : 0.05), 0); if (who === 'mm') VOX.mmUntil = now + total + 0.2;
+  const total = parts.reduce((s, e) => s + e[2] + (e[3] ? 0.12 : 0.05), 0); if (who === 'mm') VOX.mmUntil = now + total + 0.2; if (who === 'dm') VOX.dmUntil = now + total + 0.2;
   const tok = VOX.cur[who] = [];
   Promise.all(parts.map(voxBuf)).then(bufs => {
     if (VOX.cur[who] !== tok) return;                          // something newer started meanwhile
     let t = Math.max(AU.ctx.currentTime, now) + 0.02;
     bufs.forEach((b, i) => { if (!b) return; const s = AU.ctx.createBufferSource(); s.buffer = b; s.connect(g); s.start(t); tok.push(s); t += b.duration + (parts[i][3] ? 0.12 : 0.05); });
-    if (who === 'mm') VOX.mmUntil = t + 0.2;
+    if (who === 'mm') VOX.mmUntil = t + 0.2; if (who === 'dm') VOX.dmUntil = t + 0.2;
   });
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
@@ -11141,7 +11152,7 @@ function spawnShedPig(first) {
 function npcStep(dt) {
   if (!NPC.ready) { if (FA.ready && STRUCTS.ready && HOME.bmw && VEH.bmw && VEH.bmw.state) npcBuild(); else return; }
   dt = Math.min(dt, 0.05); NPC.t += dt;
-  for (const n of NPC.list) { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) n.t += dt; else dmThink(n, dt); } else npcThink(n, dt); npcPose(n, dt); }
+  for (const n of NPC.list) { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.sayT -= dt; } else dmThink(n, dt); } else npcThink(n, dt); npcPose(n, dt); }
   shedFauna(dt);
 }
 function npcReset() {
@@ -11969,6 +11980,7 @@ function dgL(x, z, U = DG) { const c = Math.cos(U.yaw), s = Math.sin(U.yaw), dx 
 // literal numbers: this runs while the scan is set up, before anything else here exists
 function dgCut(x, y, z) {
   if (x > 183.85 && x < 187.25 && z > 49.25 && z < 52.45) return y > 0.62;                                   // the black tent sauna on its pad (rebuilt as a proper one)
+  if (x > 183.7 && x < 187.1 && z > 39.6 && z < 42.9) return y > 0.72;                                       // the white tank by Dima's donga (the cold tub, rebuilt)
   if (x > 168.7 && x < 183.75 && z > 39.2 && z < 55.3) return y > 0.5;                                    // under the new slab: the scanned lump, down to the dirt
   if (x > 168.95 && x < 183.9 && z > 38.75 && z < 55.9) return y > 0.8;                                   // its walls just outside the slab (the dirt there stays)
   if (x > 168.2 && x <= 168.95 && z > 38.75 && z < 55.9 && y > 2.3) return true;                          // the west eaves
@@ -11982,7 +11994,8 @@ function dgUnder(p) { if (dgRoom(p) || (typeof saInside === 'function' && saInsi
 // the walk map over the block: the breezeway and the car park are open, the rooms and the furniture aren't (null = not ours to say)
 function dgBlockWalk(x, z) {
   const B = DG_BLOCK, P = DG_PAD; if (x > P.x0 && x < P.x1 + 0.2 && z > P.z0 && z < P.z1) return 1;
-  if (Math.abs(x - 185.45) < 1.75 && Math.abs(z - 50.85) < 1.55) return 0;                                  // the sauna (inside, you go by hand)
+  if (Math.abs(x - 185.45) < 1.6 && Math.abs(z - 50.85) < 1.3) return 0;                                    // the sauna (inside, you go by hand)
+  if (Math.hypot(x - 185.4, z - 41.25) < 1.2) return 0;                                                         // the cold tub
   if (x < B.x0 - 0.8 || x > B.x1 + 0.8 || z < B.z0 - 0.6 || z > B.z1 + 0.6) return null;
   for (const U of DG_UNITS) { const [u, v] = dgL(x, z, U); if (Math.abs(u) < DG.L / 2 + 0.4 && Math.abs(v) < DG.W / 2 + 0.4) return 0; }
   const cx = (B.x0 + B.x1) / 2, cz = (DG_UNITS[2].z + DG.z) / 2; if (Math.abs(x - (cx - 0.6)) < 1.5 && Math.abs(z - (cz + 0.2)) < 1.4) return 0;
@@ -12295,22 +12308,26 @@ function dgUnit(U, gy, group) {
    (loyly) for a blast of steam. Stay in too long and you pass out. Dima (next door) is a sauna fanatic: he has his own
    menu and a challenge (wood, stove, a minute of loyly with him, then the cold tub). Madman thinks they're all mad.
    ================================================================ */
-const SA = { x: 185.45, z: 50.85, W: 2.6, D: 2.2, H: 2.25, fl: 0.12, root: null, door: null, doorA: 0, gy: 0.55, lit: false, litT: 0, temp: 24, steam: 0, heat: 0,
-  puffs: [], smoke: [], tub: { x: 189.4, z: 51.7 }, q: null, mmT: 20, soloT: 120 + Math.random() * 90, solo: null, chip: null, haze: null, sheet: null, best: 0, done: 0 };
+const SA = { x: 185.45, z: 50.85, W: 2.6, D: 2.2, H: 2.25, fl: 0.12, yaw: Math.PI, root: null, door: null, doorA: 0, gy: 0.55, lit: false, litT: 0, temp: 24, steam: 0, heat: 0,
+  puffs: [], smoke: [], tub: { x: 185.4, z: 41.25, R: 1.0, H: 0.8 }, q: null, mmT: 20, soloT: 120 + Math.random() * 90, solo: null, chip: null, haze: null, sheet: null, best: 0, done: 0 };
 try { const v = JSON.parse(localStorage.getItem('wfy.sauna') || '{}'); SA.best = v.best || 0; SA.done = v.done || 0; } catch (_) {}
-const saW = (lx, lz) => [SA.x + lx, SA.z + lz];
+// the sauna's local frame: built facing +z, turned round so the door faces north onto the breezeway's east end
+const saW = (lx, lz) => { const c = Math.cos(SA.yaw); return [SA.x + c * lx, SA.z + c * lz]; };
 function saInside(p) { return !!SA.root && Math.abs(p.x - SA.x) < SA.W / 2 - 0.08 && Math.abs(p.z - SA.z) < SA.D / 2 - 0.06 && p.y > SA.gy - 0.3 && p.y < SA.gy + 1.6; }
-const saDoorOut = () => saW(-0.55, SA.D / 2 + 0.9), saDoorIn = () => saW(-0.55, SA.D / 2 - 0.45), saSeat = (k) => saW(k ? 0.45 : -0.35, -SA.D / 2 + 0.42);
+const saDoorOut = () => saW(-0.55, SA.D / 2 + 1.0), saDoorIn = () => saW(-0.55, SA.D / 2 - 0.45), saSeat = (k) => saW(k ? 0.45 : -0.35, -SA.D / 2 + 0.42);
 const saFeel = () => SA.temp + SA.steam * 16;
-// on foot to the sauna door (it faces south): round the outside of the dongas block, never through it
+// on foot to the sauna door (it faces north, at the breezeway's east end): through the breezeway, never through the rooms
 function saVia(px, pz) {
-  const B = DG_BLOCK, D = saDoorOut(), zm = (DG_UNITS[2].z + DG.z) / 2;
-  if (pz > B.z1 + 0.4) return px > 183.8 ? D : [184.1, 56.4];                                  // south of the block: along to its SE corner, then up to the door
-  if (px > B.x1 - 0.1 && pz > 52.6) return D;                                                 // just south-east of the block: the door's right there
-  if (px > 187.3) return pz < 53.4 ? [188.0, 53.9] : D;                                      // east of the sauna: down that side
-  if (px > B.x1 + 0.2 && pz < 49.2) return [188.0, 48.6];                                    // north-east: round the sauna's far side
-  if (px < B.x0 - 0.5) return [B.x0 - 1.2, B.z1 + 1.8];                                       // car park and west: round the SW corner
-  return pz < zm + 4.3 && pz > zm - 4.3 ? [B.x0 - 1.0, zm] : [B.x0 - 1.2, pz > zm ? B.z1 + 1.8 : B.z0 - 1.8];      // in the block: out the west end
+  const B = DG_BLOCK, D = saDoorOut(), zm = (DG_UNITS[2].z + DG.z) / 2, sx1 = SA.x + SA.W / 2, sz0 = SA.z - SA.D / 2, ex = sx1 + 1.25;
+  if (px > B.x1 - 0.2) {                                                                       // east of the block
+    if (pz < sz0 - 0.2) return D;                                                              //   north of the sauna: the door's right there
+    if (px < sx1 + 0.5) return pz > SA.z ? [ex, pz] : [ex, sz0 - 0.8];                        //   beside or behind it: out to its east side
+    return [ex, sz0 - 0.9];                                                                    //   east of it: up that side and round to the door
+  }
+  if (px > B.x0 - 0.3 && Math.abs(pz - zm) < 4.3) return px > 178.4 ? [B.x1 + 0.9, zm] : [B.x0 - 1.0, zm];   // in the breezeway: out the east end (or, west of the table, out the mouth)
+  if (pz > B.z1 + 0.4) return px > B.x1 - 1 ? [ex, pz] : [B.x1 + 0.9, B.z1 + 1.7];          // south of the block: along to its SE corner
+  if (pz < B.z0 - 0.4) return px > B.x1 - 1 ? [sx1 + 1.6, 44.2] : [B.x1 + 1.2, B.z0 - 1.6];   // north of it: along to the NE corner, then east of the tub and down
+  return [B.x0 - 1.2, B.z1 + 1.8];                                                            // car park and west: round the SW corner and along the south side
 }
 function saBuild() {
   const gs = []; for (let k = 0; k < 9; k++) { const g = rawGround(SA.x + (k % 3 - 1) * 1.1, SA.z + (Math.floor(k / 3) - 1) * 0.9, 20); if (g > 0.1 && g < 0.9) gs.push(g); }
@@ -12324,17 +12341,33 @@ function saBuild() {
     rock: new THREE.MeshLambertMaterial({ color: 0x6d6a66 }), steel: new THREE.MeshLambertMaterial({ color: 0x9aa1a3 }), glass: new THREE.MeshLambertMaterial({ color: 0x2b3a44, emissive: 0x0d1418 }),
     tub: new THREE.MeshPhongMaterial({ color: 0xf2f0ea, specular: 0x666666, shininess: 40 }), water: new THREE.MeshPhongMaterial({ color: 0x4a7f99, specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.82 }),
     wood: new THREE.MeshLambertMaterial({ color: 0x7a5432 }), bucket: new THREE.MeshLambertMaterial({ color: 0x8a6a3c }), dark: new THREE.MeshLambertMaterial({ color: 0x2c2a27 }) });
-  const W = SA.W, D = SA.D, H = SA.H, fl = SA.fl, dx = -0.55, dw = 0.75;
+  const W = SA.W, D = SA.D, H = SA.H, fl = SA.fl, dx = -0.55, dw = 0.75; root.rotation.y = SA.yaw;
+  if (!M.pane) M.pane = new THREE.MeshPhongMaterial({ color: 0xbcd4dc, specular: 0xffffff, shininess: 80, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
   const box = (w, h, d, m, x, y, z, ry, par) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); if (ry) o.rotation.y = ry; (par || root).add(o); return o; };
-  // shell: floor, walls (outside dark-stained boards, inside pale), the door gap on the south side, a pent roof with a chimney
+  // a board of wall with its planks at the same size whatever its width (so pieces round a hole line up)
+  const plankBox = (w, h, d, m, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv, n = g.attributes.normal;
+    for (let i = 0; i < uv.count; i++) { const ax = Math.abs(n.getX(i)) > 0.5 ? d : w; uv.setXY(i, uv.getX(i) * ax / 1.3, uv.getY(i) * h / H); }
+    const o = new THREE.Mesh(g, m); o.position.set(x, y, z); root.add(o); return o; };
+  // one wall: side n/s (z = -D/2 / +D/2, along x) or w/e (x = -W/2 / +W/2, along z), with holes [from, to, bottom, top]
+  const wallPiece = (side, a0, a1, y0, y1) => { const L = a1 - a0, h = y1 - y0, ac = (a0 + a1) / 2, yc = fl + (y0 + y1) / 2;
+    if (side === 'n' || side === 's') { const z = side === 'n' ? -D / 2 : D / 2, zi = z + (side === 'n' ? 0.06 : -0.06); plankBox(L, h, 0.1, M.ext, ac, yc, z); plankBox(L, h, 0.02, M.int, ac, yc, zi); }
+    else { const x = side === 'w' ? -W / 2 : W / 2, xi = x + (side === 'w' ? 0.06 : -0.06); plankBox(0.1, h, L, M.ext, x, yc, ac); plankBox(0.02, h, L, M.int, xi, yc, ac); } };
+  const wall = (side, a0, a1, holes) => { let a = a0; for (const [h0, h1, y0, y1] of holes) { if (h0 > a) wallPiece(side, a, h0, 0, H); if (y0 > 0) wallPiece(side, h0, h1, 0, y0); if (y1 < H) wallPiece(side, h0, h1, y1, H); a = h1; } if (a < a1) wallPiece(side, a, a1, 0, H); };
+  // a window: glass in a timber frame, sill outside
+  const pane = (side, h0, h1, y0, y1) => { const ac = (h0 + h1) / 2, yc = fl + (y0 + y1) / 2, w = h1 - h0, h = y1 - y0, ns = side === 'n' || side === 's', c = side === 'n' || side === 'w' ? -1 : 1;
+    const px = ns ? ac : c * W / 2, pz = ns ? c * D / 2 : ac, gl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), M.pane); gl.position.set(px, yc, pz); gl.rotation.y = ns ? 0 : Math.PI / 2; root.add(gl);
+    for (const [fw, fh, oa, oy] of [[w + 0.08, 0.05, 0, h / 2], [w + 0.08, 0.05, 0, -h / 2], [0.05, h, w / 2, 0], [0.05, h, -w / 2, 0], [0.03, h, 0, 0]]) box(ns ? fw : 0.13, fh, ns ? 0.13 : fw, M.wood, px + (ns ? oa : 0), yc + oy, pz + (ns ? 0 : oa));
+    box(ns ? w + 0.16 : 0.12, 0.04, ns ? 0.12 : w + 0.16, M.wood, px + (ns ? 0 : c * 0.06), yc - h / 2 - 0.04, pz + (ns ? c * 0.06 : 0)); };
+  // shell: floor, walls (outside dark-stained boards, inside pale), the door and a window at the front, a window down the side, a pent roof with a chimney
   box(W + 0.1, fl, D + 0.1, M.bench, 0, fl / 2, 0);
-  for (const [w, x, z, ry] of [[W, 0, -D / 2, 0], [D, -W / 2, 0, Math.PI / 2], [D, W / 2, 0, Math.PI / 2]]) { box(w, H, 0.1, M.ext, x, fl + H / 2, z, ry); box(w - 0.12, H - 0.05, 0.02, M.int, x + (ry ? (x < 0 ? 0.06 : -0.06) : 0), fl + H / 2, z + (ry ? 0 : 0.06), ry); }
+  const WIN_S = [0.42, 0.98, 1.25, 1.68], WIN_W = [-0.4, 0.4, 1.12, 1.62];
+  wall('n', -W / 2, W / 2, []); wall('e', -D / 2, D / 2, []); wall('w', -D / 2, D / 2, [WIN_W]); wall('s', -W / 2, W / 2, [[dx - dw / 2, dx + dw / 2, 0, 1.95], WIN_S]);
+  pane('w', ...WIN_W); pane('s', ...WIN_S);
   const aW = (dx - dw / 2) + W / 2, bW = W / 2 - (dx + dw / 2);
-  box(aW, H, 0.1, M.ext, -W / 2 + aW / 2, fl + H / 2, D / 2); box(bW, H, 0.1, M.ext, W / 2 - bW / 2, fl + H / 2, D / 2); box(dw, H - 1.95, 0.1, M.ext, dx, fl + 1.95 + (H - 1.95) / 2, D / 2);
-  box(bW - 0.1, H - 0.05, 0.02, M.int, W / 2 - bW / 2, fl + H / 2, D / 2 - 0.06); box(aW - 0.08, H - 0.05, 0.02, M.int, -W / 2 + aW / 2, fl + H / 2, D / 2 - 0.06);
   box(W - 0.1, 0.02, D - 0.1, M.int, 0, fl + H - 0.02, 0);
   const rf = box(W + 0.5, 0.06, D + 0.6, M.roof, 0, fl + H + 0.12, 0.05); rf.rotation.x = 0.1;
-  const ch = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 1.1, 10), M.steel); ch.position.set(0.85, fl + H + 0.45, 0.45); root.add(ch);
+  const ch = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 1.0, 10), M.steel); ch.position.set(0.95, fl + H + 0.52, 0.36); root.add(ch);
+  const flue = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, H - 0.66, 10), M.stove); flue.position.set(0.95, fl + 0.64 + (H - 0.66) / 2, 0.36); root.add(flue);       // the flue, stove to roof
   // the door (glazed slot), on a hinge, swings out
   const hinge = new THREE.Group(); hinge.position.set(dx - dw / 2, fl, D / 2 + 0.05); root.add(hinge); SA.door = hinge;
   box(dw - 0.03, 1.92, 0.05, M.ext, dw / 2, 0.97, 0, 0, hinge); box(0.16, 0.9, 0.06, M.glass, dw / 2, 1.25, 0, 0, hinge); box(0.04, 0.22, 0.04, M.wood, dw - 0.12, 0.98, 0.05, 0, hinge);
@@ -12353,25 +12386,101 @@ function saBuild() {
   SA.bulb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffb070 })); SA.bulb.position.set(-W / 2 + 0.2, fl + H - 0.25, 0.7); root.add(SA.bulb);
   // a little woodpile against the north wall (the challenge has you fetch more)
   for (let k = 0; k < 9; k++) { const lg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 7), M.wood); lg.rotation.x = Math.PI / 2; lg.rotation.z = Math.PI / 2; lg.position.set(-0.6 + (k % 3) * 0.13, 0.06 + Math.floor(k / 3) * 0.12, -D / 2 - 0.35); root.add(lg); }
-  // the old bathtub of cold water, on its claw feet
-  const T = SA.tub, tb = new THREE.Group(); tb.position.set(T.x, rawGround(T.x, T.z, 20), T.z); scene.add(tb); SA.tubM = tb;
-  box(1.6, 0.08, 0.7, M.tub, 0, 0.2, 0, 0, tb); box(1.6, 0.48, 0.06, M.tub, 0, 0.46, -0.32, 0, tb); box(1.6, 0.48, 0.06, M.tub, 0, 0.46, 0.32, 0, tb); box(0.06, 0.48, 0.7, M.tub, -0.77, 0.46, 0, 0, tb); box(0.06, 0.48, 0.7, M.tub, 0.77, 0.46, 0, 0, tb);
-  box(1.5, 0.02, 0.6, M.water, 0, 0.6, 0, 0, tb); for (const [a, b] of [[-0.62, -0.25], [0.62, -0.25], [-0.62, 0.25], [0.62, 0.25]]) box(0.07, 0.18, 0.07, M.steel, a, 0.09, b, 0, tb);
-  root.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== SA.bulb.material; o.receiveShadow = true; } }); tb.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const tb = tbBuild(M, box);
+  root.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== SA.bulb.material && o.material !== M.pane; o.receiveShadow = true; } }); tb.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== M.water; o.receiveShadow = true; } });
   // solid: floor, walls, roof, the stove, the tub
   const group = { id: 'sauna', root, parts: [], ctr: new THREE.Vector3(SA.x, SA.gy + 1.2, SA.z), rad: 4.5, gy: SA.gy, fixed: true }; STRUCTS.groups.push(group);
   const eX = new THREE.Vector3(1, 0, 0), eY = new THREE.Vector3(0, 1, 0), eZ = new THREE.Vector3(0, 0, 1);
-  const solid = (x, y, z, hx, hy, hz, obj) => { const pt = addPart(group, { kind: 'sauna', obj: obj || root, fixed: true }); boxPart(pt, new THREE.Vector3(SA.x + x, SA.gy + y, SA.z + z), eX, eY, eZ, hx, hy, hz); };
+  const solid = (x, y, z, hx, hy, hz, obj) => { const pt = addPart(group, { kind: 'sauna', obj: obj || root, fixed: true }), [wx, wz] = saW(x, z); boxPart(pt, new THREE.Vector3(wx, SA.gy + y, wz), eX, eY, eZ, hx, hy, hz); };
   solid(0, fl / 2, 0, W / 2 + 0.05, fl / 2, D / 2 + 0.05); solid(0, fl + H / 2, -D / 2, W / 2, H / 2, 0.06); solid(-W / 2, fl + H / 2, 0, 0.06, H / 2, D / 2); solid(W / 2, fl + H / 2, 0, 0.06, H / 2, D / 2);
   solid(-W / 2 + aW / 2, fl + H / 2, D / 2, aW / 2, H / 2, 0.06); solid(W / 2 - bW / 2, fl + H / 2, D / 2, bW / 2, H / 2, 0.06); solid(dx, fl + 1.95 + (H - 1.95) / 2, D / 2, dw / 2, (H - 1.95) / 2, 0.06);
   solid(0, fl + H + 0.1, 0.05, W / 2 + 0.25, 0.05, D / 2 + 0.3); solid(0.85, fl + 0.36, 0.55, 0.23, 0.36, 0.23);
-  const tg = { id: 'tub', root: tb, parts: [], ctr: new THREE.Vector3(T.x, tb.position.y + 0.4, T.z), rad: 1.5, gy: tb.position.y, fixed: true }; STRUCTS.groups.push(tg);
-  const tp = addPart(tg, { kind: 'tub', obj: tb, fixed: true }); boxPart(tp, new THREE.Vector3(T.x, tb.position.y + 0.35, T.z), eX, eY, eZ, 0.8, 0.35, 0.36);
+  const T = SA.tub, tg = { id: 'tub', root: tb, parts: [], ctr: new THREE.Vector3(T.x, tb.position.y + 0.4, T.z), rad: 2.4, gy: tb.position.y, fixed: true }; STRUCTS.groups.push(tg);
+  const r45 = Math.SQRT1_2, eA = new THREE.Vector3(r45, 0, r45), eB = new THREE.Vector3(-r45, 0, r45);           // the round wall as an octagon: two square boxes, one turned 45 degrees
+  for (const [a, b] of [[eX, eZ], [eA, eB]]) { const tp = addPart(tg, { kind: 'tub', obj: tb, fixed: true }); boxPart(tp, new THREE.Vector3(T.x, tb.position.y + T.H / 2, T.z), a, eY, b, T.R * 0.93, T.H / 2, T.R * 0.93); }
+  const pp = addPart(tg, { kind: 'tub', obj: tb, fixed: true }); boxPart(pp, new THREE.Vector3(T.x, tb.position.y - 0.1, T.z), eX, eY, eZ, 1.55, 0.1, 1.5);
   // steam and chimney smoke
   const tex = radialTex([255, 255, 255], true), stex = radialTex([110, 110, 112], true);
   for (let k = 0; k < 16; k++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 })); sp.visible = false; scene.add(sp); SA.puffs.push({ sp, life: 0 }); }
   for (let k = 0; k < 10; k++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: stex, transparent: true, depthWrite: false, opacity: 0 })); sp.visible = false; scene.add(sp); SA.smoke.push({ sp, life: 0 }); }
 }
+/* ---------- THE COLD TUB: a round galvanised stock tank by Dima's donga (where the scan's white tank stood). Four fit:
+   Dima's place (0), yours (1), and the two on the far side the dogs take when they get in after a hunt ---------- */
+const CT = { dogT: 0, scare: false };
+const tbSlot = (k) => { const a = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75][k], T = SA.tub; return [T.x + Math.cos(a) * 0.5, T.z + Math.sin(a) * 0.5]; };
+const tbEdge = (k, r) => { const a = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75][k], T = SA.tub; return [T.x + Math.cos(a) * r, T.z + Math.sin(a) * r]; };
+function tbSplash(v) { const T = SA.tub; faSay(_w1.set(T.x, SA.tubM.position.y + 0.7, T.z), 'fa_splash', v, 0.9 + Math.random() * 0.2, 14); }
+function tbBuild(M, box) {
+  const T = SA.tub, gs = []; for (let k = 0; k < 9; k++) { const g = rawGround(T.x + (k % 3 - 1) * 1.3, T.z + (Math.floor(k / 3) - 1) * 1.3, 20); if (g > 0.2 && g < 0.75) gs.push(g); }
+  gs.sort((a, b) => a - b); const gy = (gs[Math.floor(gs.length / 2)] || 0.58) + 0.03;
+  const tb = new THREE.Group(); tb.position.set(T.x, gy, T.z); scene.add(tb); SA.tubM = tb;
+  const gal = M.gal || (M.gal = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d');
+    for (let i = 0; i < 256; i++) { const k = 0.78 + 0.22 * Math.sin(i / 256 * Math.PI * 2 * 40) + (Math.random() - 0.5) * 0.06; g.fillStyle = `rgb(${Math.round(172 * k)},${Math.round(180 * k)},${Math.round(184 * k)})`; g.fillRect(i, 0, 1, 64); }
+    for (let k = 0; k < 90; k++) { g.fillStyle = `rgba(255,255,255,${0.05 + Math.random() * 0.08})`; g.fillRect(Math.random() * 256, Math.random() * 64, 2 + Math.random() * 10, 1 + Math.random() * 3); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.repeat.set(3, 1);
+    return new THREE.MeshPhongMaterial({ map: t, specular: 0x777777, shininess: 35, side: THREE.DoubleSide }); })());
+  const pav = M.pav || (M.pav = new THREE.MeshLambertMaterial({ color: 0x9a948a }));
+  // a pad of old pavers under it (the ground there was all tank)
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) { const sh = ((i * 7 + j * 13) % 5) / 60; const pv = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.12, 0.48), pav); pv.position.set(-1.25 + i * 0.5, -0.06 - sh * 0.15, -1.25 + j * 0.5); pv.material = pav; tb.add(pv); }
+  // the tank: wall, rolled rim, floor, water; a step and a towel on the rail
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(T.R, T.R, T.H, 40, 1, true), gal); wall.position.y = T.H / 2; tb.add(wall);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(T.R, 0.035, 8, 40), M.steel); rim.rotation.x = Math.PI / 2; rim.position.y = T.H; tb.add(rim);
+  const fl = new THREE.Mesh(new THREE.CircleGeometry(T.R, 40), M.steel); fl.rotation.x = -Math.PI / 2; fl.position.y = 0.04; tb.add(fl);
+  const wat = new THREE.Mesh(new THREE.CircleGeometry(T.R - 0.02, 40), M.water); wat.rotation.x = -Math.PI / 2; wat.position.y = T.H - 0.14; tb.add(wat); SA.tubWater = wat;
+  for (const k of [1, 0]) { const [ex, ez] = tbEdge(k, 1.32); box(0.55, 0.3, 0.32, M.wood, ex - T.x, 0.15, ez - T.z, Math.atan2(ex - T.x, ez - T.z), tb); }        // timber steps up to it
+  const tw = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.34), new THREE.MeshLambertMaterial({ color: 0xd04a3a })); tw.position.set(-T.R * 0.7, T.H + 0.03, -T.R * 0.7); tw.rotation.y = Math.PI / 4; tb.add(tw);
+  return tb;
+}
+// the dogs, after a hunt: off the tray, round through the breezeway, a leap into the tub, a good soak; out again (sooner if Dima turns up), a shake, back to the ute
+function tbDogsGo() { let k = 0; for (const d of MM.dogs) { if (d.mode !== 'tray') continue; mhDogOut(d, d.i); d.task = 'tub'; d.tubPh = 'run'; d.tubT = 0; d.solo = false; d.tubK = 2 + (k++); } CT.scare = false; }
+function tbVia(px, pz, out) {
+  const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, T = SA.tub;
+  if (!out) { if (px < B.x0 - 0.3) return Math.abs(pz - zm) > 1 ? [B.x0 - 1.0, zm] : [B.x1 + 1.0, zm]; if (px < B.x1 + 0.4) return [B.x1 + 1.0, zm]; return null; }
+  if (px > B.x1 - 0.2 && pz < T.z + 1.3 && Math.abs(px - T.x) < 1.7) return [px < T.x ? T.x - 1.75 : T.x + 1.75, T.z + 1.6];
+  if (px > B.x1 - 0.4 && Math.abs(pz - zm) > 1) return [B.x1 + 1.0, zm];
+  if (px > B.x0 - 0.3) return [B.x0 - 1.2, zm];
+  return null;
+}
+function tbDogStep(d, dt) {
+  const M = d.M, T = SA.tub, base = SA.tubM ? SA.tubM.position.y : 0; d.tubT += dt;
+  const run = (gx, gz, sp) => { const dx = gx - d.pos.x, dz = gz - d.pos.z, L = Math.hypot(dx, dz); if (L < 0.05) { d.spd = 0; return 0; }
+    const step = Math.min(L, sp * dt), h = Math.atan2(dx, dz); d.pos.x += Math.sin(h) * step; d.pos.z += Math.cos(h) * step; d.yaw += faAng(h - d.yaw) * Math.min(1, dt * 10); d.spd = step / dt;
+    d.gT = (d.gT || 0) - dt; if (d.gT <= 0) { d.gT = 0.12; d.gy = groundAt(d.pos.x, d.pos.z, d.pos.y + 1.5, d.pos.y); } d.pos.y += ((d.gy || d.pos.y) - d.pos.y) * Math.min(1, dt * 12); return L; };
+  const legs = () => { if (d.spd > 0.5) { d.gal = (d.gal || 0) + dt * (4 + d.spd * 1.6); const A = Math.min(0.9, 0.3 + d.spd * 0.08); M.legs.forEach((Lg, k) => { Lg.rotation.x = Math.sin(d.gal + (Lg.front ? 0 : Math.PI) + (k % 2) * 0.5) * A; Lg.lower.rotation.x = Math.max(0, Math.sin(d.gal + (Lg.front ? 0 : Math.PI) - 1)) * A; }); } };
+  const show = () => { M.root.position.copy(d.pos); M.root.rotation.set(0, d.yaw, 0); };
+  if (!SA.tubM || VEH.ute.wrecked || MH.mode) { d.task = 'return'; return false; }
+  if (d.tubPh === 'run') {                                   // there: the south side of the tub, then a leap in across it
+    const side = d.tubK === 2 ? -0.5 : 0.5, gx = T.x + side, gz = T.z + 1.7, via = tbVia(d.pos.x, d.pos.z, false), [wx, wz] = via || [gx, gz];
+    const L = run(wx, wz, 7); d.st = 'stand'; d.alert = 1; d.wag = 1; show(); mmDogPose(d, dt); legs();
+    if ((!via && L < 0.3) || d.tubT > 45) { const [sx, sz] = tbSlot(d.tubK); d.tubPh = 'in'; d.tubT = 0; d.yaw = Math.atan2(sx - d.pos.x, sz - d.pos.z);
+      d.mode = 'jump'; d.jump = { t: 0, dur: 0.65, from: M.root.position.clone(), to: new THREE.Vector3(sx, base + 0.16, sz), into: false, tub: true }; }
+    return true;
+  }
+  if (d.tubPh === 'in') {                                     // a soak: paddling about in their spot, heads up, the odd bark at Dima
+    const [sx, sz] = tbSlot(d.tubK); d.pos.set(sx + Math.sin(d.tubT * 0.9 + d.i) * 0.06, base + 0.16, sz + Math.cos(d.tubT * 0.7 + d.i) * 0.06); d.yaw += faAng(Math.atan2(T.x - sx, T.z - sz) + Math.sin(d.tubT * 0.4 + d.i) * 0.6 - d.yaw) * Math.min(1, dt * 2);
+    d.st = 'sit'; d.spd = 0; d.look = 0; show(); mmDogPose(d, dt); M.body.position.y = 0.34 + Math.sin(d.tubT * 3 + d.i) * 0.015; d.pant += dt * 2;
+    if (Math.random() < dt * 0.25) tbSplash(0.35);
+    const dima = DM.n; if (d.tubT > 2 && dima && npcAlive(dima) && !dima.angry && !dima.veh && dima.st === 'home' && !DM.dogs && !SA.q && !SA.solo && Math.hypot(dima.pos.x - T.x, dima.pos.z - T.z) < 32) { DM.dogs = { t: 0, sayT: 0, at: 0 }; dima.st = 'dmDogs'; dima.t = 0; dmSay(dima, 'dogs', 3.4); }
+    if (DM.dogs && DM.dogs.at > 0 && d.barkCD <= 0 && Math.random() < dt * 0.6) { const len = mmBarkSfx(d.i, _w4.copy(d.pos).setY(d.pos.y + 0.6), 1); if (len) { d.barkPh = 0.2; d.barkCD = len + 1.5; } }
+    if ((CT.scare && d.tubT > 6 + d.i * 0.7) || d.tubT > 18 + d.i * 2) { const [ex, ez] = tbEdge(d.tubK, 1.6); d.tubPh = 'shake'; d.tubT = 0; d.yaw = Math.atan2(ex - d.pos.x, ez - d.pos.z);
+      d.mode = 'jump'; d.jump = { t: 0, dur: 0.5, from: M.root.position.clone(), to: new THREE.Vector3(ex, groundAt(ex, ez, base + 1.5, base), ez), into: false, tub: true }; }
+    return true;
+  }
+  if (d.tubPh === 'shake') {                                  // out: a big shake, head to tail
+    d.st = 'stand'; d.spd = 0; show(); mmDogPose(d, dt); const k = Math.max(0, 1 - d.tubT / 1.3); M.body.rotation.z = Math.sin(d.tubT * 28) * 0.35 * k; M.head.rotation.z = Math.sin(d.tubT * 28 + 0.6) * 0.5 * k;
+    if (d.tubT > 1.4) { M.body.rotation.z = 0; M.head.rotation.z = 0; d.tubPh = 'home'; d.tubT = 0; }
+    return true;
+  }
+  // home: back round the tub and out through the breezeway; on the car park the usual run to the tray takes over
+  const via = tbVia(d.pos.x, d.pos.z, true); if (!via || d.tubT > 40) { d.task = 'return'; d.tubPh = null; return false; }
+  run(via[0], via[1], 6.5); d.st = 'stand'; show(); mmDogPose(d, dt); legs(); return true;
+}
+function tbStep(dt) {
+  if (CT.dogT > 0) { CT.dogT -= dt; if (CT.dogT <= 0 && !MH.mode && SA.tubM && !VEH.ute.wrecked && mmUteHome() && MM.dogs.length && MM.dogs.every(d => d.mode === 'tray')) tbDogsGo(); }
+  if (CT.scare && !MM.dogs.some(d => d.task === 'tub' && d.tubPh === 'in')) CT.scare = false;
+  if (SA.tubWater) { const busy = (DM.n && DM.n.st === 'saTub') || saSitting() === 'tub' || MM.dogs.some(d => d.task === 'tub' && d.tubPh === 'in'); SA.tubWater.position.y = SA.tub.H - 0.14 + (busy ? Math.sin(performance.now() / 260) * 0.008 : 0); }
+}
+function tbReset() { CT.dogT = 0; CT.scare = false; for (const d of MM.dogs) if (d.task === 'tub') { d.tubPh = null; if (d.mode !== 'tray') mmDogTray(d); d.task = null; } }
 /* ---------- DIMA: the big Russian in the north-east donga. Lifts, eats protein, lives for the sauna ---------- */
 const DM = { ready: false, n: null, talkT: 12, flexT: 0 };
 const DIMA_LOOK = { name: 'Dima', h: 0.95, w: 0.35, m: 1, skin: 1, hair: 'buzz', hc: 1, hat: 'none', hatc: 0, shirt: 'singlet', sc: 5, legs: 'long', lc: 2, shoes: 'boots', shc: 1, gl: 'none', fh: 1 };
@@ -12388,7 +12497,7 @@ function dmPlace() {
   n.pos.set(x, 0, z); n.gy = n.pos.y = groundAt(x, z, DG.gy + 1.5, DG.gy); n.yaw = Math.PI; n.st = 'home'; n.t = 0; n.tilt = 0; n.sp = 0; n.hp = n.max; n.angry = false; n.ko = false; n.atkPh = ''; n.bub.sp.visible = false; n.bub.time = 0;
 }
 // a line from Dima: a plain speech bubble (he speaks English, of a sort), voiced from the pack
-function dmSay(n, k, dur) { const L = DIMA_L[k]; if (!L || !n || !n.bub) return; const line = L[Math.floor(Math.random() * L.length)]; dur = dur || Math.max(2.6, Math.min(5.5, line.length * 0.07)); mmSayBub(n, line, dur); n.sayT = dur; }
+function dmSay(n, k, dur) { const L = DIMA_L[k]; if (!L || !n || !n.bub) return; const line = L[Math.floor(Math.random() * L.length)]; dur = dur || Math.max(2.6, Math.min(5.5, line.length * 0.07)); mmSayBub(n, line, dur); n.sayT = dur; DM.talkT = Math.max(DM.talkT, dur + 10); }
 // on foot to a point near home: from round the sauna, back up the east side and in at the breezeway's east end
 function dmVia(px, pz, tx, tz) {
   const B = DG_BLOCK, zm = (DG_UNITS[2].z + DG.z) / 2, band = (x, z) => x > B.x0 - 0.3 && x < B.x1 + 0.6 && Math.abs(z - zm) < 4.3;
@@ -12403,6 +12512,7 @@ function dmThink(n, dt) {
   const veh = FA.threats.find(t => t.kind === 'veh');
   if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
+  if (n.st === 'dmDogs' && dmDogs(n, dt)) return;
   if (n.st !== 'home') { n.st = 'home'; n.t = 0; }
   const [x, z] = dmHome(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
   if (d > 0.5) { const [wx, wz] = dmVia(n.pos.x, n.pos.z, x, z); if (d < 3 && Math.abs(n.pos.z - z) < 3) dgMove(n, x, z, 1.4, dt); else npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 1.8 : 1.2, dt); return; }
@@ -12415,8 +12525,22 @@ function dmThink(n, dt) {
 }
 // fights and hurts from the shared code come through npcSay with the backpackers' French: give him his own
 function dmSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) dmSay(n, m, 2.6); return; } }
-function dmPoseHook(n, Q) { if (DM.flexT > 0 && n.st === 'home') { Q.shLz = 1.5; Q.shRz = -1.5; Q.shLx = -0.15; Q.shRx = -0.15; Q.elL = -1.8; Q.elR = -1.8; Q.torsoX = -0.06; Q.headX = -0.1; } }
-function dmReset() { if (DM.n) dmPlace(); DM.talkT = 12; }
+function dmPoseHook(n, Q) { if (n.st === 'dmDogs' && DM.dogs && DM.dogs.at > 0) { const w = Math.sin(NPC.t * 9); Q.shLx = -2.5 + w * 0.35; Q.shRx = -2.5 - w * 0.35; Q.shLz = 0.5; Q.shRz = -0.5; Q.elL = Q.elR = -0.3; Q.torsoX = 0.08; Q.headX = -0.12; return; }
+  if (DM.flexT > 0 && n.st === 'home') { Q.shLz = 1.5; Q.shRz = -1.5; Q.shLx = -0.15; Q.shRx = -0.15; Q.elL = -1.8; Q.elR = -1.8; Q.torsoX = -0.06; Q.headX = -0.1; } }
+function dmReset() { if (DM.n) dmPlace(); DM.talkT = 12; DM.dogs = null; }
+// the dogs are in his tub: over he storms, waving his arms and shouting, until they're out
+function dmDogs(n, dt) {
+  const D = DM.dogs; if (!D) return false; D.t += dt; D.sayT -= dt;
+  const dogsIn = MM.dogs.some(d => d.task === 'tub' && (d.tubPh === 'in' || d.tubPh === 'run'));
+  if (D.t > 35 || (!dogsIn && D.t > 1)) { if (D.at > 0) dmSay(n, 'dogsOut', 3); DM.dogs = null; n.st = 'home'; n.t = 0; return false; }
+  const T = SA.tub, x = T.x, z = T.z + 1.75, d = Math.hypot(x - n.pos.x, z - n.pos.z);
+  if (d > 0.35 && !D.at) { const [wx, wz] = d < 4 ? [x, z] : dmVia(n.pos.x, n.pos.z, x, z); if (d < 4) dgMove(n, x, z, 2.6, dt); else npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), 2.8, dt); return true; }
+  D.at = (D.at || 0) + dt; n.sp *= 0.7; npcFace(n, T.x, T.z, 6, dt);
+  if (D.sayT <= 0) { D.sayT = 4.5 + Math.random() * 1.5; dmSay(n, 'dogs', 3.4); }
+  if (D.at > 7) CT.scare = true;                                                          // enough of that: they bail out
+  if (!D.mm && D.t > 3.8 && n.sayT < 0 && MM.n && npcAlive(MM.n) && !MM.n.veh && !MH.mode && MM.hostileT <= 0 && Math.hypot(MM.n.pos.x - n.pos.x, MM.n.pos.z - n.pos.z) < 45) { D.mm = true; D.sayT = Math.max(D.sayT, 3.6); mmSay('dogTub', 3.2, true); }
+  return true;
+}
 // someone (or you) in there?
 function saOccupants() { const out = []; if (activeName === 'foot' && saInside(F.pos)) out.push('you'); for (const n of NPC.list) if (!n.veh && saInside(n.pos)) out.push(n.name); return out; }
 const saDima = () => NPC.list.find(n => n.dima);
@@ -12443,7 +12567,7 @@ function saUI() {
   document.body.appendChild(sh); SA.sheet = sh;
   sh.addEventListener('click', e => { if (e.target === sh || e.target.id === 'saX') { sh.classList.remove('show'); return; } const b = e.target.closest('[data-sa]'); if (b) saChoose(b.dataset.sa); });
 }
-function saTalkable() { const n = saDima(); return !!n && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air') && F.dead <= 0 && !n.veh && !n.angry && ['home', 'saSit', 'saGo', 'saIn'].includes(n.st) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 3.2; }
+function saTalkable() { const n = saDima(); return !!n && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air' || !!saSitting()) && F.dead <= 0 && !n.veh && !n.angry && ['home', 'saSit', 'saGo', 'saIn', 'saTub'].includes(n.st) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 3.2; }
 function saMenuOpen() {
   saUI(); if (!saTalkable()) return; const n = saDima(), q = SA.q;
   $('saMood').textContent = 'Russian, enormous, sauna fanatic. ' + (SA.done ? 'Challenges done: ' + SA.done + (SA.best ? ' · best löyly: ' + SA.best : '') : 'He reckons you won’t last a minute.');
@@ -12504,14 +12628,14 @@ function saNpc(n, dt) {
   const q = SA.q, want = (q && ['heat', 'sweat'].includes(q.step)) || SA.solo, R = (x, z, sp) => dgMove(n, x, z, sp, dt);
   if (want && !['saGo', 'saIn', 'saSit'].includes(n.st)) { n.st = 'saGo'; n.t = 0; }
   if (n.st === 'saGo') { if (!want) { n.st = 'home'; return false; } const [x, z] = saDoorOut(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
-    if (d < 0.6 || n.t > 60) { if (d > 2) { n.pos.x = x; n.pos.z = z; } n.st = 'saIn'; n.t = 0; return true; } const [wx, wz] = saVia(n.pos.x, n.pos.z); npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 2.4 : 1.4, dt); return true; }
+    if (d < 0.6 || n.t > 60) { if (d > 2) { n.pos.x = x; n.pos.z = z; } n.st = 'saIn'; n.t = 0; return true; } if (d < 2.6) { dgMove(n, x, z, 1.4, dt); return true; } const [wx, wz] = saVia(n.pos.x, n.pos.z); npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 2.4 : 1.4, dt); return true; }
   if (n.st === 'saIn') { const [ix, iz] = saDoorIn(), [sx, sz] = saSeat(0); if (n.t < 1.2) R(ix, iz, 1.0); else if (R(sx, sz, 0.8) && n.t > 2) { n.st = 'saSit'; n.t = 0; } return true; }
-  if (n.st === 'saSit') { const [sx, sz] = saSeat(0); n.pos.x = sx; n.pos.z = sz; n.pos.y = SA.gy + SA.fl + 0.93 - 0.702 * n.s + 0.06; n.yaw += faAng(0 - n.yaw) * Math.min(1, dt * 4); n.sp = 0;
+  if (n.st === 'saSit') { const [sx, sz] = saSeat(0); n.pos.x = sx; n.pos.z = sz; n.pos.y = SA.gy + SA.fl + 0.93 - 0.702 * n.s + 0.06; n.yaw += faAng(SA.yaw - n.yaw) * Math.min(1, dt * 4); n.sp = 0;
     if (!want) { n.st = 'saOut'; n.t = 0; } return true; }
-  if (n.st === 'saOut') { const [ix, iz] = saDoorIn(), [ox, oz] = saDoorOut(); if (n.t < 0.6) { n.pos.y = SA.gy + SA.fl; R(saSeat(0)[0], iz - 0.4, 1.0); } else if (n.t < 2.2) R(ix, iz, 1.0); else if (R(ox, oz, 1.2) || n.t > 5) { n.st = n.after === 'tub' ? 'saTubGo' : 'home'; n.after = null; n.t = 0; } return true; }
-  if (n.st === 'saTubGo') { const T = SA.tub; if (R(T.x - 0.3, T.z + 0.75, 2.2) || n.t > 8) { n.st = 'saTub'; n.t = 0; faSay(_w1.set(T.x, SA.tubM.position.y + 0.6, T.z), 'fa_splash', 0.8, 1.0, 14); } return true; }
-  if (n.st === 'saTub') { const T = SA.tub; n.pos.set(T.x - 0.35, SA.tubM.position.y + 0.32 - 0.702 * n.s + 0.25, T.z); n.yaw += faAng(Math.PI / 2 - n.yaw) * Math.min(1, dt * 4); n.sp = 0;
-    if (n.t > 9) { n.pos.set(T.x - 0.3, SA.tubM.position.y, T.z + 0.9); n.gy = n.pos.y; n.st = 'home'; n.t = 0; } return true; }
+  if (n.st === 'saOut') { const [ix, iz] = saDoorIn(), [ox, oz] = saDoorOut(); if (n.t < 0.6) { n.pos.y = SA.gy + SA.fl; const [ax, az] = saW(-0.35, SA.D / 2 - 0.85); R(ax, az, 1.0); } else if (n.t < 2.2) R(ix, iz, 1.0); else if (R(ox, oz, 1.2) || n.t > 5) { n.st = n.after === 'tub' ? 'saTubGo' : 'home'; n.after = null; n.t = 0; } return true; }
+  if (n.st === 'saTubGo') { const [ex, ez] = tbEdge(0, 1.45); if (R(ex, ez, 2.2) || n.t > 12) { n.st = 'saTub'; n.t = 0; tbSplash(0.8); } return true; }
+  if (n.st === 'saTub') { const T = SA.tub, [sx, sz] = tbSlot(0); n.pos.set(sx, SA.tubM.position.y + 0.2 - 0.702 * n.s, sz); n.yaw += faAng(Math.atan2(T.x - sx, T.z - sz) - n.yaw) * Math.min(1, dt * 4); n.sp = 0;
+    if (n.t > 9) { const [ex, ez] = tbEdge(0, 1.45); n.pos.set(ex, groundAt(ex, ez, SA.tubM.position.y + 1, SA.tubM.position.y), ez); n.gy = n.pos.y; n.st = 'home'; n.t = 0; } return true; }
   return false;
 }
 // now and then he has one on his own (lights it himself), which is how Madman tends to catch him at it
@@ -12526,31 +12650,55 @@ function saSoloEnd() { SA.solo = null; }
 function saActions(items) {
   if (!SA.root) return;
   if (saTalkable() && !seqBusy()) items.push({ id: 'sa:talk', label: 'Talk to Dima', cls: 'warn' });
-  if (!(F.mode === 'walk' || F.mode === 'air') || F.dead > 0) return;
+  const sit = saSitting(); if (!(F.mode === 'walk' || F.mode === 'air' || sit) || F.dead > 0 || activeName !== 'foot') return;
+  if (sit === 'tub') { items.push({ id: 'sa:stand', label: 'Get out of the tub', cls: 'dark' }); return; }
   if (saInside(F.pos)) {
     if (!SA.lit) items.push({ id: 'sa:light', label: SA.q && SA.q.step === 'wood' ? 'Need firewood (' + SA.q.wood + '/3)' : 'Light the stove', cls: 'warn' });
     else items.push({ id: 'sa:water', label: 'Throw water on the rocks', cls: 'warn' });
+    items.push(sit ? { id: 'sa:stand', label: 'Stand up', cls: 'dark' } : { id: 'sa:sit', label: 'Sit on the bench', cls: 'warn' });
   }
-  if (Math.hypot(F.pos.x - SA.tub.x, F.pos.z - SA.tub.z) < 1.7) items.push({ id: 'sa:tub', label: 'Jump in the cold tub', cls: 'warn' });
+  if (!sit && F.mode === 'walk' && Math.hypot(F.pos.x - SA.tub.x, F.pos.z - SA.tub.z) < SA.tub.R + 1.1) items.push({ id: 'sa:tub', label: 'Get in the cold tub', cls: 'warn' });
+}
+// sitting: a pose of its own on the emote machinery (you stay put until you move or stand up)
+const SA_SIT = { id: 'sit', sit: 'bench' }, SA_TUBSIT = { id: 'sit', sit: 'tub' };
+const saSitting = () => F.mode === 'emote' && EM.cur && EM.cur.sit ? EM.cur.sit : null;
+function saSitDown() {
+  if (F.mode !== 'walk' || !saInside(F.pos)) return; if (typeof wpnHolster === 'function' && WPN.cur) wpnHolster();
+  const [sx, sz] = saSeat(1); EM.cur = SA_SIT; EM.t = 0; EM.yaw0 = SA.yaw; F.mode = 'emote'; F.vel.set(0, 0, 0); F.speedH = 0;
+  F.pos.set(sx, SA.gy + SA.fl + 0.93 + 0.02 - 0.78 * FSCALE, sz); F.yaw = SA.yaw; camYawF = SA.yaw; camPitchF = 0.25;
+}
+function saTubIn() {
+  if (F.mode !== 'walk') return; if (typeof wpnHolster === 'function' && WPN.cur) wpnHolster();
+  const T = SA.tub, [sx, sz] = tbSlot(1), yaw = Math.atan2(T.x - sx, T.z - sz); EM.cur = SA_TUBSIT; EM.t = 0; EM.yaw0 = yaw; F.mode = 'emote'; F.vel.set(0, 0, 0); F.speedH = 0;
+  F.pos.set(sx, SA.tubM.position.y + 0.14 - 0.78 * FSCALE, sz); F.yaw = yaw; camYawF = yaw + Math.PI; tbSplash(1); camShake = Math.max(camShake, 0.15); SA.heat = 0;
+}
+// up off the bench / out of the tub: on your feet just clear of it
+function saStandUp() {
+  const sit = saSitting(); EM.cur = null; if (!sit) return; F.mode = 'walk';
+  if (sit === 'tub') { const [ex, ez] = tbEdge(1, 1.55); standFarmerAt({ x: ex, y: groundAt(ex, ez, SA.tubM.position.y + 1.5, SA.tubM.position.y), z: ez }, F.yaw + Math.PI); }
+  else { const [x, z] = saW(0.45, -SA.D / 2 + 1.35); standFarmerAt({ x, y: SA.gy + SA.fl, z }, F.yaw); }
 }
 function saAct(id) {
   const q = SA.q, n = saDima();
   if (id === 'sa:talk') saMenuOpen();
+  else if (id === 'sa:sit') saSitDown();
+  else if (id === 'sa:stand') saStandUp();
   else if (id === 'sa:light') {
     if (q && q.step === 'wood') { toast('No wood. Grab the glowing piles first (' + q.wood + '/3)', 2); return; }
-    SA.lit = true; SA.litT = Math.max(SA.litT, q ? 1e9 : 240); sfx('thud', _w1.set(SA.x + 0.85, SA.gy + 0.4, SA.z + 0.55), 0.6, 0.7, 6); toast('The stove’s going. Give it a minute to heat up', 2);
+    const [fx, fz] = saW(0.85, 0.55); SA.lit = true; SA.litT = Math.max(SA.litT, q ? 1e9 : 240); sfx('thud', _w1.set(fx, SA.gy + 0.4, fz), 0.6, 0.7, 6); toast('The stove’s going. Give it a minute to heat up', 2);
     if (q && q.step === 'light') { q.step = 'heat'; if (n) dmSay(n, 'lit'); }
   } else if (id === 'sa:water') {
-    SA.steam = 1; SA.temp = Math.min(100, SA.temp + 4); if (AU.buf.hiss) sfx('hiss', _w1.set(SA.x + 0.85, SA.gy + 0.8, SA.z + 0.55), 1, 0.75, 8);
+    const [rx, rz] = saW(0.85, 0.55); SA.steam = 1; SA.temp = Math.min(100, SA.temp + 4); if (AU.buf.hiss) sfx('hiss', _w1.set(rx, SA.gy + 0.8, rz), 1, 0.75, 8);
     for (let k = 0; k < 6; k++) saPuff(true);
     if (q && q.step === 'sweat' && q.ask > 0) { q.ask = 0; q.hits++; if (n) dmSay(n, 'good'); }
   } else if (id === 'sa:tub') {
-    faSay(_w1.set(SA.tub.x, SA.tubM.position.y + 0.6, SA.tub.z), 'fa_splash', 1, 0.9, 14); SA.heat = 0; camShake = Math.max(camShake, 0.15);
-    if (q && q.step === 'plunge') saQuestEnd(true); else toast(SA.heat > 30 || (q && q.step === 'sweat') ? 'Brrrr!' : 'Brrrr! Freezing', 1.6);
+    const hot = SA.heat > 30 || (q && q.step === 'plunge'); saTubIn();
+    if (q && q.step === 'plunge') saQuestEnd(true); else toast(hot ? 'Brrrr!' : 'Brrrr! Freezing', 1.6);
   }
 }
 function saPuff(burst) { const p = SA.puffs.find(p => p.life <= 0); if (!p) return; p.life = p.max = burst ? 2.2 + Math.random() : 3 + Math.random() * 2;
-  p.sp.position.set(SA.x + 0.85 + (Math.random() - 0.5) * 0.3, SA.gy + SA.fl + 0.75, SA.z + 0.55 + (Math.random() - 0.5) * 0.3); p.v = new THREE.Vector3((Math.random() - 0.5) * 0.5 - (burst ? 0.4 : 0.1), burst ? 0.9 : 0.35, (Math.random() - 0.5) * 0.5 - (burst ? 0.35 : 0.1)); p.burst = burst; p.sp.visible = true; }
+  const [sx, sz] = saW(0.85 + (Math.random() - 0.5) * 0.3, 0.55 + (Math.random() - 0.5) * 0.3), c = Math.cos(SA.yaw); p.sp.position.set(sx, SA.gy + SA.fl + 0.75, sz);
+  p.v = new THREE.Vector3(c * ((Math.random() - 0.5) * 0.5 - (burst ? 0.4 : 0.1)), burst ? 0.9 : 0.35, c * ((Math.random() - 0.5) * 0.5 - (burst ? 0.35 : 0.1))); p.burst = burst; p.sp.visible = true; }
 function saStep(dt) {
   if (!SA.root) return; dt = Math.min(dt, 0.05);
   if (!DM.ready && NPC.ready && DG.root) dmBuild();
@@ -12567,13 +12715,14 @@ function saStep(dt) {
   for (const p of SA.puffs) { if (p.life <= 0) continue; p.life -= dt; p.sp.position.addScaledVector(p.v, dt); p.v.multiplyScalar(Math.exp(-0.8 * dt));
     const k = p.life / p.max; p.sp.material.opacity = Math.max(0, Math.min(1, (1 - k) * 4) * k * (p.burst ? 0.55 : 0.3)); p.sp.scale.setScalar(0.4 + (1 - k) * (p.burst ? 1.6 : 1.0));
     if (Math.abs(p.sp.position.x - SA.x) > SA.W / 2 - 0.2 || p.sp.position.y > SA.gy + SA.H - 0.1) p.v.multiplyScalar(0.3); if (p.life <= 0) p.sp.visible = false; }
-  if (SA.lit && Math.random() < dt * 3) { const s = SA.smoke.find(s => s.life <= 0); if (s) { s.life = s.max = 4 + Math.random() * 2; s.sp.position.set(SA.x + 0.85, SA.gy + SA.fl + SA.H + 1.0, SA.z + 0.45); s.v = new THREE.Vector3(0.3 + Math.random() * 0.3, 0.8, (Math.random() - 0.5) * 0.3); s.sp.visible = true; } }
+  if (SA.lit && Math.random() < dt * 3) { const s = SA.smoke.find(s => s.life <= 0); if (s) { s.life = s.max = 4 + Math.random() * 2; const [cx, cz] = saW(0.85, 0.45); s.sp.position.set(cx, SA.gy + SA.fl + SA.H + 1.0, cz); s.v = new THREE.Vector3(0.3 + Math.random() * 0.3, 0.8, (Math.random() - 0.5) * 0.3); s.sp.visible = true; } }
   for (const s of SA.smoke) { if (s.life <= 0) continue; s.life -= dt; s.sp.position.addScaledVector(s.v, dt); const k = s.life / s.max; s.sp.material.opacity = Math.max(0, Math.min(1, (1 - k) * 3) * k * 0.35); s.sp.scale.setScalar(0.5 + (1 - k) * 2.2); if (s.life <= 0) s.sp.visible = false; }
   // you, in the heat
   if (me) SA.heat = Math.min(100, SA.heat + dt * Math.max(0, feel - 60) / 26);      // (a minute at full heat is fine; keep piling on steam and you'll go) else SA.heat = Math.max(0, SA.heat - dt * 1.6);
-  if (me && SA.heat >= 100 && F.mode === 'walk') {               // passed out: you come to outside the door
+  if (me && SA.heat >= 100 && (F.mode === 'walk' || saSitting() === 'bench')) {               // passed out: you come to outside the door
+    if (saSitting()) { EM.cur = null; F.mode = 'walk'; }
     const [ox, oz] = saDoorOut(); standFarmerAt({ x: ox, y: groundAt(ox, oz, SA.gy + 2, SA.gy), z: oz + 0.4 }, 0, true); startTumble(new THREE.Vector3(0, 1.5, 1.2)); SA.heat = 55; if (SA.q) saQuestEnd(false, 'faint'); else toast('You passed out in the sauna. Easy, champ', 2.4); }
-  saQuestStep(dt); saSoloTick(dt);
+  saQuestStep(dt); saSoloTick(dt); tbStep(dt);
   // HUD
   if (!SA.chip && (me || SA.q)) saUI();
   if (SA.chip) { const show = me || !!SA.q; SA.chip.classList.toggle('show', show);
@@ -12585,6 +12734,7 @@ function saStep(dt) {
 }
 function saReset() {
   if (SA.q) { for (const p of SA.q.piles) scene.remove(p.g); SA.q = null; }
+  if (saSitting()) { EM.cur = null; F.mode = 'walk'; } tbReset();
   SA.solo = null; SA.lit = false; SA.litT = 0; SA.temp = 24; SA.steam = 0; SA.heat = 0; if (SA.sheet) SA.sheet.classList.remove('show');
   const n = saDima(); if (n && n.st && n.st.startsWith('sa')) { n.st = 'home'; n.t = 0; }
 }
@@ -12730,6 +12880,7 @@ const MM_L = {
   sip: [],
   aimed: ["Get that bloody gun off me!", "Point that somewhere else, ya drongo!"],
   donga: ["Oi! Get outta me donga!", "Who said you could come in here?!"],
+  dogTub: ["Leave ’em be, Dima! They’ve earned a swim, mate!", "Ha! Good boys! Get in there!"],
   sauna: ["Sittin’ in a hot box on purpose? You’re mad, the lot of ya!", "Strewth! It’s forty degrees out and you’s are cookin’ yaselves in a shed!", "Oi! Come out of there before ya cook, ya bloody lunatics!"],
   frog: ["Oi, Pepé. That’s my esky, not yours.", "Backpackers. Eat all me bread and call it a baguette.", "Speak English, ya croissant.", "Righto, Frenchie. Go pick some fruit or somethin’.", "Ooh la la. Wash ya socks, mate."],
   defend: ["Oi! Leave him alone, ya frog!", "Pick on someone ya own size, Frenchie!", "Back off, ya baguette! He’s with me!"],
@@ -12902,6 +13053,7 @@ function mmThink(n, dt) {
     if (d < 0.8 || (n.t > 30 && (d < 6 || faCamD(n.pos) > 60)) || n.t > 90) { mmEnterUte(n); return; }
     mmRun(n, door.x, door.z, d > 12 ? 4.2 : d > 4 ? 2.4 : 1.6, dt); return;
   }
+  if (n.st === 'mmPeek') { mmPeek(n, dt); return; }
   // his donga
   if (DG_ST.includes(n.st) && dgThink(n, dt, dP)) return;
   // back to his spot at the tailgate
@@ -12971,14 +13123,42 @@ function mmDefend(n, dt) {
 function mmSaunaWatch(n, dt) {
   if (typeof SA === 'undefined' || !SA.root) return; SA.mmT -= dt;
   if (SA.mmT > 0 || MM.hostileT > 0 || MH.mode || n.veh || !['lean', 'home', 'dgVer'].includes(n.st) || MM.sayT > 0) return;
+  if ((DM.n && DM.n.sayT > -1.5) || (SA.sheet && SA.sheet.classList.contains('show'))) return;          // not over the top of Dima
   if (Math.hypot(n.pos.x - SA.x, n.pos.z - SA.z) > 32 || !saOccupants().length) return;
   const me = activeName === 'foot' ? F.pos : S.pos; if (Math.hypot(me.x - n.pos.x, me.z - n.pos.z) > 34) return;
-  SA.mmT = 50 + Math.random() * 30; mmSay('sauna', 3.4, true);
+  SA.mmT = 50 + Math.random() * 30; n.st = 'mmPeek'; n.t = 0; MM.peek = { ph: 'go', t: 0 };      // over he goes for a look through the window
+}
+// at the sauna's front window: hands cupped to the glass, a good long look, then he tells them what he thinks
+function mmPeek(n, dt) {
+  const P = MM.peek || (MM.peek = { ph: 'go', t: 0 }); P.t += dt;
+  const [px, pz] = saW(0.7, SA.D / 2 + 0.45), [wx, wz] = saW(0.7, SA.D / 2), d = Math.hypot(px - n.pos.x, pz - n.pos.z);
+  const done = (gap) => { P.ph = 'back'; P.t = 0; SA.mmT = Math.max(SA.mmT, gap); };
+  if (P.ph === 'back') {                                       // home the way he came: down the sauna's east side, along the south of the block, to the car park
+    const B = DG_BLOCK, sx1 = SA.x + SA.W / 2, ex = sx1 + 1.25;
+    const via = n.pos.x > B.x1 - 0.5 && n.pos.z < B.z1 + 1.0 ? (n.pos.x < ex - 0.3 ? [ex, Math.min(n.pos.z, SA.z - SA.D / 2 - 0.9)] : [ex, B.z1 + 1.8]) : n.pos.z > B.z1 + 0.4 && n.pos.x > B.x0 - 0.5 ? [B.x0 - 1.2, B.z1 + 1.8] : null;
+    if (!via || P.t > 60) { n.st = 'home'; n.t = 0; MM.peek = null; return; }
+    if (!P.off) { if (dgMove(n, ex, SA.z - SA.D / 2 - 0.9, 1.4, dt) || P.t > 6) P.off = true; return; }        // first a step back off the glass and along to the corner
+    npcWalk(n, faSteer(n, Math.atan2(via[0] - n.pos.x, via[1] - n.pos.z), 2), 1.5, dt); return;
+  }
+  if (P.ph === 'go') {
+    if (P.t > 70) { done(40); return; }
+    if (d < 0.2) { P.ph = 'look'; P.t = 0; return; }
+    if (d < 3) { dgMove(n, px, pz, 1.3, dt); return; }
+    const [vx, vz] = saVia(n.pos.x, n.pos.z); npcWalk(n, faSteer(n, Math.atan2(vx - n.pos.x, vz - n.pos.z), 2), 1.7, dt); return;
+  }
+  n.sp *= 0.7; n.pos.x += (px - n.pos.x) * Math.min(1, dt * 4); n.pos.z += (pz - n.pos.z) * Math.min(1, dt * 4); n.yaw += faAng(Math.atan2(wx - px, wz - pz) - n.yaw) * Math.min(1, dt * 5);
+  if (!P.said) {
+    if (!saOccupants().length && P.t > 1.5) { done(60 + Math.random() * 30); return; }               // nobody in after all
+    if (P.t > 1.2 && (!DM.n || DM.n.sayT < 0 || P.t > 7)) { P.said = P.t; mmSay('sauna', 3.6, true); }   // (lets Dima finish first)
+    return;
+  }
+  if (P.t - P.said > 4) done(60 + Math.random() * 40);
 }
 function mmBanter(n, dt) {
   MM.frogT = (MM.frogT === undefined ? 20 : MM.frogT) - dt;
   if (MM.frogBack && MM.t > MM.frogBack.t) { const b = MM.frogBack.b; MM.frogBack = null; if (npcAlive(b) && !b.veh && !b.angry) { npcFace(b, n.pos.x, n.pos.z, 99, 1); npcSay(b, npcPick(NPC_L.sass), 2.6); } }
   if (MM.frogT > 0 || MM.hostileT > 0 || MH.mode || n.veh || !['lean', 'home', 'dgVer'].includes(n.st) || MM.sayT > 0) return;
+  if (typeof voxNearDima === 'function' && voxNearDima()) return;                                   // you're with Dima: save it
   if (MM.sheet && MM.sheet.classList.contains('show')) return;
   const me = activeName === 'foot' ? F.pos : S.pos; if (Math.hypot(me.x - n.pos.x, me.z - n.pos.z) > 30) return;       // nobody to hear it
   const b = mmBackpackers().find(b => !b.angry && (b.st === 'wander' || b.st === 'toVeh') && Math.hypot(b.pos.x - n.pos.x, b.pos.z - n.pos.z) < 9);
@@ -13180,6 +13360,9 @@ function mmParkHome() {
 function mmPoseHook(n, Q, dt) {
   const look = (tx, tz, lim) => { const a = faAng(Math.atan2(tx - n.pos.x, tz - n.pos.z) - n.yaw); return THREE.MathUtils.clamp(a, -lim, lim); };
   const dP = Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z);
+  if (n.st === 'mmPeek' && MM.peek && MM.peek.ph === 'look') {                    // nose to the glass, hands cupped round his eyes
+    Q.torsoX = 0.28; Q.headX = 0.12; Q.headY = 0; Q.shLx = Q.shRx = -2.05; Q.shLz = 0.12; Q.shRz = -0.12; Q.elL = Q.elR = -2.2; Q.hipL = Q.hipR = -0.12; Q.kneeL = Q.kneeR = 0.1; n.tilt = 0; return;
+  }
   if (n.st === 'lean') {
     Q.torsoX = -0.16; Q.bodyY = 0.74; Q.hipL = -0.22; Q.hipR = -0.08; Q.kneeL = 0.12; Q.kneeR = 0.05;
     Q.shLx = 0.55; Q.shLz = 0.42; Q.elL = -0.5;                                  // left arm back on the tailgate
@@ -13804,13 +13987,14 @@ function mhDogStep(d, dt) {
   if (d.mode === 'jump') {
     const J = d.jump; J.t += dt; const u = Math.min(1, J.t / J.dur), to = J.into ? mmTrayW(d) : J.to;
     M.root.position.lerpVectors(J.from, to, u); M.root.position.y += Math.sin(u * Math.PI) * 0.9; d.st = 'stand';
-    if (u >= 1) { if (J.into) { mmDogTray(d); d.task = null; d.solo = false; return; } d.mode = 'ground'; d.pos.copy(J.to); }
+    if (u >= 1) { if (J.into) { mmDogTray(d); d.task = null; d.solo = false; return; } d.mode = 'ground'; d.pos.copy(J.to); if (J.tub) { tbSplash(0.7); d.gy = J.to.y; } }
     mmDogPose(d, dt); return;
   }
   // on the ground
   const st = VEH.ute.state, uteP = st.pos; let goal = null, sp = 0, tgtPig = null;
   if (d.hold && (!FA.pigs.includes(d.hold.pig) || d.hold.pig.st === 'down' || d.hold.pig.st === 'tumble' || d.task !== 'chase')) mhDogRelease(d);
   if (d.solo && (d.soloT = (d.soloT || 0) + dt) > 40 && !d.hold) d.task = 'return';
+  if (d.task === 'tub' && tbDogStep(d, dt)) return;
   if (d.task === 'return' || (!MH.mode && !d.solo)) {
     const tray = mmTrayW(d), dd = Math.hypot(tray.x - d.pos.x, tray.z - d.pos.z);
     if (VEH.ute.wrecked) { d.st = 'sit'; mmDogPose(d, dt); return; }
@@ -14016,7 +14200,7 @@ function mhFinish() {
     const got = k ? mhReward(30 * k) : ''; toast('Madman’s back: ' + k + ' pig' + (k === 1 ? '' : 's') + (got ? ' · ' + got : ''), 3);
     MH.cdS = 180;
   }
-  STORE.set('wfy.hunt', S_); mhEnd();
+  STORE.set('wfy.hunt', S_); mhEnd(); CT.dogT = 5;
 }
 function mhReward(n) {
   // ammo for the guns you've got (his spare rifle if you've got none)
@@ -14104,7 +14288,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { DM, DIMA_L, dmSay, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { DM, DIMA_L, dmSay, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
