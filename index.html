@@ -3369,7 +3369,7 @@ function farmerStep(dt, controlled) {
 let camYawF = 0, camPitchF = 0.3, lookIdleT = 9, seqDist = 4.8;
 function footCam(dt) {
   const fresh = !camInit; lookIdleT += dt;
-  camYawF -= input.kLR * 1.9 * dt; camPitchF = THREE.MathUtils.clamp(camPitchF - input.kUD * 1.2 * dt, WPN.cur ? -0.75 : -0.12, 1.15);
+  camYawF -= input.kLR * 1.9 * dt; camPitchF = THREE.MathUtils.clamp(camPitchF - input.kUD * 1.2 * dt, camPitchLo(), 1.15);
   if (input.kLR || input.kUD) lookIdleT = 0;
   if (lookIdleT > 1.5 && F.speedH > 0.6 && F.mode === 'walk') {
     let d = F.yaw - camYawF; d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -3402,7 +3402,7 @@ function footCam(dt) {
   // under the dongas' roofs (the rooms and the breezeway): through his eyes, so you can see the place instead of the back of a wall
   const fpWant = !inSeq && (F.mode !== 'emote' || (EM.cur && EM.cur.sit)) && F.mode !== 'tumble' && typeof dgUnder === 'function' && dgUnder(F.pos) ? 1 : 0;
   F.fpK = fresh ? fpWant : (F.fpK || 0) + (fpWant - (F.fpK || 0)) * (1 - Math.exp(-8 * dt)); F.fp = F.fpK > 0.5;
-  if (F.fpK > 0.01) { const p = camPitchF - 0.3, cy = Math.cos(p), eye = _v2.set(F.pos.x, F.pos.y + (F.mode === 'emote' && EM.cur && EM.cur.sit ? 1.36 : 1.58), F.pos.z); camera.position.lerp(eye, F.fpK);
+  if (F.fpK > 0.01) { const p = camPitchF - 0.3, cy = Math.cos(p), eye = _v2.set(F.pos.x, F.pos.y + (F.mode === 'emote' && EM.cur && EM.cur.sit ? (EM.cur.sit === 'bench' ? 1.56 : 1.36) : 1.58), F.pos.z); camera.position.lerp(eye, F.fpK);
     _v3.set(eye.x + Math.sin(camYawF) * cy * 4, eye.y - Math.sin(p) * 4, eye.z + Math.cos(camYawF) * cy * 4).lerp(lookAt, 1 - F.fpK);
     if (camShake > 0) camera.position.addScaledVector(_v1.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), 0.3 * camShake);
     camera.lookAt(_v3); return; }
@@ -4893,7 +4893,7 @@ const ACT = { more: false, for: '' };
 function updateActions() {
   let items = [];
   if (activeName === 'foot') {
-    ladderActions(items); npcActions(items); mmActions(items); mhActions(items); saActions(items);
+    ladderActions(items); npcActions(items); mmActions(items); mhActions(items); saActions(items); bbActions(items);
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
@@ -4966,6 +4966,7 @@ function doAction(id) {
   else if (id.startsWith('mm:')) mmAct(id);
   else if (id.startsWith('mh:')) mhAct(id);
   else if (id.startsWith('sa:')) saAct(id);
+  else if (id.startsWith('bb:')) bbAct(id);
   else if (id === 'radio') radioCycle();
   else if (id === 'locker') wpnOpenLocker();
   else if (id === 'mxgo') mxGo(true);
@@ -5020,7 +5021,7 @@ lookZ.addEventListener('pointerdown', e => { if (lookId !== null) return; lookId
 lookZ.addEventListener('pointermove', e => {
   if (e.pointerId !== lookId) return;
   if (MH.pax) { const q = MH.aimQ || (MH.aimQ = [0, 0]), s2 = WPN.scope ? 0.0019 : 0.0058; q[0] += (e.clientX - lkx) * s2; q[1] += (e.clientY - lky) * s2 * 0.7; lkx = e.clientX; lky = e.clientY; lookIdleT = 0; return; }
-  const ls = WPN.cur ? (WPN.scope ? 0.0022 : 0.0062) : 0.0075; camYawF -= (e.clientX - lkx) * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + (e.clientY - lky) * ls * 0.68, WPN.cur ? -0.75 : -0.12, 1.15);
+  const ls = WPN.cur ? (WPN.scope ? 0.0022 : 0.0062) : 0.0075; camYawF -= (e.clientX - lkx) * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + (e.clientY - lky) * ls * 0.68, camPitchLo(), 1.15);
   lkx = e.clientX; lky = e.clientY; lookIdleT = 0;
 });
 const endLook = e => { if (e.pointerId === lookId) lookId = null; };
@@ -5238,7 +5239,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
+  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); bbStep(dt); snVisual(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) drawMinimap();
@@ -9322,7 +9323,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); saReset(); dmReset(); phReset();
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); saReset(); dmReset(); phReset(); bbReset(); snReset();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -9594,8 +9595,10 @@ function wpnHurt(dmg, vel, how) {
   if (F.hp <= 0) { F.dead = 4.5; WPN.fire = false; if (activeName === 'foot' && F.mode !== 'tumble' && !MH.pax) startTumble(vel ? _w3.copy(vel).setY(Math.max(3, vel.y || 0)) : new THREE.Vector3(0, 3, 0)); $('wasted').classList.add('show'); sfx('thud', F.pos, 0.9, 0.6);
     wpnSplat(F.pos.x, F.pos.y, F.pos.z, 1.1); }
 }
+// a pig's health: two pistol rounds drop a sow, three a boar (a piglet less, a big one a touch more)
+const pigHp = a => Math.round((a.boar ? 42 : 28) * Math.min(1.15, Math.max(0.5, a.s || 1)));
 function wpnPigShot(a, dir, dmg, point) {
-  a.hp = (a.hp == null ? (a.boar ? 70 : 45) : a.hp) - dmg;
+  a.hp = (a.hp == null ? pigHp(a) : a.hp) - dmg;
   wpnBloodSpray(point, dir, Math.min(26, 4 + dmg * 0.5));
   const hpNow = a.hp; if (!(a.sqT > FA.t)) { a.sqT = FA.t + 0.55; faSay(a.pos, hpNow <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.25, (0.92 + Math.random() * 0.16) / (a.s || 1), 25); }
   if (a.st !== 'down' && a.st !== 'tumble' && a.hp <= 0) {
@@ -9625,6 +9628,7 @@ function wpnTrace(o, d, far) {
     const t = rayOBB(o, d, b, best.t); if (t !== null && t < best.t && t > 0.3) best = { t, kind: 'veh', v }; }
   for (const a of FA.pigs) { const s = a.s || 1, c = _w2.set(a.pos.x, a.pos.y + (a.st === 'down' ? 0.25 : 0.45) * s, a.pos.z);
     const t = raySphere(o, d, c, 0.42 * s, best.t); if (t !== null && t < best.t) best = { t, kind: 'pig', a }; }
+  if (BB.bottle && BB.bottle.visible && BB.st === 'ok') { const c = bbBottleP(_w2), t = raySphere(o, d, c, 0.24, far); if (t !== null && (t < best.t || (best.kind === 'struct' && best.part === BB.bbqPart && t < best.t + 0.8))) best = { t, kind: 'gas' }; }
   npcTrace(o, d, best);
   if (MP.on) for (const p of MP.peers.values()) { if (p.veh) continue; const R = p.av.root.position;
     for (const [hy, r] of [[0.35, 0.3], [0.8, 0.32], [1.2, 0.3], [1.6, 0.2]]) { const t = raySphere(o, d, _w2.set(R.x, R.y + hy, R.z), r, best.t); if (t !== null && t < best.t) best = { t, kind: 'mate', p, head: hy > 1.5 }; } }
@@ -9662,6 +9666,7 @@ function wpnApplyHit(hit, d, dmg, W) {
     return;
   }
   if (hit.kind === 'pig') { wpnPigShot(hit.a, d, dmg, P); return; }
+  if (hit.kind === 'gas') { for (let k = 0; k < 5; k++) wpnPart(WPN.spark, P, 0.25, _w2.copy(d).multiplyScalar(-2).add(_w3.set((Math.random() - 0.5) * 2, Math.random() * 2, (Math.random() - 0.5) * 2))); bbHit(); return; }
   if (hit.kind === 'npc') { npcShot(hit.n, d, dmg, P, hit.head); return; }
   if (hit.kind === 'mate') { const p = hit.p, dm = Math.round(dmg * (hit.head ? 2.6 : 1)); wpnBloodSpray(P, d, Math.min(30, 6 + dm * 0.5)); WPN.hitT = 0.25; WPN.hitKind = hit.head ? 'head' : 'body';
     mpSend({ k: 'dmg', f: MP.me, to: p.id, dmg: dm, v: [d.x * (3 + dm * 0.05), 1 + dm * 0.03, d.z * (3 + dm * 0.05)] }); return; }
@@ -9769,6 +9774,7 @@ function wpnBurnArea(p, r, dt, ground) {
   if (tank && !STRUCTS.blown && tank.rb.pos.distanceTo(p) < r + 2.2) { WPN.tankBurn = (WPN.tankBurn || 0) + dt; if (WPN.tankBurn > 3.5) explodeTank(tank, _w2.set(0, 1, 0), tank.rb.pos.clone()); else if (!WPN.told.tankfire) { WPN.told.tankfire = 1; toast('The tank’s cooking… run!', 1.6); } }
   for (const a of FA.pigs) if (a.pos.distanceTo(p) < r + 0.4) wpnPigShot(a, _w2.set(a.pos.x - p.x, 0.3, a.pos.z - p.z).normalize(), 16 * dt * 4, _w3.copy(a.pos).setY(a.pos.y + 0.4));
   if (activeName === 'foot' && Math.hypot(F.pos.x - p.x, F.pos.z - p.z) < r + 0.2 && Math.abs(F.pos.y - p.y) < 2.5) wpnHurt(30 * dt, null, 'fire');
+  if (mpwHost() && BB.st === 'ok' && BB.bottle && bbBottleP(new THREE.Vector3()).distanceTo(p) < r + 0.9) { BB.heat += dt; if (BB.heat > 1.6) bbIgnite(); }      // cooked: the gas bottle goes
 }
 function wpnFlameStep(dt, on) {
   if (!on) return;
@@ -9817,6 +9823,7 @@ function wpnBoom(P, R, pw, local, quiet) {
     wpnPigShot(a, dir, 120 * k, _w3.copy(a.pos).setY(a.pos.y + 0.4)); if (a.st === 'tumble') { a.vel.set(dir.x * 10 * k, 5 + 6 * k, dir.z * 10 * k); a.spin.multiplyScalar(2); } wpnBloodSpray(_w3.copy(a.pos).setY(a.pos.y + 0.4), _w2.set(0, 1, 0), 30); }
   npcBlast(P, R);
   if (activeName === 'foot') { const dd = F.pos.distanceTo(P), k = 1 - dd / (R * 1.4); if (k > 0) { const dir = _w4.copy(F.pos).sub(P).setY(0).normalize(); const vel = new THREE.Vector3(dir.x * 11 * k, 5 + 6 * k, dir.z * 11 * k); if (F.mode === 'walk' || F.mode === 'air' || F.mode === 'emote') startTumble(vel); wpnHurt(140 * k * pw, vel, 'blast'); } }
+  if (mpwHost() && BB.st === 'ok' && BB.bottle && bbBottleP(new THREE.Vector3()).distanceTo(P) < R * 0.8) bbIgnite();
   for (const P2 of WPN.proj.slice()) if (P2.id !== 'rpg' && P2.pos.distanceTo(P) < R * 0.6 && (P2.id === 'grenade' || P2.id === 'sticky')) { setTimeout(() => { if (WPN.proj.includes(P2)) { wpnBoom(P2.pos.clone(), WEAPONS[P2.id].R, WEAPONS[P2.id].pw); wpnRemove(P2); } }, 120); }
 }
 function wpnBoomStep(dt) {
@@ -10174,7 +10181,7 @@ function melHitWal(w) {
 }
 function melHitPig(a, kind, M) {
   const dx = a.pos.x - F.pos.x, dz = a.pos.z - F.pos.z, d = Math.hypot(dx, dz) || 1, nx = dx / d, nz = dz / d;
-  a.hp = (a.hp == null ? (a.boar ? 70 : 45) : a.hp) - M.dmg;
+  a.hp = (a.hp == null ? pigHp(a) : a.hp) - M.dmg;
   const P = new THREE.Vector3(a.pos.x - nx * 0.25 * a.s, a.pos.y + 0.55 * a.s, a.pos.z - nz * 0.25 * a.s);
   sfx('m_punch', P, M.big ? 1 : 0.75, 0.85 + Math.random() * 0.25, 9); camShake = Math.max(camShake, M.big ? 0.35 : 0.16);
   if (typeof wpnBloodSpray === 'function') wpnBloodSpray(P, new THREE.Vector3(nx, 0.4, nz), M.big ? 7 : 3);
@@ -10845,6 +10852,7 @@ const DIMA_L = {
   hurt: ["Ha! Is tickle.", "You hit like pillow.", "Was that punch? Or hug?", "Mosquito bites harder.", "Ooh. Almost I feel it.", "Is all you have?", "My neck is thicker than your arm.", "Ow. No, wait. Is nothing."],
   angry: ["Now you make Dima angry!", "Come here. I fold you like blanket.", "You want fight? You get fight.", "Stand still, little man!", "I bench press bigger than you.", "Run, run. Dima is coming.",
     "Now is personal.", "I make you into protein shake.", "Come! I show you Siberian hug.", "You hit Dima? Bad idea, my friend."],
+  fire: ["Ha! Free sauna for French boys!", "Is good fire. Bad place for fire."],
   ko: ["Ugh... lucky punch...", "Okay... okay... you win this time.", "Ooh... I see two of you...", "Is fine... I just rest little bit...", "Next time... I warm up first..."],
   win2: ["Stay down, little man.", "Go eat protein. Then come back.", "Ha! Like sack of potatoes.", "This is why you do squats.", "Next time, bring friends. Many friends.", "Rest. Drink water. Think about life."],
 };
@@ -10865,7 +10873,18 @@ const NPC_L = {
   angry: [['Tu vas voir, toi !', 'You’ll see!'], ['Viens ici, bonhomme !', 'Come here, mate!'], ['Je vais te casser la figure !', 'I’ll smash your face in!'], ['Pauvre type !', 'Loser!'], ['Allez, viens ! Viens !', 'Come on then! Come on!'], ['Tu vas le regretter !', 'You’ll regret this!']],
   hurt: [['Aïe ! Mon nez !', 'Ow! My nose!'], ['Oh là là !', 'Oh my!'], ['Ça fait mal !', 'That hurts!'], ['Mais arrête !', 'Stop it!']],
   ko: [['Ça va, ça va ! J’arrête !', 'OK, OK! I’m done!'], ['Pardon… pardon…', 'Sorry… sorry…'], ['Vous êtes tous fous…', 'You’re all mad…']],
-  win: [['Ha ! Je t’avais prévenu !', 'Ha! I warned you!'], ['Et voilà !', 'There you go!']]
+  win: [['Ha ! Je t’avais prévenu !', 'Ha! I warned you!'], ['Et voilà !', 'There you go!']],
+  // the bunks burn down, and going back up
+  fire: [['Au feu ! Au feu !', 'Fire! Fire!'], ['Notre donga ! Elle brûle !', 'Our donga! It’s burning!'], ['Mes affaires ! Tout est dedans !', 'My stuff! It’s all in there!']],
+  build: [['Bon… on reconstruit.', 'Right… we rebuild.'], ['Allez, au boulot.', 'Come on, back to work.'], ['Encore une planche…', 'One more sheet…']],
+  help: [['Tu nous aides ? Prends une planche derrière.', 'Give us a hand? Grab a sheet round the back.'], ['Super ! Les planches sont derrière.', 'Great! The sheets are round the back.']],
+  nailGood: [['Parfait !', 'Perfect!'], ['Bien joué !', 'Nice one!'], ['Comme un pro !', 'Like a pro!']],
+  nailBad: [['Tape sur le clou, pas à côté !', 'Hit the nail, not next to it!'], ['Aïe ! Attention à tes doigts !', 'Ouch! Mind your fingers!'], ['Doucement, c’est tordu.', 'Easy, that one’s bent.']],
+  wait: [['Je t’attends, hein !', 'I’m waiting on you, eh!'], ['À toi ! Une planche de plus !', 'Your turn! One more sheet!'], ['Je ne peux pas tout faire tout seul !', 'I can’t do it all on my own!']],
+  built: [['C’est comme neuf ! Merci, mon pote !', 'Good as new! Thanks, mate!'], ['Ouf ! On a de nouveau un toit !', 'Phew! We’ve got a roof again!']],
+  // Alexandre, up on the hill with his rifle
+  hunt: [['Je chasse juste le cochon !', 'I’m just hunting pigs!'], ['Quoi ? Je chasse le sanglier, moi.', 'What? I’m hunting boar.'], ['Chut ! Tu fais fuir les cochons.', 'Shh! You’re scaring off the pigs.']],
+  oops: [['Oups ! Je croyais que c’était un cochon !', 'Oops! I thought you were a pig!'], ['Ah, c’était toi ? Désolé, je chasse juste le cochon !', 'Oh, that was you? Sorry, I’m just hunting pigs!']]
 };
 const npcPick = a => pickFresh(a);
 const NPC_LOOKS = [
@@ -10873,6 +10892,8 @@ const NPC_LOOKS = [
   { name: 'Alexandre', shirt: 'tee', sc: 6, hat: 'capback', hatc: 2, hair: 'mullet', hc: 0, legs: 'stubbies', lc: 4, shoes: 'thongs', shc: 3, gl: 'sunnies', fh: 1, skin: 2, h: 0.7, w: 0.2, m: 0.35 },
   { name: 'Chloé', shirt: 'breton', sc: 1, hat: 'none', hair: 'long', hc: 3, legs: 'shorts', lc: 3, shoes: 'boots', shc: 0, gl: 'none', fh: 0, skin: 1, h: 0.3, w: 0.25, m: 0 }
 ];
+// how far up you can look: further through his own eyes (a seat in the sauna, the dongas) than over his shoulder
+function camPitchLo() { return WPN.cur ? -0.75 : F.fp ? -0.55 : -0.12; }
 function npcBubble(n) {
   const c = document.createElement('canvas'); c.width = 640; c.height = 170;
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
@@ -10966,17 +10987,20 @@ function npcBuild() {
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.5, 0.22), bm); body.position.set(0, 0.32, -0.27); pack.add(body);
     const top = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.4, 10), new THREE.MeshLambertMaterial({ color: 0xd9c37a })); top.rotation.z = Math.PI / 2; top.position.set(0, 0.62, -0.27); pack.add(top);
     const pocket = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.08), bm); pocket.position.set(0, 0.2, -0.4); pack.add(pocket);
-    const n = { npc: true, name: L.name, P, root: P.root, pack, look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'wander', t: 0, hp: 60, max: 60, tilt: 0, gy: 0, gT: 0, ph: Math.random() * 6, side: 1, stuck: 0, tgt: null,
+    const n = { npc: true, name: L.name, sniper: L.name === 'Alexandre', P, root: P.root, pack, look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'wander', t: 0, hp: 60, max: 60, tilt: 0, gy: 0, gT: 0, ph: Math.random() * 6, side: 1, stuck: 0, tgt: null,
       veh: null, vehT: 6 + i * 7 + Math.random() * 6, driveT: 0, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null };
     npcBubble(n); NPC.list.push(n); npcPlace(n, i);
   });
   NPC.shedWait = 0;
 }
+// the ground someone would stand on here: from high up the first thing hit can be a roof (the breezeway's), so look under it
+function standY(x, z) { let g = groundAt(x, z, 30, 0); for (let k = 0; k < 3; k++) { const b = groundAt(x, z, g - 0.25, -1e9); if (b < -1e8 || g - b < 1.6) break; g = b; } return g; }
 function npcPlace(n, i) {
   const p = faPick(NPC.home[0], NPC.home[1], 12, 0.8, 2) || [NPC.home[0], NPC.home[1]];
   if (n.root.parent !== scene) scene.attach(n.root);
-  n.pos.set(p[0], 0, p[1]); n.gy = n.pos.y = groundAt(p[0], p[1], 30, 0); n.yaw = Math.random() * 6.28; n.st = 'wander'; n.t = 0; n.hp = n.max; n.tilt = 0; n.sp = 0; n.tgt = null; n.veh = null; n.pack.visible = true;
+  n.pos.set(p[0], 0, p[1]); n.gy = n.pos.y = standY(p[0], p[1]); n.yaw = Math.random() * 6.28; n.st = 'wander'; n.t = 0; n.hp = n.max; n.tilt = 0; n.sp = 0; n.tgt = null; n.veh = null; n.pack.visible = true;
   n.vehT = 8 + (i || 0) * 6 + Math.random() * 8; n.root.scale.setScalar(n.s);
+  if (n.sniper) snPlace(n);                 // (Alexandre's up on the hill with his rifle)
 }
 const npcAlive = n => n.st !== 'ko' && n.st !== 'down' && n.st !== 'tumble' && n.st !== 'getup';
 function npcFace(n, tx, tz, k, dt) { let d = Math.atan2(tx - n.pos.x, tz - n.pos.z) - n.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); n.yaw += d * Math.min(1, k * dt); }
@@ -11018,7 +11042,7 @@ const npcUnseen = (x, z) => plMinD(x, z) > 45 && Math.hypot(camera.position.x - 
 // the nearest spot to the goal, on the line back to where they are, that nobody can see
 function npcHopSpot(x0, z0, tx, tz) { const L = Math.hypot(x0 - tx, z0 - tz);
   for (let d = 8; d < L - 4; d += 3) { const x = tx + (x0 - tx) * d / L, z = tz + (z0 - tz) * d / L; if (npcUnseen(x, z) && faFree(x, z, 0.6)) return [x, z]; } return null; }
-function npcHop(n, x, z) { n.pos.set(x, 0, z); n.gy = n.pos.y = groundAt(x, z, 30, 0); n.sp = 0; n.stuck = 0; n.route = null; }
+function npcHop(n, x, z) { n.pos.set(x, 0, z); n.gy = n.pos.y = standY(x, z); n.sp = 0; n.stuck = 0; n.route = null; }
 // walk to a spot by a route; 'go' while walking, 'done' on arrival, 'fail' when there's no way (or it keeps getting stuck)
 function npcGoTo(n, tx, tz, sp, dt, tol = 1.5) {
   const d = Math.hypot(tx - n.pos.x, tz - n.pos.z); if (d < 0.9) { n.route = null; return 'done'; }
@@ -11201,6 +11225,10 @@ function npcThink(n, dt) {
     else if (n.atkPh === 'hit') { if (n.t > 0.25) { n.atkPh = ''; n.atk = 0.5 + Math.random() * 0.5; } }
     return;
   }
+  // Alexandre on the hill; whoever's rebuilding the bunks
+  if (n.sniper && (n.st === 'wander' || n.st === 'toVeh' || n.st.startsWith('sn'))) { snThink(n, dt); return; }
+  if (bbBuilder(n) && (n.st === 'wander' || n.st === 'toVeh' || n.st.startsWith('bb'))) { n.veh = null; bbBuildThink(n, dt); return; }
+  if (n.st.startsWith('bb')) { n.st = 'wander'; n.bbPh = null; }
   // wander about the shed; sometimes pinch a machine
   n.vehT -= dt;
   if (n.st === 'wander') {
@@ -11230,6 +11258,17 @@ function npcThink(n, dt) {
     if (npcGoTo(n, ax, az, 2.6, dt) === 'fail') { n.veh = null; n.st = 'wander'; n.route = null; }
   }
 }
+// where a speech bubble goes: over their head, and smaller and lower the closer you are (a full-size one fills the screen from a
+// metre away); in the sauna, tucked under the ceiling just in front of them, so you see it sitting beside them on the bench
+function bubPlace(n, B, R) {
+  R.getWorldPosition(_w2); const s = Math.max(1, n.s / 0.9), c = camera.position;
+  const d = Math.hypot(c.x - _w2.x, c.y - _w2.y - 1.6, c.z - _w2.z), k = THREE.MathUtils.clamp(d / 5.5, 0.35, 1);
+  let x = _w2.x, y = _w2.y + ((n.st === 'drive' ? 2.4 : 2.45) - 0.6 * (1 - k)) * s, z = _w2.z, sc = k;
+  if (typeof saInside === 'function' && saInside(n.pos) && n.P && n.P.head) {
+    n.P.head.getWorldPosition(_w3); sc = THREE.MathUtils.clamp(d / 5.5, 0.2, 0.5);
+    x = _w3.x + Math.sin(n.yaw) * 0.55; z = _w3.z + Math.cos(n.yaw) * 0.55; y = Math.min(_w3.y + 0.32, SA.gy + SA.fl + SA.H - 0.06 - 0.48 * sc); }
+  B.sp.position.set(x, y, z); B.sp.scale.set(3.6 * sc, 0.95 * sc, 1);
+}
 // pose: the same rig as Dazza, driven by simple state rules
 function npcPose(n, dt) {
   const P = n.P, R = n.root; let hipL = 0, hipR = 0, kneeL = 0, kneeR = 0, shLx = 0.05, shRx = 0.05, shLz = 0.32, shRz = -0.32, elL = -0.25, elR = -0.85, torsoX = 0, torsoY = 0, headX = 0, headY = 0, bodyY = 0.78;
@@ -11253,7 +11292,7 @@ function npcPose(n, dt) {
       shLx = s * (0.45 + run * 0.6); shRx = -s * (0.45 + run * 0.6); elL = elR = -0.3 - run * 0.9; bodyY += Math.abs(c) * (0.035 + run * 0.06); torsoX = 0.05 + run * 0.2; torsoY = -s * 0.12;
     } else { headY = Math.sin(NPC.t * 0.4 + n.ph) * 0.3; }
   }
-  if (n.mm || n.dima) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.mm ? mmPoseHook(n, Q, dt) : dmPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
+  if (n.mm || n.dima || n.sniper || n.st.startsWith('bb')) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.mm ? mmPoseHook(n, Q, dt) : n.dima ? dmPoseHook(n, Q) : n.sniper ? snPoseHook(n, Q) : bbPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
   const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
   lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
   lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
@@ -11264,7 +11303,7 @@ function npcPose(n, dt) {
   }
   R.visible = n.st === 'drive' ? true : faCamD(n.pos) < 180;
   // speech bubble follows their head and fades
-  const B = n.bub; if (B.time > 0) { B.time -= dt; R.getWorldPosition(_w2); B.sp.position.set(_w2.x, _w2.y + (n.st === 'drive' ? 2.4 : 2.45) * Math.max(1, n.s / 0.9), _w2.z); B.sp.material.opacity = Math.min(1, B.time * 2.5); if (B.time <= 0) B.sp.visible = false; }
+  const B = n.bub; if (B.time > 0) { B.time -= dt; bubPlace(n, B, R); B.sp.material.opacity = Math.min(1, B.time * 2.5); if (B.time <= 0) B.sp.visible = false; }
 }
 // resident animals out the front of the shed: two or three pigs and a couple of wallabies, always about
 function shedFauna(dt) {
@@ -12133,7 +12172,7 @@ function dgCut(x, y, z) {
   return x > 161 && x <= 168.7 && z > 40.4 && z < 52.8;                                                   // the parked utes and the scraps under them: the gravel goes over the lot
 }
 // which donga's room a point is in (null outside)
-function dgRoom(p) { if (!DG.root || p.y > DG.gy + 2 || p.y < DG.gy - 0.3) return null; for (const U of DG_UNITS) { const [u, v] = dgL(p.x, p.z, U); if (Math.abs(u) < DG.L / 2 - 0.02 && Math.abs(v) < DG.W / 2 + 0.05) return U; } return null; }
+function dgRoom(p) { if (!DG.root || p.y > DG.gy + 2 || p.y < DG.gy - 0.3) return null; for (const U of DG_UNITS) { if (U.burnt) continue; const [u, v] = dgL(p.x, p.z, U); if (Math.abs(u) < DG.L / 2 - 0.02 && Math.abs(v) < DG.W / 2 + 0.05) return U; } return null; }
 // under the block's roofs: in a room or in the breezeway
 function dgUnder(p) { if (dgRoom(p) || (typeof saInside === 'function' && saInside(p))) return true; const B = DG_BLOCK; return !!DG.root && p.y < DG.gy + 2 && p.y > DG.gy - 0.3 && p.x > B.x0 - 0.3 && p.x < B.x1 + 0.3 && p.z > DG_UNITS[2].z && p.z < DG.z; }
 // the walk map over the block: the breezeway and the car park are open, the rooms and the furniture aren't (null = not ours to say)
@@ -12196,7 +12235,7 @@ function dgBuild() {
   const root = new THREE.Group(); root.position.set(0, gy, 0); scene.add(root); DG.yard = root;
   const box = (w, h, d, m, x, y, z, ry) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); if (ry) o.rotation.y = ry; root.add(o); return o; };
   const eX = new THREE.Vector3(1, 0, 0), eY = new THREE.Vector3(0, 1, 0), eZ = new THREE.Vector3(0, 0, 1);
-  const solid = (x, y, z, sx, sy, sz) => { const p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, gy + y, z), eX, eY, eZ, sx, sy, sz); };
+  const solid = (x, y, z, sx, sy, sz) => { const p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, gy + y, z), eX, eY, eZ, sx, sy, sz); return p; };
   box(hx * 2 + 1.3, 0.6, hz * 2 + 0.5, SMAT.slab, cx - 0.4, -0.26, cz); solid(cx - 0.4, -0.26, cz, hx + 0.65, 0.3, hz + 0.25);      // (a bit wider on the west, out to the parked utes)
   const zN = DG_UNITS[2].z + DG.W / 2 + DG.deck, zS = DG.z - DG.W / 2 - DG.deck, rz0 = zN - DG.deck - 0.55, rz1 = zS + DG.deck + 0.55, ry = 3.02;
   box(hx * 2 + 0.9, 0.07, rz1 - rz0, M.big, cx, ry + 0.035, (rz0 + rz1) / 2); solid(cx, ry + 0.035, (rz0 + rz1) / 2, hx + 0.45, 0.05, (rz1 - rz0) / 2);
@@ -12213,7 +12252,7 @@ function dgBuild() {
   // the barbie and its gas bottle, up on the backpackers' deck against the wall, west of their door
   { const [bx, bz] = dgW(-1.65, DG.W / 2 + 0.45, DG_UNITS[2]), dy = DG.fl; box(1.2, 0.3, 0.6, M.dark, bx, 0.95 + dy, bz); box(1.24, 0.05, 0.64, M.steel, bx, 1.12 + dy, bz); box(0.5, 0.03, 0.5, M.wood, bx + 0.88, 0.98 + dy, bz);
     for (const [a, b] of [[-0.52, -0.24], [0.52, -0.24], [-0.52, 0.24], [0.52, 0.24]]) box(0.05, 0.8, 0.05, M.dark, bx + a, 0.44 + dy, bz + b);
-    cyl(0.16, 0.5, M.white, bx - 0.15, 0.29 + dy, bz); cyl(0.06, 0.1, M.steel, bx - 0.15, 0.59 + dy, bz); solid(bx + 0.13, 0.57 + dy, bz, 0.75, 0.57, 0.32); }
+    BB.bottle = cyl(0.16, 0.5, M.white, bx - 0.15, 0.29 + dy, bz); BB.valve = cyl(0.06, 0.1, M.steel, bx - 0.15, 0.59 + dy, bz); BB.bbqPart = solid(bx + 0.13, 0.57 + dy, bz, 0.75, 0.57, 0.32); }       // (the bottle: shoot it and see)
   // wheelie bins by the west end, an esky, boots by the doors
   for (const [k, m] of [[0, M.red], [1, M.yellow]]) { const x = B.x0 + 0.7 + k * 0.75, z = zS - 0.75; box(0.56, 0.92, 0.6, M.green, x, 0.52, z); box(0.6, 0.07, 0.66, m, x, 1.01, z); solid(x, 0.52, z, 0.29, 0.52, 0.31); }
   // the dogs' cages on Madman's deck, against his front wall at the far end from his door: weldmesh on a steel frame, a bed and a bowl in each
@@ -12258,6 +12297,7 @@ function dgUnit(U, gy, group) {
   // shell: floor, deck, walls with a door gap, roof, skids
   box(L + 0.1, fl, W + 0.1, M.floor, 0, fl / 2, 0); box(L, 0.12, DG.deck, M.deck, 0, fl - 0.06, W / 2 + DG.deck / 2 + 0.05);
   for (const u of [-L / 2 + 0.3, L / 2 - 0.3]) box(0.2, 0.12, W + 0.2, M.dark, u, 0.06, 0);
+  U.keepN = root.children.length;           // (floor, deck and skids: what's left if it burns)
   const wall = (w, h, x, y, z, ry) => { box(w, h, 0.09, M.ext, x, y, z, ry); };
   wall(L, H, 0, fl + H / 2, -W / 2); wall(W, H, -L / 2, fl + H / 2, 0, Math.PI / 2); wall(W, H, L / 2, fl + H / 2, 0, Math.PI / 2);
   const aW = du - dw / 2 + L / 2, bW = L / 2 - du - dw / 2;
@@ -12455,12 +12495,350 @@ function dgUnit(U, gy, group) {
   root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   // solid parts: floor, deck, three walls, two wall pieces and the lintel at the front, the roof
   const c = Math.cos(U.yaw), s = Math.sin(U.yaw), eU = new THREE.Vector3(c, 0, -s), eY = new THREE.Vector3(0, 1, 0), eV = new THREE.Vector3(s, 0, c);
-  const solid = (u, y, v, hu, hy, hv) => { const [x, z] = dgW(u, v, U), p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, gy + y, z), eU, eY, eV, hu, hy, hv); };
+  const solid = (u, y, v, hu, hy, hv) => { const [x, z] = dgW(u, v, U), p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, gy + y, z), eU, eY, eV, hu, hy, hv); return p; };
   solid(0, fl / 2, 0, L / 2 + 0.05, fl / 2, W / 2 + 0.05); solid(0, fl / 2, W / 2 + DG.deck / 2 + 0.05, L / 2, fl / 2, DG.deck / 2);
-  solid(0, fl + H / 2, -W / 2, L / 2, H / 2, 0.06); solid(-L / 2, fl + H / 2, 0, 0.06, H / 2, W / 2); solid(L / 2, fl + H / 2, 0, 0.06, H / 2, W / 2);
-  solid(-L / 2 + aW / 2, fl + H / 2, W / 2, aW / 2, H / 2, 0.06); solid(L / 2 - bW / 2, fl + H / 2, W / 2, bW / 2, H / 2, 0.06); solid(du, fl + 2.05 + (H - 2.05) / 2, W / 2, dw / 2, (H - 2.05) / 2, 0.06);
-  solid(0, fl + H + 0.04, 0, L / 2 + 0.17, 0.05, W / 2 + 0.17);
+  U.shell = [solid(0, fl + H / 2, -W / 2, L / 2, H / 2, 0.06), solid(-L / 2, fl + H / 2, 0, 0.06, H / 2, W / 2), solid(L / 2, fl + H / 2, 0, 0.06, H / 2, W / 2),
+    solid(-L / 2 + aW / 2, fl + H / 2, W / 2, aW / 2, H / 2, 0.06), solid(L / 2 - bW / 2, fl + H / 2, W / 2, bW / 2, H / 2, 0.06), solid(du, fl + 2.05 + (H - 2.05) / 2, W / 2, dw / 2, (H - 2.05) / 2, 0.06),
+    solid(0, fl + H + 0.04, 0, L / 2 + 0.17, 0.05, W / 2 + 0.17)];
 }
+/* ================================================================
+   THE BUNKS FIRE (Nov 2026): shoot the gas bottle by the backpackers' barbie (or blow it up, or set it alight) and it goes
+   up; the bunk donga burns down to a charred shell. Then one of the backpackers wants to put it back up, but not on his own: he waits for
+   someone to help, and works only while you are, never more than a sheet ahead of you. Give him a hand: grab a sheet from the pile, carry it over,
+   nail it up (three good nails on the timing bar). Twelve sheets and it's back as it was, new gas bottle and all.
+   The host runs it; everyone else draws it from what the host sends (state, time, progress, who's carrying a sheet).
+   ================================================================ */
+const BB = { st: 'ok', t: 0, prog: 0, N: 12, heat: 0, help: {}, byPl: 0, byNpc: 0, askT: 0, who: null, shownSt: '', shownProg: -1, fl: [], sm: [], voice: null, mats: new Map(), saidT: 0, mmT: 0, nailT: 0, ruin: null, build: null, pile: null };
+const bbU = () => DG_UNITS[2];
+function bbBottleP(out) { if (!BB.bottle) return null; BB.bottle.updateWorldMatrix(true, false); return BB.bottle.getWorldPosition(out); }
+const bbPileXZ = () => dgW(0.2, -DG.W / 2 - 2.0, bbU());
+// how far a point is from the bunks' walls (0 on them)
+function bbSiteD(x, z) { const [u, v] = dgL(x, z, bbU()); return Math.hypot(Math.max(0, Math.abs(u) - DG.L / 2), Math.max(0, Math.abs(v) - DG.W / 2)); }
+// where the builder stands to nail a sheet on: round the back and the west end (the east end's hard up against Dima's)
+const BB_SPOTS = [[-1.6, -DG.W / 2 - 0.95], [1.4, -DG.W / 2 - 0.95], [-0.1, -DG.W / 2 - 0.95], [-DG.L / 2 - 0.95, 0.3]];
+function bbToastAll(s, d) { toast(s, d); if (MP.on && MP.host) mpSend({ k: 'toast', f: MP.me, s, d }); }
+
+/* ---------- the bottle goes ---------- */
+function bbHit() { if (BB.st !== 'ok') return; if (mpwCli()) { mpwSendAct('bb:hit'); return; } bbIgnite('shot'); }
+function bbIgnite() {
+  if (!mpwHost() || BB.st !== 'ok' || !BB.bottle) return;
+  BB.st = 'leak'; BB.t = 0; const P = bbBottleP(new THREE.Vector3()); sfx('g_tink', P, 0.9, 0.8, 12); if (AU.buf.hiss) sfx('hiss', P, 1, 1.5, 14);
+}
+function bbBoom() {
+  const P = bbBottleP(new THREE.Vector3()); P.y += 0.15; BB.st = 'fire'; BB.t = 0; BB.heat = 0; BB.mmT = 3.2;
+  wpnBoom(P, 6.5, 1);                                               // (everyone sees it, and anyone close gets thrown about)
+  bbToastAll('The gas bottle’s gone up. The bunks are on fire!', 2.8);
+  const fr = NPC.list.filter(n => !n.mm && !n.dima && !n.sniper && !n.veh && npcAlive(n)).sort((a, b) => a.pos.distanceTo(P) - b.pos.distanceTo(P));
+  if (fr[0] && fr[0].pos.distanceTo(P) < 60) npcSay(fr[0], npcPick(NPC_L.fire), 3);
+}
+
+/* ---------- what it looks like: the fire, the char, the ruin, the build ---------- */
+function bbMat(m, k) {               // a scorched copy of a material, darkened by k (0..1), one per original
+  let e = BB.mats.get(m); if (!e) { const c = m.clone(); if (c.map) c.map = m.map; e = { c, col: m.color ? m.color.clone() : null }; BB.mats.set(m, e); }
+  if (e.col) e.c.color.copy(e.col).lerp(_bbChar, k); return e.c;
+}
+const _bbChar = new THREE.Color(0x16110d);
+function bbChar(k) {                 // every mesh of the bunks' shell and insides, k of the way to charcoal (0 puts the real ones back)
+  const U = bbU(); if (!U.root) return;
+  U.root.children.forEach((o, i) => { if (i < (U.keepN || 4) || o === BB.ruin || o === BB.build) return; o.traverse(m => { if (!m.isMesh) return; if (!m.userData.bbMat0) m.userData.bbMat0 = m.material; m.material = k > 0 ? bbMat(m.userData.bbMat0, Math.min(1, k)) : m.userData.bbMat0; }); });
+}
+function bbShell(on) {               // the walls and roof (and everything in the room): there, or burnt away
+  const U = bbU(); if (!U.root) return; U.burnt = !on;
+  U.root.children.forEach((o, i) => { if (o === BB.ruin || o === BB.build) return; if (i >= (U.keepN || 4)) o.visible = on; });
+  for (const p of U.shell || []) p.alive = on; STRUCTS.dirty = true;
+}
+function bbBuildMeshes() {
+  if (BB.ruin) return; const U = bbU(), L = DG.L, W = DG.W, H = DG.H, fl = DG.fl;
+  const char = new THREE.MeshLambertMaterial({ color: 0x1b1612 }), ash = new THREE.MeshLambertMaterial({ color: 0x4a4540 }), ember = new THREE.MeshBasicMaterial({ color: 0xff6a1a });
+  const timber = new THREE.MeshLambertMaterial({ color: 0xc89a62 }), ply = new THREE.MeshLambertMaterial({ color: 0xd9c08c }), tin = DG.mats.roof;
+  // the ruin: a black floor, charred studs left standing at odd heights, the roof come down in a heap, the bunk frames, ash
+  const R = new THREE.Group(); R.visible = false; U.root.add(R); BB.ruin = R;
+  const rb = (w, h, d, m, x, y, z, rx = 0, rz = 0) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.rotation.set(rx, 0, rz); o.castShadow = true; o.receiveShadow = true; R.add(o); return o; };
+  rb(L + 0.05, 0.03, W + 0.05, char, 0, fl + 0.015, 0);
+  const studs = [[-L / 2, -W / 2, 2.3], [-1.5, -W / 2, 1.1], [0, -W / 2, 1.8], [1.5, -W / 2, 0.7], [L / 2, -W / 2, 2.1], [-L / 2, 0, 1.4], [L / 2, 0, 0.9], [-L / 2, W / 2, 1.9], [-1.2, W / 2, 0.8], [DG.du - DG.dw / 2, W / 2, 2.0], [DG.du + DG.dw / 2, W / 2, 1.5], [L / 2, W / 2, 2.4]];
+  for (const [u, v, h] of studs) rb(0.1, h, 0.1, char, u, fl + h / 2, v, (Math.random() - 0.5) * 0.15, (Math.random() - 0.5) * 0.15);
+  rb(L * 0.6, 0.05, W * 0.8, char, -0.6, fl + 0.6, -0.1, 0.32, 0.12); rb(L * 0.45, 0.05, W * 0.7, char, 1.4, fl + 0.4, 0.3, -0.25, -0.08);
+  rb(1.9, 0.08, 0.85, char, -L / 2 + 1.1, fl + 0.35, -W / 2 + 0.55, 0, 0.1); rb(1.9, 0.08, 0.85, char, L / 2 - 1.1, fl + 0.25, -W / 2 + 0.55, 0.06, -0.12);
+  for (let k = 0; k < 14; k++) rb(0.2 + Math.random() * 0.5, 0.06 + Math.random() * 0.1, 0.2 + Math.random() * 0.4, k % 4 ? ash : char, (Math.random() - 0.5) * L * 0.9, fl + 0.06, (Math.random() - 0.5) * W * 0.9, 0, Math.random() * 0.4);
+  BB.embers = []; for (let k = 0; k < 6; k++) { const o = rb(0.12, 0.05, 0.12, ember, (Math.random() - 0.5) * L * 0.8, fl + 0.1, (Math.random() - 0.5) * W * 0.8); BB.embers.push(o); }
+  // the build: twelve pieces, each a sheet (or the frame for a wall), going on in order
+  const B = new THREE.Group(); B.visible = false; U.root.add(B); BB.build = B; BB.pieces = [];
+  const piece = (fn) => { const g = new THREE.Group(); g.visible = false; B.add(g); const bx = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; g.add(o); return o; }; fn(bx); BB.pieces.push(g); };
+  const frame = (bx, alongU, fixed, len) => { const n = Math.round(len / 0.6); for (let k = 0; k <= n; k++) { const a = -len / 2 + len * k / n; if (alongU) bx(0.07, H, 0.09, timber, a, fl + H / 2, fixed); else bx(0.09, H, 0.07, timber, fixed, fl + H / 2, a); }
+    if (alongU) { bx(len, 0.09, 0.09, timber, 0, fl + H - 0.05, fixed); bx(len, 0.09, 0.09, timber, 0, fl + 0.05, fixed); } else { bx(0.09, 0.09, len, timber, fixed, fl + H - 0.05, 0); bx(0.09, 0.09, len, timber, fixed, fl + 0.05, 0); } };
+  piece(bx => { bx(L + 0.05, 0.03, W + 0.05, ply, 0, fl + 0.02, 0); frame(bx, true, -W / 2, L); });   // a fresh floor, and the back wall's frame
+  piece(bx => frame(bx, false, -L / 2, W)); piece(bx => frame(bx, false, L / 2, W)); piece(bx => frame(bx, true, W / 2, L));
+  for (const [u, v, w, ry] of [[-L / 4, -W / 2, L / 2, 0], [L / 4, -W / 2, L / 2, 0], [-L / 2, 0, W, 1], [L / 2, 0, W, 1], [-L / 4 - 0.3, W / 2, L / 2 - 0.6, 0], [L / 4 + 0.55, W / 2, L / 2 - 1.1, 0]])
+    piece(bx => { ry ? bx(0.04, H, w, ply, u, fl + H / 2, v) : bx(w, H, 0.04, ply, u, fl + H / 2, v); });
+  piece(bx => bx(L + 0.35, 0.06, (W + 0.35) / 2, tin, 0, fl + H + 0.04, -(W + 0.35) / 4)); piece(bx => bx(L + 0.35, 0.06, (W + 0.35) / 2, tin, 0, fl + H + 0.04, (W + 0.35) / 4));
+  // the timber pile round the back: a pallet of plywood and a few lengths, getting smaller as it goes up
+  const [px, pz] = bbPileXZ(), py = groundAt(px, pz, DG.gy + 1.5, DG.gy), P = new THREE.Group(); P.position.set(px, py, pz); P.visible = false; scene.add(P); BB.pile = P; BB.pileSheets = [];
+  const pal = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.14, 1.0), DG.mats.wood); pal.position.y = 0.07; P.add(pal);
+  for (let k = 0; k < 12; k++) { const s = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.025, 0.92), ply); s.position.set((k % 2) * 0.02, 0.155 + k * 0.026, 0); s.castShadow = true; P.add(s); BB.pileSheets.push(s); }
+  for (let k = 0; k < 4; k++) { const s = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.07, 0.09), timber); s.position.set(0, 0.04, 0.7 + k * 0.1); P.add(s); }
+  P.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // a sheet to carry (for you, and one for whoever's building), and a hammer
+  BB.mkSheet = () => { const s = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.92, 1.22), ply); s.castShadow = true; return s; };
+  BB.mkHammer = () => { const g = new THREE.Group(), h = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.017, 0.32, 6), timber); h.position.y = 0.16; g.add(h);
+    const hd = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.04, 0.13), new THREE.MeshLambertMaterial({ color: 0x55585c })); hd.position.set(0, 0.31, 0.02); g.add(hd); return g; };
+  BB.mySheet = BB.mkSheet(); BB.mySheet.visible = false; BB.myHammer = BB.mkHammer(); BB.myHammer.visible = false;
+}
+// fire and smoke sprites, round the shell
+function bbFx(dt, heat, smoke) {
+  blastTex(); const U = bbU(); if (!U.root) return;
+  if (!BB.fl.length) for (let k = 0; k < 16; k++) { const s = blastSprite(BLAST_FIRE, true); s.visible = false; const a = k / 16; BB.fl.push({ s, u: (a * 2 - 1) * DG.L * 0.48 + (Math.random() - 0.5) * 0.4, v: (k % 2 ? 1 : -1) * DG.W * (0.2 + Math.random() * 0.3), ph: Math.random() * 9, hy: 0.4 + Math.random() * 0.8 }); }
+  if (!BB.sm.length) for (let k = 0; k < 14; k++) { const s = blastSprite(BLAST_SMOKE, false); s.visible = false; BB.sm.push({ s, life: 0, max: 1, p: new THREE.Vector3(), v: new THREE.Vector3() }); }
+  const top = BB.st === 'fire' && BB.t < 26 ? DG.fl + DG.H : DG.fl + 0.3;
+  for (const f of BB.fl) { f.ph += dt * (4 + f.hy * 3); const on = heat > 0.02; f.s.visible = on; if (!on) continue;
+    U.root.localToWorld(_w1.set(f.u, top * f.hy + Math.abs(Math.sin(f.ph)) * 0.4, f.v)); f.s.position.copy(_w1);
+    const sc = (1.4 + 0.5 * Math.sin(f.ph * 1.3)) * heat * (top > 1 ? 1.6 : 0.8); f.s.scale.set(sc, sc * 1.6, 1); f.s.material.opacity = 0.85 * Math.min(1, heat * 1.5); }
+  for (const s of BB.sm) { if (s.life <= 0) { if (smoke > 0 && Math.random() < dt * 6 * smoke) { s.life = s.max = 5 + Math.random() * 3; U.root.localToWorld(s.p.set((Math.random() - 0.5) * DG.L * 0.8, top + 0.4, (Math.random() - 0.5) * DG.W * 0.8)); s.v.set((Math.random() - 0.5) * 0.6 + 0.4, 2 + Math.random() * 1.2, (Math.random() - 0.5) * 0.6); } else { s.s.visible = false; continue; } }
+    s.life -= dt; s.p.addScaledVector(s.v, dt); s.s.position.copy(s.p); s.s.visible = true; const k = 1 - s.life / s.max, sc = 2 + k * 6; s.s.scale.set(sc, sc, 1); s.s.material.opacity = Math.min(1, k * 4) * (1 - k) * 0.6 * Math.max(0.3, smoke); }
+  if (heat > 0.02 && Math.random() < dt * 22 * heat && WPN.flame) { U.root.localToWorld(_w1.set((Math.random() - 0.5) * DG.L, top * 0.7, (Math.random() - 0.5) * DG.W)); wpnPart(WPN.flame, _w1, 0.8, _w2.set((Math.random() - 0.5) * 0.8, 2 + Math.random() * 2.5, (Math.random() - 0.5) * 0.8)); }
+  if (!BB.voice && AU.ctx && AU.buf.fire && typeof makeFireVoice === 'function') BB.voice = makeFireVoice();
+  if (BB.voice) BB.voice.update(Math.min(1, heat * 1.2), U.root.localToWorld(_w1.set(0, 1.5, 0)));
+}
+// bring the look into line with the state (on everyone's screen; idempotent, so a guest can call it every update)
+function bbApply() {
+  bbBuildMeshes(); const U = bbU(), st = BB.st, key = st === 'fire' ? (BB.t < 26 ? 'fire' : 'down') : st;
+  if (key !== BB.shownSt) { const was = BB.shownSt; BB.shownSt = key;
+    if (key === 'ok' || key === 'leak') { bbChar(0); bbShell(true); BB.ruin.visible = false; BB.build.visible = false; BB.pile.visible = false; for (const p of BB.pieces) p.visible = false; BB.shownProg = -1; }
+    if (key === 'fire') { bbShell(true); BB.ruin.visible = false; }
+    if (key === 'down' || key === 'ruin' || key === 'build') { if (was === 'fire' && U.root) { sfx('tree_thud', U.root.localToWorld(_w1.set(0, 1, 0)), 1, 0.6, 30); sfx('crash', _w1, 0.8, 0.7, 30); dustBurst(_w1.set(_w1.x, DG.gy, _w1.z), 10, 3); camShake = Math.max(camShake, Math.max(0, 0.4 - camera.position.distanceTo(_w1) * 0.01)); }
+      bbChar(0); bbShell(false); BB.ruin.visible = key !== 'build'; BB.build.visible = key === 'build'; BB.pile.visible = key === 'build'; }
+    if (BB.bottle) { BB.bottle.visible = key === 'ok' || key === 'leak'; if (BB.valve) BB.valve.visible = BB.bottle.visible; } }
+  if (st === 'build' && BB.prog !== BB.shownProg) { const was = BB.shownProg; BB.shownProg = BB.prog;
+    BB.pieces.forEach((g, i) => { g.visible = i < BB.prog; }); BB.pileSheets.forEach((s, i) => { s.visible = i < BB.N - BB.prog; });
+    if (was >= 0 && BB.prog > was && U.root) sfx('chop_tree', U.root.localToWorld(_w1.set(0, 1.4, 0)), 0.5, 1.5, 14); }
+}
+
+/* ---------- every frame, for everyone ---------- */
+function bbStep(dt) {
+  if (!DG.root || !bbU().root) return; dt = Math.min(dt, 0.05);
+  const host = mpwHost();
+  if (host) { BB.t += dt; BB.saidT -= dt;
+    if (BB.st === 'leak' && BB.t > 0.9) bbBoom();
+    else if (BB.st === 'fire' && BB.t > 34) { BB.st = 'ruin'; BB.t = 0; }
+    else if (BB.st === 'ruin' && BB.t > 6) { BB.st = 'build'; BB.t = 0; BB.prog = 0; BB.help = {}; BB.byPl = 0; BB.byNpc = 0; bbPickBuilder(); }
+    if (BB.st === 'build' && !BB.who && (BB.pickT = (BB.pickT || 0) - dt) <= 0) { BB.pickT = 5; bbPickBuilder(); }       // (nobody free to do it yet: look again in a bit)
+    if (BB.st === 'build' && BB.prog >= BB.N) bbDone();
+    if (BB.mmT > 0) { BB.mmT -= dt; if (BB.mmT <= 0) { if (MM.n && npcAlive(MM.n) && !MM.n.veh && MM.n.pos.distanceTo(DG.root.position) < 60) mmSay('bunkFire', 3, true); if (DM.n && npcAlive(DM.n) && !DM.n.veh) setTimeout(() => { if (BB.st === 'fire' || BB.st === 'ruin') dmSay(DM.n, 'fire', 3); }, 4200); } }
+    for (const id of Object.keys(BB.help)) if (id !== MP.me && !plById(id)) delete BB.help[id];     // (gone from the game)
+  } else BB.t += dt;
+  bbApply();
+  // the fire itself: up for 6 s, roaring, then dying down; embers and smoke for a while after
+  const heat = BB.st === 'fire' ? (BB.t < 6 ? BB.t / 6 : BB.t < 24 ? 1 : Math.max(0.15, 1 - (BB.t - 24) / 12)) : BB.st === 'ruin' ? 0.12 * Math.max(0, 1 - BB.t / 6) : 0;
+  const smoke = BB.st === 'fire' ? Math.min(1, BB.t / 3) : BB.st === 'ruin' ? 0.6 : BB.st === 'build' ? Math.max(0, 0.35 - BB.t / 120) : 0;
+  if (BB.st === 'fire' && BB.t < 26) bbChar(Math.min(1, BB.t / 22));
+  if (heat > 0 || smoke > 0 || BB.fl.some(f => f.s.visible) || BB.sm.some(s => s.life > 0)) bbFx(dt, heat, smoke);
+  else if (BB.voice) BB.voice.update(0, null);
+  if (BB.embers) for (const e of BB.embers) e.visible = BB.st === 'ruin' || (BB.st === 'fire' && BB.t >= 26);
+  // the leak: a jet of flame off the valve before it goes
+  if (BB.st === 'leak' && BB.valve && WPN.flame) { BB.valve.updateWorldMatrix(true, false); BB.valve.getWorldPosition(_w1); for (let k = 0; k < 3; k++) wpnPart(WPN.flame, _w1, 0.35, _w2.set((Math.random() - 0.5) * 1.5, 2.5 + Math.random() * 2, (Math.random() - 0.5) * 1.5)); }
+  // too close to it burning: it hurts (everyone looks after themselves)
+  if (BB.st === 'fire' && heat > 0.3 && activeName === 'foot' && F.dead <= 0 && Math.abs(F.pos.y - DG.gy) < 3 && bbSiteD(F.pos.x, F.pos.z) < 1.0) wpnHurt(22 * heat * dt, null, 'fire');
+  // your sheet and hammer
+  const me = BB.help[MP.me], carrying = !!(me && me.carry) && activeName === 'foot', P = DAZZA;
+  if (P && P.torso && BB.mySheet) { if (BB.mySheet.parent !== P.torso) { P.torso.add(BB.mySheet); BB.mySheet.position.set(0.34, 0.0, 0.12); BB.mySheet.rotation.set(0, 0, 0.08); }
+    BB.mySheet.visible = carrying; if (carrying && P.can) P.can.visible = false;
+    const ham = !!bbNailTarget(); if (!BB.myHammer.parent || BB.myHammer.parent.parent !== P.elR) { const h = new THREE.Group(); h.rotation.x = Math.PI / 2; h.position.set(0, -0.26, 0); h.add(BB.myHammer); P.elR.add(h); } BB.myHammer.visible = ham && !WPN.cur; }
+  // the mates' sheets (a guest's carry comes from the host; the host knows them all)
+  if (MP.on) for (const p of MP.peers.values()) { const h = BB.help[p.id], on = !!(h && h.carry) && !p.veh; if (!p.bbSheet && on && BB.mkSheet) { p.bbSheet = BB.mkSheet(); p.av.torso.add(p.bbSheet); p.bbSheet.position.set(0.34, 0, 0.12); } if (p.bbSheet) p.bbSheet.visible = on; }
+  // the builders' props
+  for (const n of NPC.list) { if (n.mm || n.dima || n.sniper || !BB.mkSheet) continue;
+    if (!n.bbSheet && (n.st === 'bbCarry' || n.st === 'bbNail')) { n.bbSheet = BB.mkSheet(); n.P.torso.add(n.bbSheet); n.bbSheet.position.set(0, 0.05, 0.42); n.bbSheet.rotation.set(0, Math.PI / 2, 0); const h = new THREE.Group(); h.rotation.x = Math.PI / 2; h.position.set(0, -0.26, 0); n.bbHam = BB.mkHammer(); h.add(n.bbHam); n.P.elR.add(h); }
+    if (n.bbSheet) { n.bbSheet.visible = n.st === 'bbCarry'; n.bbHam.visible = n.st === 'bbNail'; } }
+  bbChipStep();
+}
+
+/* ---------- the builder: one of the backpackers, putting it back up a sheet at a time ---------- */
+function bbPickBuilder() {
+  const ok = n => n && !n.mm && !n.dima && !n.sniper && npcAlive(n) && !n.angry;
+  const n = [npcByName('Mathieu'), npcByName('Chloé'), ...NPC.list].find(ok); BB.who = n ? n.name : null;
+  if (n) { if (n.veh) npcEject(n, 'park'); n.st = 'wander'; n.bbPh = null; npcSay(n, npcPick(NPC_L.build), 3); }
+}
+const bbBuilder = n => BB.st === 'build' && BB.who === n.name;
+// his part (on the host): to the pile, a sheet, round to a spot on the wall, a few seconds' hammering, and again
+// someone's helping and is about (not gone off somewhere): he works only then, and never gets more than a sheet ahead of you
+function bbHelperNear() { for (const id in BB.help) { const q = plById(id); if (q && bbSiteD(q.pos.x, q.pos.z) < 60) return q; } return null; }
+const bbCanWork = () => !!bbHelperNear() && BB.byNpc <= BB.byPl;
+const bbWaitXZ = () => dgW(-DG.L / 2 - 1.1, -0.6, bbU());
+function bbBuildThink(n, dt) {
+  const [px, pz] = bbPileXZ();          // (n.t ticks in npcThink)
+  if (!n.bbPh) { n.bbPh = 'wait'; n.bbK = (n.bbK || 0); }
+  BB.askT -= dt;
+  // waiting on you: by the west end where you'll see him, hands on hips, asking anyone who comes by
+  if ((n.bbPh === 'toPile' || n.bbPh === 'pick' || n.bbPh === 'rest' || n.bbPh === 'watch') && !bbCanWork()) n.bbPh = 'wait';
+  if (n.bbPh === 'wait') { const [wx, wz] = bbWaitXZ(), r = Math.hypot(wx - n.pos.x, wz - n.pos.z) > 0.9 ? npcGoTo(n, wx, wz, 1.6, dt) : 'done';
+    if (r === 'done') { n.st = 'bbWait'; n.sp *= 0.7; const q = plNearest(n.pos.x, n.pos.z, true), dq = q ? Math.hypot(q.pos.x - n.pos.x, q.pos.z - n.pos.z) : 1e9;
+      if (q && dq < 16) npcFace(n, q.pos.x, q.pos.z, 3, dt); else n.yaw += faAng(-Math.PI / 2 - n.yaw) * Math.min(1, dt * 2);
+      if (q && dq < 14 && BB.askT <= 0) { BB.askT = 18; const joined = !!BB.help[q.id]; plWith(q, () => npcSay(n, npcPick(joined ? NPC_L.wait : NPC_L.help), 3)); } }
+    else n.st = 'bbWalk';
+    if (bbCanWork()) n.bbPh = 'toPile'; return; }
+  if (n.bbPh !== n.bbWas) { n.bbWas = n.bbPh; n.bbPhT = 0; } n.bbPhT += dt;
+  // snagged on a corner for a while: out of sight he's just there; in sight, near enough is good enough
+  const stuck = (n.bbPh === 'toPile' || n.bbPh === 'toSite') && n.bbPhT > 18, [gx, gz] = n.bbPh === 'toSite' ? dgW(...BB_SPOTS[n.bbK], bbU()) : [px + 0.9, pz];
+  if (stuck) { if (npcUnseen(n.pos.x, n.pos.z) && npcUnseen(gx, gz)) npcHop(n, gx, gz); n.bbPh = n.bbPh === 'toPile' ? 'pick' : 'nail'; n.t = 0; return; }
+  if (n.bbPh === 'toPile') { n.st = 'bbWalk'; const r = npcGoTo(n, px + 0.9, pz, 1.9, dt); if (r === 'done' || Math.hypot(px - n.pos.x, pz - n.pos.z) < 1.6) { n.bbPh = 'pick'; n.t = 0; } else if (r === 'fail' && npcUnseen(n.pos.x, n.pos.z)) npcHop(n, px + 0.9, pz); return; }
+  if (n.bbPh === 'pick') { n.st = 'bbWalk'; npcFace(n, px, pz, 6, dt); n.sp *= 0.7; if (n.t > 0.9) { if (BB.prog + bbCarried() >= BB.N) { n.bbPh = 'watch'; return; } n.bbPh = 'toSite'; n.bbK = (n.bbK + 1) % BB_SPOTS.length; n.t = 0; } return; }
+  if (n.bbPh === 'toSite') { n.st = 'bbCarry'; const [sx, sz] = dgW(...BB_SPOTS[n.bbK], bbU()), r = npcGoTo(n, sx, sz, 1.5, dt); if (r === 'done') { n.bbPh = 'nail'; n.t = 0; } else if (r === 'fail') { n.bbK = (n.bbK + 1) % BB_SPOTS.length; } return; }
+  if (n.bbPh === 'nail') { n.st = 'bbNail'; const [u, v] = BB_SPOTS[n.bbK], [cx, cz] = dgW(Math.max(-DG.L / 2, Math.min(DG.L / 2, u)), Math.max(-DG.W / 2, Math.min(DG.W / 2, v)), bbU()); npcFace(n, cx, cz, 6, dt); n.sp *= 0.6;
+    n.nailT = (n.nailT || 0) - dt; if (n.nailT <= 0) { n.nailT = 0.62; sfx('chop_tree', _w1.set(cx, DG.gy + 1.2, cz), 0.45, 1.7 + Math.random() * 0.2, 12); }
+    if (n.t > 8.5) { if (BB.prog < BB.N) { BB.prog++; BB.byNpc++; } n.bbPh = 'rest'; n.t = 0; if (BB.saidT <= 0 && Math.random() < 0.35) { BB.saidT = 25; npcSay(n, npcPick(NPC_L.build), 2.6); } } return; }
+  if (n.bbPh === 'rest') { n.st = 'bbWalk'; n.sp *= 0.8; if (n.t > 5 + Math.random() * 0.5) n.bbPh = 'toPile'; return; }          // (a breather: he's not in a hurry)
+  if (n.bbPh === 'watch') { n.st = 'bbWalk'; n.sp *= 0.8; if (BB.prog + bbCarried() < BB.N) n.bbPh = 'toPile'; return; }
+}
+const bbCarried = () => Object.values(BB.help).filter(h => h.carry).length;
+
+/* ---------- your part ---------- */
+function bbTalkable() { if (BB.st !== 'build' || activeName !== 'foot' || F.mode !== 'walk') return null; const n = BB.who && npcByName(BB.who); return n && npcAlive(n) && !n.angry && Math.hypot(n.pos.x - F.pos.x, n.pos.z - F.pos.z) < 3 ? n : null; }
+function bbNearPile() { const [px, pz] = bbPileXZ(); return Math.hypot(px - F.pos.x, pz - F.pos.z) < 2.0; }
+function bbNailTarget() {
+  const me = BB.help[MP.me]; if (BB.st !== 'build' || !me || !me.carry || activeName !== 'foot' || F.mode !== 'walk' || F.dead > 0) return null;
+  if (bbSiteD(F.pos.x, F.pos.z) > 1.6) return null; const [u, v] = dgL(F.pos.x, F.pos.z, bbU()), [x, z] = dgW(Math.max(-DG.L / 2, Math.min(DG.L / 2, u)), Math.max(-DG.W / 2, Math.min(DG.W / 2, v)), bbU()); return { kind: 'nail', x, z };
+}
+function bbActions(items) {
+  if (activeName !== 'foot' || F.dead > 0 || BB.st !== 'build') return; const me = BB.help[MP.me];
+  if (!me && bbTalkable()) items.push({ id: 'bb:join', label: 'Help rebuild the bunks', cls: 'warn' });
+  if (me && !me.carry && F.mode === 'walk' && bbNearPile()) items.push({ id: 'bb:grab', label: 'Grab a sheet of ply', cls: 'warn' });
+  if (me && me.carry) { if (bbNailTarget()) items.push({ id: 'bb:nail', label: 'Nail it up (' + Math.floor(me.nails || 0) + '/3)', cls: 'warn' }); items.push({ id: 'bb:drop', label: 'Put the sheet down', cls: 'dark' }); }
+}
+function bbAct(id) {
+  if (id === 'bb:nail') { bbSwing(); return; }
+  if (id === 'bb:grab' && typeof wpnHolster === 'function' && WPN.cur) wpnHolster();
+  if (mpwCli() && !MPW.net) { mpwSendAct(id); if (id === 'bb:join') toast('Grab a sheet of ply from the pile round the back, carry it over and nail it up', 3); return; }
+  bbDo(id, MP.me);
+}
+// on the host, as whoever did it
+function bbDo(id, pid) {
+  if (BB.st !== 'build') return; const h = BB.help[pid], n = BB.who && npcByName(BB.who), mine = pid === MP.me;
+  if (id === 'bb:join' && !h) { BB.help[pid] = { carry: false, nails: 0 }; if (n) npcSay(n, npcPick(NPC_L.help), 3); if (mine) toast('Grab a sheet of ply from the pile round the back, carry it over and nail it up', 3); }
+  else if (id === 'bb:grab' && h && !h.carry) { if (BB.prog + bbCarried() >= BB.N) { if (mine) toast('That’s the last of the ply on its way up', 1.6); return; } h.carry = true; h.nails = 0; const [px, pz] = bbPileXZ(); sfx('thud', _w1.set(px, DG.gy + 0.5, pz), 0.4, 1.4, 8); if (mine) toast('Carry it over to the bunks and nail it up', 1.8); }
+  else if (id === 'bb:drop' && h) { h.carry = false; h.nails = 0; }
+}
+// the swing: the hammer goes up and comes down on the beat of the timing bar (it lands a beat later)
+function bbSwing() {
+  const tg = bbNailTarget(); if (!tg || WL.swingCD > 0) return;
+  WL.hitQ = wlQuality(); WL.hitA = 'nail'; WL.hitIn = 0.3; WL.swingCD = 0.6;
+  const yaw = Math.atan2(tg.x - F.pos.x, tg.z - F.pos.z); F.yaw = yaw; EM.cur = WL_SWING; EM.t = 0; EM.yaw0 = yaw; F.mode = 'emote'; F.vel.set(0, 0, 0); F.speedH = 0;
+}
+function bbNailLand(qual) { if (mpwCli()) { mpwSendAct('bb:hit1', qual); return; } bbNail(qual, MP.me); }
+function bbNail(qual, pid) {
+  const h = BB.help[pid], n = BB.who && npcByName(BB.who), mine = pid === MP.me; if (BB.st !== 'build' || !h || !h.carry) return;
+  const q = plById(pid), p = q ? q.pos : F.pos; if (bbSiteD(p.x, p.z) > 2.2) return;
+  sfx(qual === 'miss' ? 'g_tink' : 'chop_tree', _w1.set(p.x, p.y + 1.2, p.z), qual === 'miss' ? 0.6 : 0.7, qual === 'miss' ? 1.6 : 1.75, 12);
+  if (qual === 'miss') { if (n && npcAlive(n) && BB.saidT <= 0) { BB.saidT = 5; npcSay(n, npcPick(NPC_L.nailBad), 2.4); } if (mine) toast('Bent it. Swing when the marker’s in the green', 1.4); else mpSend({ k: 'toast', f: MP.me, to: pid, s: 'Bent it. Swing when the marker’s in the green', d: 1.4 }); return; }
+  h.nails = (h.nails || 0) + (qual === 'good' ? 1 : 0.5);
+  if (h.nails >= 3) { h.carry = false; h.nails = 0; BB.prog = Math.min(BB.N, BB.prog + 1); BB.byPl++; const s = 'Sheet up! ' + BB.prog + '/' + BB.N; if (mine) toast(s, 1.4); else mpSend({ k: 'toast', f: MP.me, to: pid, s, d: 1.4 });
+    if (n && npcAlive(n) && BB.saidT <= 0 && Math.random() < 0.6) { BB.saidT = 8; npcSay(n, npcPick(NPC_L.nailGood), 2.2); } }
+}
+function bbDone() {
+  BB.st = 'ok'; BB.t = 0; BB.prog = 0; BB.byPl = 0; BB.byNpc = 0; const helped = Object.keys(BB.help); BB.help = {};
+  const n = BB.who && npcByName(BB.who); BB.who = null; if (n) { n.st = 'wander'; n.bbPh = null; npcSay(n, npcPick(NPC_L.built), 3.4); }
+  for (const id of helped) { const s = 'The bunks are back up. The backpackers owe you one'; if (id === MP.me) toast(s, 3); else mpSend({ k: 'toast', f: MP.me, to: id, s, d: 3 }); }
+  if (!helped.length) bbToastAll('The backpackers have got their bunks back up', 2.4);
+}
+// the chip, while you're helping
+function bbChipStep() {
+  const me = BB.help[MP.me], show = BB.st === 'build' && !!me;
+  if (!BB.chip && show) { const st = document.createElement('style'); st.textContent = '#bbChip{position:fixed;z-index:8;left:50%;top:calc(52px + env(safe-area-inset-top,0px));transform:translateX(-50%);display:none;padding:6px 12px;border-radius:14px;background:rgba(22,26,25,.82);color:#fff;font:700 13px var(--font);pointer-events:none}#bbChip.show{display:block}#bbChip b{color:#e8c46a}';
+    document.head.appendChild(st); const el = document.createElement('div'); el.id = 'bbChip'; el.className = 'ui'; document.body.appendChild(el); BB.chip = el; }
+  if (!BB.chip) return; BB.chip.classList.toggle('show', show); if (!show) return;
+  const nb = BB.who && npcByName(BB.who), waits = nb && nb.st === 'bbWait' && !me.carry;
+  const txt = '<span>REBUILD</span> <b>' + BB.prog + '/' + BB.N + '</b> · ' + (me.carry ? (bbNailTarget() ? 'nail it up' : 'carry it to the bunks') : waits ? (BB.who + '’s waiting on you: grab a sheet round the back') : 'grab a sheet round the back');
+  if (BB.chipTxt !== txt) { BB.chipTxt = txt; BB.chip.innerHTML = txt; }
+}
+// the builder's poses: arms full of ply, or one arm swinging the hammer
+function bbPoseHook(n, Q) {
+  if (n.st === 'bbWait') { Q.shLx = -0.25; Q.shRx = -0.25; Q.shLz = 0.95; Q.shRz = -0.95; Q.elL = -1.9; Q.elR = -1.9; Q.headY = Math.sin(NPC.t * 0.7) * 0.2; }
+  else if (n.st === 'bbCarry') { Q.shLx = -0.75; Q.shRx = -0.75; Q.shLz = 0.55; Q.shRz = -0.55; Q.elL = -1.2; Q.elR = -1.2; Q.torsoX = 0.08; }
+  else if (n.st === 'bbNail') { const w = Math.sin(NPC.t * 10.1); Q.shRx = -1.9 + w * 0.8; Q.shRz = -0.2; Q.elR = -0.5 - Math.max(0, w) * 0.5; Q.shLx = -1.1; Q.shLz = 0.2; Q.elL = -0.6; Q.torsoX = 0.1; Q.headX = 0.1; }
+}
+// the net: what the host sends, and taking it in
+function bbNetOut() { const h = {}; for (const id in BB.help) h[id] = [BB.help[id].carry ? 1 : 0, BB.help[id].nails || 0]; return [BB.st, r1(BB.t), BB.prog, BB.who || '', h]; }
+function bbNetIn(b) { if (!b) return; if (b[0] !== BB.st) BB.t = b[1]; else if (Math.abs(BB.t - b[1]) > 1) BB.t = b[1]; BB.st = b[0]; BB.prog = b[2]; BB.who = b[3] || null; BB.help = {}; for (const id in b[4]) BB.help[id] = { carry: !!b[4][id][0], nails: b[4][id][1] }; }
+function bbReset() { BB.st = 'ok'; BB.t = 0; BB.prog = 0; BB.byPl = 0; BB.byNpc = 0; BB.askT = 0; BB.help = {}; BB.who = null; BB.heat = 0; BB.mmT = 0; if (BB.ruin) bbApply(); for (const n of NPC.list) n.bbPh = null; }
+
+/* ================================================================
+   THE SNIPER (Nov 2026): Alexandre's taken to the edge of the woods north of the yard with a scoped rifle, "hunting pigs".
+   Stand still somewhere out in the open for a bit, on your own, where he can see you, and you'll see a glint; stay put and
+   he takes the shot. Walk up to him and he's all innocence. Every few minutes he moves to his other spot.
+   The host runs him; his state (and so the glint) goes to everyone with the rest of the NPCs.
+   ================================================================ */
+const SN = { perches: [[120, -70, 0.3], [90, -70, -0.35]], i: 0, moveT: 200, still: new Map(), cd: 4, aim: null, saidT: 0, glint: null, glintT: 8, hitAt: new Map() };
+const snPerch = () => SN.perches[SN.i];
+function snPlace(n) { const [x, z, yaw] = snPerch(); n.pos.set(x, 0, z); n.gy = n.pos.y = standY(x, z); n.yaw = yaw; n.st = 'snPerch'; n.t = 0; }
+function snEye(n, out) { return out.set(n.pos.x, n.pos.y + 1.55, n.pos.z); }
+function snSees(n, x, y, z) { const e = snEye(n, _w3), d = _w4.set(x - e.x, y - e.y, z - e.z), L = d.length(); d.normalize(); return !castHit(e, d, L - 0.7); }
+function snThink(n, dt) {
+  const [px, pz, pyaw] = snPerch(), dP = Math.hypot(px - n.pos.x, pz - n.pos.z); SN.saidT -= dt; SN.cd -= dt; SN.moveT -= dt;
+  const L = plList(), near = plNearest(n.pos.x, n.pos.z, true), dN = near ? Math.hypot(near.pos.x - n.pos.x, near.pos.z - n.pos.z) : 1e9;
+  // who's been standing still, and how long
+  for (const q of L) { let s = SN.still.get(q.id); if (!s) SN.still.set(q.id, s = { x: q.pos.x, z: q.pos.z, t: 0 }); if (Math.hypot(q.pos.x - s.x, q.pos.z - s.z) > 1.0) { s.x = q.pos.x; s.z = q.pos.z; s.t = 0; } else s.t += dt; }
+  // someone's walked right up: he's just a bloke out after a pig
+  if (dN < 7.5) { SN.aim = null; n.st = 'snTalk'; npcFace(n, near.pos.x, near.pos.z, 5, dt); n.sp *= 0.8;
+    if (SN.saidT <= 0) { SN.saidT = 20; const shot = (SN.hitAt.get(near.id) || -1e9) > NPC.t - 120; plWith(near, () => npcSay(n, npcPick(shot ? NPC_L.oops : NPC_L.hunt), 3.2)); } return true; }
+  // on his way to his spot (or the other one)
+  if (dP > 1.0) { SN.aim = null; n.st = 'snMove';
+    if (dP > 50 && npcUnseen(n.pos.x, n.pos.z) && npcUnseen(px, pz)) { npcHop(n, px, pz); return true; }
+    const r = npcGoTo(n, px, pz, dP > 10 ? 2.4 : 1.3, dt); if (r === 'fail' && npcUnseen(px, pz)) npcHop(n, px, pz); return true; }
+  if (n.st !== 'snPerch' && n.st !== 'snAim') { n.st = 'snPerch'; n.t = 0; }
+  n.sp *= 0.6; n.pos.x += (px - n.pos.x) * Math.min(1, dt * 3); n.pos.z += (pz - n.pos.z) * Math.min(1, dt * 3);
+  // time to move on
+  if (SN.moveT <= 0 && !SN.aim && dN > 40) { SN.moveT = 160 + Math.random() * 100; SN.i = (SN.i + 1) % SN.perches.length; return true; }
+  if (SN.aim) { snAim(n, dt); return true; }
+  // looking over the yard; someone out on their own and standing still, in the open: him
+  n.yaw += faAng(pyaw + Math.sin(n.t * 0.15) * 0.5 - n.yaw) * Math.min(1, dt * 0.8);
+  if (SN.cd <= 0 && dN > 25) for (const q of L) {
+    const s = SN.still.get(q.id); if (!s || s.t < 6 || q.dead || q.veh || !(q.mode === 'walk' || q.mode === 'emote') || (q.local && saSitting())) continue;      // (standing about, or dancing; not sat in the tub)
+    const d = Math.hypot(q.pos.x - n.pos.x, q.pos.z - n.pos.z); if (d < 25 || d > 175) continue;
+    if (NPC.list.some(m => m !== n && !m.veh && npcAlive(m) && Math.hypot(m.pos.x - q.pos.x, m.pos.z - q.pos.z) < 14)) continue;      // not with anyone about
+    if (L.some(o => o.id !== q.id && Math.hypot(o.pos.x - q.pos.x, o.pos.z - q.pos.z) < 14)) continue;
+    if (!snSees(n, q.pos.x, q.pos.y + 1.2, q.pos.z)) continue;
+    SN.aim = { id: q.id, t: 0, x: q.pos.x, y: q.pos.y + 1.15, z: q.pos.z }; n.st = 'snAim'; n.t = 0; break; }
+  return true;
+}
+function snAim(n, dt) {
+  const A = SN.aim, q = plById(A.id); if (!q || q.dead || q.veh) { SN.aim = null; n.st = 'snPerch'; return; }
+  A.t += dt; npcFace(n, A.x, A.z, 6, dt); if (A.t < 2.0) return;
+  // the shot: anyone who's stayed put in the open cops it; anyone who's moved gets a puff of dirt by their feet
+  SN.aim = null; SN.cd = 9; n.st = 'snPerch'; const s = SN.still.get(q.id); if (s) s.t = 0;
+  const m = snEye(n, new THREE.Vector3()); m.y += 0.05; const stay = Math.hypot(q.pos.x - A.x, q.pos.z - A.z) < 1.1, clear = snSees(n, q.pos.x, q.pos.y + 1.2, q.pos.z), hit = stay && clear;
+  const tgt = hit ? new THREE.Vector3(q.pos.x, q.pos.y + 1.2, q.pos.z) : new THREE.Vector3(A.x + (Math.random() - 0.5) * 1.5, groundAt(A.x, A.z, A.y + 1, A.y - 2) + 0.05, A.z + (Math.random() - 0.5) * 1.5);
+  if (typeof wpnFlashAt === 'function') wpnFlashAt(m); if (typeof wpnTracer === 'function' && WPN.tracer) wpnTracer(m, tgt);
+  playAt(typeof sndPick === 'function' ? sndPick('g_sniper') : AU.buf.g_sniper, m, 1, 0.97, 110);           // heard right across the farm (not through the local relay)
+  if (MP.on && MP.host) mpSend({ k: 'snd', f: MP.me, p: [mpR(m.x), mpR(m.y), mpR(m.z)], n: 'g_sniper', vol: 1, rate: 0.97, ref: 110 });
+  const dir = new THREE.Vector3().subVectors(tgt, m).normalize();
+  if (hit) { SN.hitAt.set(q.id, NPC.t); const v = [dir.x * 4, 1.5, dir.z * 4];
+    if (q.local) wpnHurt(40, new THREE.Vector3(...v), 'sniper'); else mpSend({ k: 'pdmg', f: MP.me, to: q.id, dmg: 40, v, how: 'sniper' });
+    if (q.local && F.dead <= 0 && !SN.told) { SN.told = 1; toast('Shot from the scrub on the hill. Don’t stand about in the open', 2.8); } }
+  else { if (typeof dustBurst === 'function') dustBurst(tgt, 4, 0.5); sfx('g_ric', tgt, 0.8, 0.9 + Math.random() * 0.2, 14); }
+}
+// everyone: his rifle in his hands, and the glint off the scope when he's looking your way through it
+function snVisual(dt) {
+  const n = NPC.list.find(m => m.sniper); if (!n) return;
+  if (!n.gun && typeof wpnHold === 'function') { n.gun = {}; wpnHold(n.P, 'sniper', n.gun); }
+  if (!SN.glint) {          // a flash off the scope: a white-hot star with a warm halo (it has to show against the sky as well as the scrub)
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.18, 'rgba(255,248,210,1)'); gr.addColorStop(0.45, 'rgba(255,190,60,0.55)'); gr.addColorStop(1, 'rgba(255,150,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    g.fillStyle = 'rgba(255,255,240,0.9)'; g.fillRect(30, 2, 4, 60); g.fillRect(2, 30, 60, 4);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    SN.glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false })); SN.glint.renderOrder = 11; SN.glint.visible = false; scene.add(SN.glint); }
+  SN.glintT -= dt; const aim = n.st === 'snAim', twinkle = n.st === 'snPerch' && SN.glintT < 0.35;
+  if (SN.glintT < 0) SN.glintT = 14 + Math.random() * 12;
+  const show = (aim || twinkle) && n.root.visible && n.gun && n.gun.g; SN.glint.visible = !!show;
+  if (show) { n.gun.g.updateWorldMatrix(true, true); n.gun.g.localToWorld(SN.glint.position.set(0, 0.06, 0.25)); const d = camera.position.distanceTo(SN.glint.position);
+    const s = Math.max(0.4, d * 0.022) * (aim ? 0.75 + 0.55 * Math.abs(Math.sin(NPC.t * 11)) : 0.55); SN.glint.scale.set(s, s, 1); SN.glint.material.opacity = aim ? 1 : 0.7; }
+}
+// standing with the rifle shouldered (or across him, looking about); walking with it low; chatting with it pointed at the dirt
+function snPoseHook(n, Q) {
+  if (n.st === 'snAim') { Q.hipL = -0.15; Q.hipR = 0.2; Q.kneeL = 0.15; Q.kneeR = 0.1; Q.shRx = -1.55; Q.shRz = -0.12; Q.elR = -0.08; Q.shLx = -1.45; Q.shLz = -0.55; Q.elL = -0.55; Q.torsoY = 0.15; Q.headX = 0.05; Q.headY = 0; }
+  else if (n.st === 'snPerch') { Q.shRx = -0.9; Q.shRz = -0.15; Q.elR = -0.7; Q.shLx = -1.1; Q.shLz = -0.4; Q.elL = -0.9; Q.torsoY = 0.1; Q.headY = Math.sin(NPC.t * 0.4) * 0.35; }       // rifle across him at the ready, looking about
+  else if (n.st === 'snMove') { Q.shRx = -0.55; Q.shRz = -0.1; Q.elR = -0.9; Q.shLx = -0.75; Q.shLz = -0.35; Q.elL = -0.9; }
+  else if (n.st === 'snTalk') { Q.shRx = 0.15; Q.elR = -0.35; Q.shLx = -0.2; Q.elL = -0.6; Q.headY = Math.sin(NPC.t * 1.3) * 0.15; }
+}
+function snReset() { SN.aim = null; SN.cd = 4; SN.still.clear(); SN.moveT = 200; SN.i = 0; const n = NPC.list.find(m => m.sniper); if (n) snPlace(n); }
+
 /* ================================================================
    THE SAUNA (Nov 2026): the black tent-sauna lump on the pad east of the dongas, rebuilt as a little timber sauna
    you can walk into: two-tier bench, wood stove with a basket of rocks, steam, a thermometer, and an old bathtub of
@@ -12474,7 +12852,7 @@ try { const v = JSON.parse(localStorage.getItem('wfy.sauna') || '{}'); SA.best =
 // the sauna's local frame: built facing +z, turned round so the door faces north onto the breezeway's east end
 const saW = (lx, lz) => { const c = Math.cos(SA.yaw); return [SA.x + c * lx, SA.z + c * lz]; };
 function saInside(p) { return !!SA.root && Math.abs(p.x - SA.x) < SA.W / 2 - 0.08 && Math.abs(p.z - SA.z) < SA.D / 2 - 0.06 && p.y > SA.gy - 0.3 && p.y < SA.gy + 1.6; }
-const saDoorOut = () => saW(-0.55, SA.D / 2 + 1.0), saDoorIn = () => saW(-0.55, SA.D / 2 - 0.45), saSeat = (k) => saW(k ? 0.45 : -0.35, -SA.D / 2 + 0.42);
+const saDoorOut = () => saW(-0.55, SA.D / 2 + 1.0), saDoorIn = () => saW(-0.55, SA.D / 2 - 0.45), saSeat = (k) => saW(k ? 0.55 : -0.45, -SA.D / 2 + 0.42);
 const saFeel = () => SA.temp + SA.steam * 16;
 // on foot to the sauna door (it faces north, at the breezeway's east end): through the breezeway, never through the rooms
 function saVia(px, pz) {
@@ -12688,6 +13066,8 @@ function dmThink(n, dt) {
 // fights and hurts from the shared code come through npcSay with the backpackers' French: give him his own
 function dmSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) dmSay(n, m, 2.6); return; } }
 function dmPoseHook(n, Q) {
+  if (n.st === 'saSit' && activeName === 'foot' && saInside(F.pos)) { const rel = faAng(Math.atan2(F.pos.x - n.pos.x, F.pos.z - n.pos.z) - n.yaw), a = THREE.MathUtils.clamp(rel, -1.5, 1.5);       // on the bench with you: he turns to look at you
+    Q.headY = a * 0.7; Q.torsoY = a * 0.3; }
   if (n.st === 'dmWood' && DM.wood && (DM.wood.ph === 'lift' || DM.wood.ph === 'carry')) {          // the log up on his right shoulder, a hand steadying it
     if (DM.wood.ph === 'lift') { const k = Math.min(1, DM.wood.t / 0.6); Q.shLx = Q.shRx = -0.6 - 2.0 * k; Q.elL = Q.elR = -1.4 * k; Q.torsoX = 0.4 * (1 - k); Q.kneeL = Q.kneeR = 0.6 * (1 - k); Q.hipL = Q.hipR = -0.5 * (1 - k); }
     else { Q.shRx = -2.75; Q.shRz = -0.3; Q.elR = -1.75; Q.torsoX = 0.05; } return; }
@@ -12973,11 +13353,11 @@ function wlStep(dt) {
   WL.blockAxe.visible = !(q && ['chop', 'fell', 'drag', 'split'].includes(q.step));
   // your swing lands
   if (WL.hitIn > 0) { WL.hitIn -= dt; if (WL.hitIn <= 0) { const a = WL.hitA, qual = WL.hitQ;
-    if (a === 'free') wlFreeHit(); else if (mpwCli()) mpwSendAct('sa:' + a, qual); else if (a === 'chop') wlChop(qual); else wlSplit(qual); } }
+    if (a === 'free') wlFreeHit(); else if (a === 'nail') bbNailLand(qual); else if (mpwCli()) mpwSendAct('sa:' + a, qual); else if (a === 'chop') wlChop(qual); else wlSplit(qual); } }
   // the timing bar, when there's something to swing at
-  const tg = wlSwingTarget(); if (tg || WL.meter) wlMeterUI();
+  const tg = wlSwingTarget() || bbNailTarget(); if (tg || WL.meter) wlMeterUI();
   if (WL.meter) { const show = !!tg; WL.meter.classList.toggle('show', show);
-    if (show) { WL.speed = tg.kind === 'split' ? 5.6 : 4.4; WL.meter.querySelector('b').style.left = (wlMark() * 100).toFixed(1) + '%'; const s = tg.kind === 'split' ? 'Split: hit the green' : 'Chop: hit the green'; if (WL.meterTxt !== s) { WL.meterTxt = s; WL.meter.querySelector('span').textContent = s; } } }
+    if (show) { WL.speed = tg.kind === 'split' ? 5.6 : tg.kind === 'nail' ? 5.0 : 4.4; WL.meter.querySelector('b').style.left = (wlMark() * 100).toFixed(1) + '%'; const s = tg.kind === 'split' ? 'Split: hit the green' : tg.kind === 'nail' ? 'Nail: hit the green' : 'Chop: hit the green'; if (WL.meterTxt !== s) { WL.meterTxt = s; WL.meter.querySelector('span').textContent = s; } } }
 }
 // slower on your feet with a log in tow
 function wlSlow() { const q = wlMine(); return q && q.drag ? 0.7 : 99; }
@@ -13302,6 +13682,7 @@ const MM_L = {
   calm: ["Righto. We’re square. Don’t touch me ute again.", "Fair enough. Water under the bridge, eh."],
   hurt: ["Ow! Ya bastard!", "Strewth!", "Fuck me dead, that hurt!"],
   win: ["Ha! Don’t mess with the ute.", "Stay down, ya galah."],
+  bunkFire: ["Strewth! The bunks are goin’ up!", "Fuck me dead, who shot the gas bottle?"],
   ko: ["Cheap shot...", "Strewth... me head..."],
   wreck: ["ME UTE! You’ve wrecked me bloody ute!", "Fuck me dead... she’s cooked."],
   fixed: ["Mate’s towed her back and patched her up. No thanks to you."],
@@ -14236,6 +14617,7 @@ const MH_L = {
   gone: ["They’ve bolted. Dogs, in! Next mob."],
   win: ["That’s five! Beers on me. Home we go.", "Ripper hunt, mate. Back to the dongas."],
   timeout: ["Yeah nah, they’ve gone to ground. Home time."],
+  ammo: ["Outta rounds? Righto, home we go.", "That’s the lot? Back to the dongas then.", "Empty? Strewth. Home, then."],
   quit: ["Fine, walk then!"],
   soloGo: ["Righto. Back in a bit. Don’t touch anything."],
   soloBack: ["Got {n} of the buggers. Dogs did all the work."],
@@ -14284,7 +14666,7 @@ function drvPath(x0, z0, x1, z1) {
 }
 // effective shooting band from the passenger window for the gun in hand (not max range): shotgun close, rifles further
 function mhRange() { const w = typeof WPN !== 'undefined' ? WPN.cur : null;
-  return w === 'shotgun' ? [9, 16] : w === 'pistol' ? [10, 18] : w === 'sniper' ? [14, 26] : [12, 24]; }
+  return w === 'shotgun' ? [6, 10] : w === 'pistol' ? [6, 11] : w === 'sniper' ? [10, 18] : [7, 12]; }        // close in: the ute doesn't spook them, the first shot does
 function mhMobPigs(m, R) { const st = VEH.ute.state; if (m && m.G) { const own = FA.pigs.filter(a => a.st !== 'down' && a.st !== 'tumble' && m.members.some(x => x.a === a)); if (own.length) return own; }
   return FA.pigs.filter(a => a.st !== 'down' && a.st !== 'tumble' && Math.hypot(a.pos.x - st.pos.x, a.pos.z - st.pos.z) < (R || 75)); }
 function mhPigC(pigs) { let x = 0, z = 0; for (const a of pigs) { x += a.pos.x; z += a.pos.z; } return [x / pigs.length, z / pigs.length]; }
@@ -14300,7 +14682,7 @@ function drvSpotNear(x, z, rMin, rMax, fromX, fromZ, noLos) {
     // heading that puts the pigs out the passenger (left) window, and a run-up point 10 m back along it
     const yaw = Math.atan2(x - px, z - pz) - Math.PI / 2, ax = px - Math.sin(yaw) * 10, az = pz - Math.cos(yaw) * 10;
     if (!drvOkXZ(ax, az) || !drvLOS(ax, az, px, pz)) continue;
-    const sc = Math.hypot(ax - fromX, az - fromZ) + drvClear(i, j) * 6 + Math.abs(r - (rMin + rMax) / 2) * 0.8; if (sc >= bs) continue;
+    const sc = Math.hypot(ax - fromX, az - fromZ) + drvClear(i, j) * 6 + Math.abs(r - (rMin + rMax) / 2) * 0.8 + r * 2; if (sc >= bs) continue;      // (closer to the pigs wins, unless it's a long way round)
     // you have to be able to see the pigs from the passenger window
     const gy = groundAt(px, pz, 30, 0), ty = groundAt(x, z, 30, 0) + 0.5, o = _w1.set(px, gy + 1.9, pz), dv = _w2.set(x - px, ty - gy - 1.9, z - pz), L = dv.length(); dv.normalize();
     if (!noLos && castHit(o, dv, L - 2)) continue; bs = sc; best = [px, pz, ax, az, yaw]; }
@@ -14416,7 +14798,9 @@ function mhSeatPlayer() {
   const guns = ['rifle', 'shotgun', 'sniper', 'pistol', 'minigun'], have = guns.find(i => WPN.owned[i]);
   if (!have) { wpnTake('rifle'); mhSay('gun', true); }
   else if ((WPN.ammo[have] || 0) + (WPN.mag[have] || 0) < 40 && have === 'rifle') WPN.ammo.rifle = Math.max(WPN.ammo.rifle || 0, 120);
-  const pick = WPN.cur && WEAPONS[WPN.cur].kind === 'gun' ? WPN.cur : (have || 'rifle'); wpnSelect(pick);
+  if (mhDry()) { wpnTake('rifle'); WPN.ammo.rifle = Math.max(WPN.ammo.rifle || 0, 120); mhSay('gun', true); }          // everything you've got is empty: his spare rifle and a box of rounds
+  const loaded = id => id && WPN.owned[id] && WEAPONS[id].kind === 'gun' && (WPN.ammo[id] || 0) + (WPN.mag[id] || 0) > 0;
+  const pick = [WPN.cur, ...guns].find(loaded) || 'rifle'; wpnSelect(pick);
 }
 function mhUnseat(bail) {
   if (!MH.pax) return; const v = VEH.ute, st = v.state;
@@ -14559,7 +14943,7 @@ function mhMenuState() {
 }
 function mhStartGuided() {
   const st = mhMenuState(); if (st.hunt) { mhSay(st.hunt.startsWith('Dogs') ? 'cooldown' : 'annoyed', true); return false; }
-  DRVX.clear(); MH.navFails = 0; MH.bad = []; MH.blockAt = []; MH.stuckAt = []; Object.assign(MH, { mode: 'guided', ph: 'board', t: 0, tt: 0, kills: 0, left: MH.limit, mob: null, visited: [], nav: null, stopT: 0, bailed: null, said: {}, missT: 0 });
+  DRVX.clear(); MH.navFails = 0; MH.bad = []; MH.blockAt = []; MH.stuckAt = []; Object.assign(MH, { mode: 'guided', ph: 'board', t: 0, tt: 0, kills: 0, left: MH.limit, mob: null, visited: [], nav: null, stopT: 0, bailed: null, said: {}, missT: 0, paxDry: false, dryT: 0 });
   MH.seen = new Set(FA.pigs.filter(a => a.st === 'down'));
   mmMenuClose(); MM.n.st = 'mhBoard'; MM.n.t = 0; MM.idleT = 60;
   if (PX.cur) { MH.paxId = PX.cur.id; mpSend({ k: 'mhSeat', f: MP.me, to: PX.cur.id }); mhSay('start', true); return true; }      // a mate rides shotgun: their phone seats them
@@ -14580,7 +14964,7 @@ function mhPickMob(again) {
   const st = VEH.ute.state; let best = null, bs = 1e9;
   for (const m of PH.mobs) { if (!m.members.length || MH.visited.includes(m) || (MH.bad && MH.bad.includes(m))) continue; const Z = PH_ZONES[m.zi];
     let c = m.G ? m.G.center : [Z[0], Z[1]]; const own = m.G && mhMobPigs(m); if (own && own.length && own[0] && m.members.some(x => x.a === own[0])) c = mhPigC(own);
-    const [r0, r1] = mhRange(), spot = drvSpotNear(c[0], c[1], r0, r1, st.pos.x, st.pos.z) || drvSpotNear(c[0], c[1], Math.max(8, r0 - 2), r1 + 4, st.pos.x, st.pos.z) || (!m.G && drvSpotNear(c[0], c[1], r0, r1, st.pos.x, st.pos.z, true)); if (!spot) continue;
+    const [r0, r1] = mhRange(), spot = drvSpotNear(c[0], c[1], r0, r1, st.pos.x, st.pos.z) || drvSpotNear(c[0], c[1], Math.max(5, r0 - 2), r1 + 4, st.pos.x, st.pos.z) || (!m.G && drvSpotNear(c[0], c[1], r0, r1, st.pos.x, st.pos.z, true)); if (!spot) continue;
     let sc = Math.hypot(c[0] - st.pos.x, c[1] - st.pos.z) - m.members.length * 6;
     if (MH.mode === 'solo') sc = -Math.hypot(c[0] - F.pos.x, c[1] - F.pos.z) + Math.hypot(c[0] - st.pos.x, c[1] - st.pos.z) * 0.3;
     if (sc < bs) { bs = sc; best = { mob: m, spot, c }; } }
@@ -14607,13 +14991,17 @@ function mhDriveThink(n, dt) {
       if (MH.mode === 'guided' && MH.left <= 0) { mhHome('timeout'); return; }
       if (MH.mode === 'solo' && MH.visited.length >= 1 && (MH.soloKills + MH.kills >= 2 || MH.tt > 150 || MH.visited.length >= 2)) { mhHome('solo'); return; }
       const P = mhPickMob(); if (!P) { mhHome(MH.mode === 'solo' ? 'solo' : 'timeout'); return; }
-      MH.mob = P.mob; MH.target = P.c; MH.visited.push(P.mob); MH.repos = 0; MH.reposed = false;
+      MH.mob = P.mob; MH.target = P.c; MH.visited.push(P.mob); MH.repos = 0; MH.reposed = false; MH.retN = 0; MH.retT = 2;
       if (!mhNavTo(P.spot[0], P.spot[1], { via: P.spot[2] !== undefined ? [P.spot[2], P.spot[3]] : null, cruise: MH.mode === 'guided' ? 10 : 10.5 })) { MH.visited.push(P.mob); mmDrive(dt, 0, 0); return; }
       MH.ph = 'drive'; MH.t = 0; if (MH.mode === 'guided') mhSay('drive'); return;
     }
     case 'drive': {
       if (MH.mode === 'guided' && (MH.left <= 0 || MH.kills >= MH.goal)) { mhHome(MH.kills >= MH.goal ? 'win' : 'timeout'); return; }
       if (MH.mode === 'solo' && MH.tt > 200) { mhHome('solo'); return; }
+      // guided: the mob's wandered off from where he was aiming? re-aim on the way in (a few times at most)
+      MH.retT = (MH.retT || 0) - dt;
+      if (MH.mode === 'guided' && MH.retT <= 0 && MH.target) { MH.retT = 2; const pigs = mhMobPigs(MH.mob, 70);
+        if (pigs.length) { const c = mhPigC(pigs); if (Math.hypot(c[0] - MH.target[0], c[1] - MH.target[1]) > 6 && Math.hypot(c[0] - st.pos.x, c[1] - st.pos.z) < 70 && (MH.retN = (MH.retN || 0) + 1) <= 3) { const rp = MH.repos; if (mhRepos(pigs)) MH.repos = rp; return; } } }
       const r = mhNavStep(dt);
       if (r === 'done') { MH.ph = 'side'; MH.t = 0; MH.shuf = null; }
       else if (r === 'fail') { MH.ph = 'pick'; (MH.bad = MH.bad || []).push(MH.mob); const g_ = MH.nav && MH.nav.goal; if (g_) { const [gi, gj] = drvIJ(g_[0], g_[1]); DRVX.add(gj * DRV.NX + gi); } if ((MH.navFails = (MH.navFails || 0) + 1) > 3) mhHome(MH.mode === 'solo' ? 'solo' : 'timeout'); }
@@ -14641,8 +15029,8 @@ function mhDriveThink(n, dt) {
         if (a) { wpnPigShot(a, _w1.set(a.pos.x - mp.x, 0, a.pos.z - mp.z).normalize(), 200, _w2.copy(a.pos).setY(a.pos.y + 0.4)); }
         else if (!MH.mob.G && phCull(MH.mob)) { MH.soloKills++; } } }
       if (MH.mode === 'guided' && near.length) { const [, r1] = mhRange(); MH.chkT = (MH.chkT || 0) - dt;
-        if (MH.chkT <= 0) { MH.chkT = 0.5; const inR = near.filter(a => Math.hypot(a.pos.x - st.pos.x, a.pos.z - st.pos.z) < r1 + 6); MH.inR = inR.length;
-          MH.outT = inR.some(a => a.heldBy || mhWinSees(a, r1 + 6)) ? 0 : (MH.outT || 0) + 0.5; }
+        if (MH.chkT <= 0) { MH.chkT = 0.5; const inR = near.filter(a => Math.hypot(a.pos.x - st.pos.x, a.pos.z - st.pos.z) < r1 + 3); MH.inR = inR.length;
+          MH.outT = inR.some(a => a.heldBy || mhWinSees(a, r1 + 3)) ? 0 : (MH.outT || 0) + 0.5; }
         if (MH.outT > (MH.inR ? 8 : 5)) { MH.outT = 0; if ((MH.repos || 0) < 2 && mhRepos(near)) return; if (MH.stopT > 6 && !MH.inR) { MM.dogs.forEach(mhDogIn); MH.ph = 'load'; MH.t = 0; return; } } }
       const dogsIdle = MM.dogs.every(d => d.mode === 'tray' || d.task === 'return');
       const done = MH.mode === 'solo' ? (MH.stopT > 32 || (MH.mob.G && !near.length && MH.stopT > 6)) : (!near.length || MH.stopT > 40 || (dogsIdle && MH.stopT > 8) || MH.kills >= MH.goal || MH.left <= 0);
@@ -14680,15 +15068,17 @@ function mhDriveThink(n, dt) {
 // pigs out of range or out of sight from the window: find a closer spot with a view and go there (false = nowhere good)
 function mhRepos(pigs) {
   const st = VEH.ute.state, [r0, r1] = mhRange(), c = mhPigC(pigs);
-  const sp = drvSpotNear(c[0], c[1], r0, r1, st.pos.x, st.pos.z) || drvSpotNear(c[0], c[1], Math.max(8, r0 - 2), r1 + 3, st.pos.x, st.pos.z);
+  const sp = drvSpotNear(c[0], c[1], r0, r1, st.pos.x, st.pos.z) || drvSpotNear(c[0], c[1], Math.max(5, r0 - 2), r1 + 3, st.pos.x, st.pos.z);
   if (!sp || Math.hypot(sp[0] - st.pos.x, sp[1] - st.pos.z) < 8) return false;
   if (!mhNavTo(sp[0], sp[1], { via: Math.hypot(sp[2] - st.pos.x, sp[3] - st.pos.z) > 12 ? [sp[2], sp[3]] : null, cruise: 8 })) return false;
   MH.target = c; MH.repos = (MH.repos || 0) + 1; MH.ph = 'drive'; MH.t = 0; return true;
 }
 // head for home; in the passenger seat the trip home is part of it
+// every gun the passenger's got is empty (mag and spare rounds)
+function mhDry() { let any = false; for (const id of WPN_ORDER) { if (!WPN.owned[id] || WEAPONS[id].kind !== 'gun') continue; any = true; if ((WPN.ammo[id] || 0) + (WPN.mag[id] || 0) > 0) return false; } return any; }
 function mhHome(why) {
   MH.endWhy = why; MM.dogs.forEach(mhDogIn);
-  if (why === 'win') mhSay('win', true); else if (why === 'timeout') mhSay('timeout', true);
+  if (why === 'win') mhSay('win', true); else if (why === 'timeout') mhSay('timeout', true); else if (why === 'ammo') mhSay('ammo', true);
   MH.ph = 'loadHome'; MH.t = 0; mhChip(MH.mode === 'guided' && MH.pax);
 }
 function mhGoHome() { MM.pk = null; MH.nav = null; MH.ph = 'home'; MH.t = 0; }      // (mmPark takes it from here: the route back, round, and reversed in)
@@ -14703,7 +15093,7 @@ function mhFinish() {
   else if (mode === 'guided') {
     if (why === 'win') { S_.g++; S_.k += MH.kills; const secs = Math.round(MH.limit - MH.left); if (!S_.best || secs < S_.best) S_.best = secs;
       const got = mhReward(150); toast('Hunt done: ' + MH.kills + ' pigs in ' + fmtT(secs) + (got ? ' · ' + got : ''), 3.4); }
-    else { S_.k += MH.kills; if (MH.kills) { const got = mhReward(40 * MH.kills); toast('Hunt over: ' + MH.kills + ' of ' + MH.goal + ' pigs' + (got ? ' · ' + got : ''), 3); } }
+    else { S_.k += MH.kills; if (MH.kills) { const got = mhReward(40 * MH.kills); toast((why === 'ammo' ? 'Out of rounds. ' : '') + 'Hunt over: ' + MH.kills + ' of ' + MH.goal + ' pigs' + (got ? ' · ' + got : ''), 3); } else if (why === 'ammo') toast('Out of rounds: hunt over', 2.6); }
     MH.cdG = 60;
   } else if (mode === 'solo') {
     const k = MH.soloKills + MH.kills; S_.s++; S_.k += k; mhSay(k ? 'soloBack' : 'soloNone', true, k);
@@ -14754,6 +15144,8 @@ function mhStep(dt) {
     if (MH.mode && v.wrecked) { if (n.veh) mmLeaveUte(false); mhFail('wreck'); }
     if (MH.mode && n.st !== 'drive' && n.st !== 'mhBoard') { mhFail('madman'); if (MH.mode === 'return') mhEnd(); }
     if (MH.mode === 'guided' && (MH.ph === 'stop' || MH.ph === 'side')) MH.left -= dt;     // the clock runs while you're on the pigs, not while he's driving
+    // out of rounds: a moment to be sure (a reload's not running dry), then he calls it and heads home
+    if (MH.mode === 'guided' && ['pick', 'drive', 'side', 'stop', 'load'].includes(MH.ph) && (MH.pax ? mhDry() : MH.paxDry)) { MH.dryT = (MH.dryT || 0) + dt; if (MH.dryT > 1.2) { MH.dryT = 0; mhHome('ammo'); } } else MH.dryT = 0;
     if (MH.mode === 'guided' && MH.tt > 540 && MH.ph !== 'home' && MH.ph !== 'park' && MH.ph !== 'loadHome') MH.left = 0;
     // kills: any pig dropped near the ute during the hunt
     for (const a of FA.pigs) if (a.st === 'down' && !MH.seen.has(a)) { MH.seen.add(a); if (v.state && Math.hypot(a.pos.x - v.state.pos.x, a.pos.z - v.state.pos.z) < 160) { MH.kills++; if (MH.mode === 'guided') mhSay(MH.kills >= MH.goal ? 'win' : 'kill', true); } }
@@ -14943,6 +15335,7 @@ function mpwHostSend(dt) {
       tree: q.tree, qid: q.qid, ts: T ? T.st : 'stand', td: T ? r2(T.dir) : 0, th: T ? Math.round(T.hp) : 0, lg: q.log ? q.log.map(r2) : null, dr: q.drag ? 1 : 0, ca: q.carry ? 1 : 0, sp: q.split || 0, rh: q.roundHp }; }
     o.mh = [MH.mode, MH.ph, MH.kills, MH.goal, r1(MH.left), MH.paxId || '', r1(MH.cdG), r1(MH.cdS)];
     o.mm = [r1(MM.anger), r1(MM.refuseT), r1(MM.hostileT), VEH.ute && VEH.ute.wrecked ? 1 : 0];
+    o.bb = bbNetOut();
     mpSend(o); }
   // the pigs (the ones anybody's near), a bit less often
   MPW.pigT -= dt;
@@ -14971,6 +15364,7 @@ function mpwRecv(m) {
     mpwCliQuestIn(m.sq || null);
     const h = m.mh; Object.assign(MH, { mode: h[0], ph: h[1], kills: h[2], goal: h[3], left: h[4], paxId: h[5] || null, cdG: h[6], cdS: h[7] });
     MM.anger = m.mm[0]; MM.refuseT = m.mm[1]; MM.hostileT = m.mm[2]; if (VEH.ute) VEH.ute.wrecked = !!m.mm[3];
+    bbNetIn(m.bb);
     void hp; return true; }
   if (m.k === 'pg') { mpwPigsIn(m); return true; }
   if (m.k === 'pv') { for (const nm in m.v) { const v = VEH[nm], g = m.v[nm]; if (!v || !v.state || v.npc || v.mp || nm === activeName || SEQ.veh === v || v.coast) continue;
@@ -15024,6 +15418,10 @@ function mpwOnAct(m) {
     else if (a === 'sa:chop') wlChop(m.x); else if (a === 'sa:split') wlSplit(m.x); else if (a === 'sa:drag') wlDrag(true); else if (a === 'sa:drop') wlDrag(false);
     else if (a === 'sa:faint') { if (SA.q && SA.q.who === q.id) saQuestEnd(false, 'faint'); }
     else if (a === 'mh:out') mpwHuntOut(q.id);
+    else if (a === 'bb:hit') bbIgnite();
+    else if (a === 'bb:join' || a === 'bb:grab' || a === 'bb:drop') bbDo(a, q.id);
+    else if (a === 'bb:hit1') bbNail(m.x, q.id);
+    else if (a === 'mh:dry') { if (MH.mode === 'guided' && MH.paxId === q.id) MH.paxDry = true; }
     else if (a === 'npc:kick') { const n = npcByName(m.x); if (n && n.veh && n.st === 'drive' && !n.mm) { sfx('m_punch', n.veh.state.pos, 0.9, 0.8, 8); npcEject(n, 'kick'); toast('Kicked out of the ' + (n.look.name || '') + '’s joyride', 1.6); } }
   }); } finally { MPW.net = false; MPW.sim = simK; }
 }
@@ -15057,7 +15455,7 @@ function mpwCliNpc(dt) {
   spkStep(); const rt = mpwRt();
   for (const n of NPC.list) {
     const s = mpwSample(MPW.buf.get(n.name), rt); if (s) mpwApplyNpc(n, s.a.e, s.b ? s.b.e : null, s.k);
-    const B = n.bub, R = n.root; if (B.time > 0) { B.time -= dt; R.getWorldPosition(_w2); B.sp.position.set(_w2.x, _w2.y + (n.st === 'drive' ? 2.4 : 2.45) * Math.max(1, n.s / 0.9), _w2.z); B.sp.material.opacity = Math.min(1, B.time * 2.5); if (B.time <= 0) B.sp.visible = false; }
+    const B = n.bub, R = n.root; if (B.time > 0) { B.time -= dt; bubPlace(n, B, R); B.sp.material.opacity = Math.min(1, B.time * 2.5); if (B.time <= 0) B.sp.visible = false; }
   }
 }
 function mpwApplyNpc(n, a, b, k) {
@@ -15124,7 +15522,8 @@ function mpwCliHunt(dt) {
   if (!MM.ready) return; const v = VEH.ute;
   if (MH.pax) { if (!MH.mode) { mhUnseat(false); mhChip(false); document.body.classList.remove('pax'); return; }
     F.speedH = 0; const body = v.model.body; body.updateMatrixWorld(true); body.localToWorld(F.pos.set(UTE_RIG.passenger.x, UTE_RIG.passenger.hip - 0.6, UTE_RIG.passenger.z)); document.body.classList.add('pax');
-    if (F.dead > 0) { mhUnseat(true); mhChip(false); document.body.classList.remove('pax'); mpwSendAct('mh:out'); } }
+    if (F.dead > 0) { mhUnseat(true); mhChip(false); document.body.classList.remove('pax'); mpwSendAct('mh:out'); }
+    if (mhDry()) { if (!MH.drySent) { MH.drySent = true; mpwSendAct('mh:dry'); } } else MH.drySent = false; }
   mhChipStep();
   if (MH.fadeT > 0) { MH.fadeT -= dt; if (MH.fade) MH.fade.style.opacity = String(Math.min(1, MH.fadeT * 2)); }
 }
@@ -15205,7 +15604,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
