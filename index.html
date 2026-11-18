@@ -2249,6 +2249,7 @@ function setupWorld(root, parser) {
   funInit(); buildPins(); buildSprayFX(); teleApply(); syncThrottle();
   resetAll();
   window.__game.ready = true;
+  if (creatorWanted()) creatorOpen();
   window.__game.info = { tilt, upAxis: 'xyz'[axis] + (up.getComponent(axis) > 0 ? '+' : '-'), tiles: world.children.length, tris: merged.index.count / 3 };
 }
 
@@ -10700,7 +10701,7 @@ function lookUIBuild() {
     }
     body.appendChild(row);
   }
-  const close = () => lookUIOpen(false);
+  const close = () => { if (CRE.on) creatorDone(); else lookUIOpen(false); };
   $('lookX').addEventListener('click', close); $('lookOk').addEventListener('click', close);
   $('lookRst').addEventListener('click', () => { lookSet(Object.assign({}, LOOK_DEFAULT), true); lookUIFill(); });
   $('lookRnd').addEventListener('click', () => {
@@ -10719,6 +10720,22 @@ function lookUIFill() {
 function lookUIOpen(on) {
   lookUIBuild(); LKUI.on = on; $('lookSheet').classList.toggle('show', on);
   if (on) { lookUIFill(); LKUI.ang = 0.5; } else { camera.clearViewOffset(); lookSave(); camInit = false; }
+}
+/* ---------- before you start: make your character (the look sheet, full screen of the yard behind it), then into the dunny ---------- */
+const CRE = { on: false, spot: null };
+// (skipped for automated runs, so the test scripts drive the game as before; ?creator=1 or ?creator=0 to force it either way)
+function creatorWanted() { try { const q = new URLSearchParams(location.search); if (q.has('creator')) return q.get('creator') !== '0'; } catch (_) {} return !navigator.webdriver; }
+function creatorOpen() {
+  CRE.on = true; document.body.classList.add('creator');
+  if (!CRE.css) { CRE.css = document.createElement('style'); CRE.css.textContent = 'body.creator .ui,body.creator #toast,body.creator #minimap,body.creator #stick,body.creator #stickZone,body.creator #stickR,body.creator #stickZoneR,body.creator #lookZone,body.creator #jump,body.creator #act,body.creator #topright,body.creator #speedo,body.creator .mBtn{display:none!important}body.creator #lookX{display:none}body.creator #lookSheet .lh h2::after{content:""}'; document.head.appendChild(CRE.css); }
+  // out in the open south of the dunny, room for the camera to swing round you
+  const x = 189.0, z = 45.0; CRE.spot = [x, z]; standFarmerAt({ x, y: groundAt(x, z, 3, -1), z }, -Math.PI / 2);
+  lookUIOpen(true); const h = document.querySelector('#lookSheet h2'); if (h) h.textContent = 'Make your character'; const ok = $('lookOk'); if (ok) { CRE.okTxt = ok.textContent; ok.textContent = 'Let’s go'; }
+}
+function creatorDone() {
+  CRE.on = false; document.body.classList.remove('creator'); lookUIOpen(false);
+  const hd = document.querySelector('#lookSheet h2'); if (hd) hd.textContent = 'Customise Dazza'; const ok = $('lookOk'); if (ok && CRE.okTxt) ok.textContent = CRE.okTxt;
+  const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); camYawF = h.yaw; camPitchF = 0.25; camInit = false; DN.doorA = 1; DN.creakT = 3;          // and you wake up in the dunny, door open
 }
 // the camera swings round to the front of Dazza while the sheet is open
 function lookCamStep(dt) {
@@ -12861,7 +12878,7 @@ function snThink(n, dt) {
   // looking over the yard; someone out on their own and standing still, in the open: him
   n.yaw += faAng(pyaw + Math.sin(n.t * 0.15) * 0.5 - n.yaw) * Math.min(1, dt * 0.8);
   if (SN.cd <= 0 && dN > 25) for (const q of L) {
-    const s = SN.still.get(q.id); if (!s || s.t < 6 || q.dead || q.veh || !(q.mode === 'walk' || q.mode === 'emote') || (q.local && saSitting())) continue;      // (standing about, or dancing; not sat in the tub)
+    const s = SN.still.get(q.id); if (!s || s.t < 6 || q.dead || q.veh || !(q.mode === 'walk' || q.mode === 'emote') || (q.local && (saSitting() || CRE.on))) continue;      // (standing about, or dancing; not sat in the tub)
     const d = Math.hypot(q.pos.x - n.pos.x, q.pos.z - n.pos.z); if (d < 25 || d > 175) continue;
     if (NPC.list.some(m => m !== n && !m.veh && npcAlive(m) && Math.hypot(m.pos.x - q.pos.x, m.pos.z - q.pos.z) < 14)) continue;      // not with anyone about
     if (L.some(o => o.id !== q.id && Math.hypot(o.pos.x - q.pos.x, o.pos.z - q.pos.z) < 14)) continue;
@@ -13969,7 +13986,7 @@ function mmThink(n, dt) {
 function mmChatter(n, dt, dP) {
   const near = dP < 9, onFoot = activeName === 'foot';
   if (dP > 28) MM.away = true;
-  if (!MM.told.intro && dP < 14 && onFoot) { MM.told.intro = 1; MM.away = false; mmSay('intro', 4.5, true); toast('Walk up to Madman and tap Talk to Madman', 2.6); return; }
+  if (!MM.told.intro && dP < 14 && onFoot) { MM.told.intro = 1; MM.away = false; mmSay('intro', 4.5, true); return; }
   if (MM.away && near && onFoot && MM.anger < 30) { MM.away = false; mmSay('greet', 2.4); for (const d of MM.dogs) d.wag = 4; return; }
   if (MM.away && near && MM.anger >= 30) { MM.away = false; mmSay('annoyed'); return; }
   // pigs wandering past
@@ -15678,7 +15695,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { CRE, creatorOpen, creatorDone, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
