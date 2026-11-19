@@ -14230,26 +14230,38 @@ function mmLeaveRide(n) {
   n.st = activeName === 'ute' ? 'toDoor' : MM.hostileT > 0 && n.angry ? 'chase' : 'home';
   if (typeof sfx === 'function' && st) sfx('thud', st.pos, 0.25, 1.2, 6);
 }
-// at the wheel of it: straight at you when there's a clear run, otherwise the route round the sheds; rams you if you keep going,
-// and once you've all but stopped he's out the door to drag you out by hand
+// how far apart two machines' footprints are (below zero: into each other)
+function obbGap(a, b) { const dx = b.cx - a.cx, dz = b.cz - a.cz; let g = -1e9;
+  for (const [ax, az] of [[a.fx, a.fz], [a.lx, a.lz], [b.fx, b.fz], [b.lx, b.lz]]) { const ra = a.hl * Math.abs(a.fx * ax + a.fz * az) + a.hw * Math.abs(a.lx * ax + a.lz * az), rb = b.hl * Math.abs(b.fx * ax + b.fz * az) + b.hw * Math.abs(b.lx * ax + b.lz * az); g = Math.max(g, Math.abs(dx * ax + dz * az) - ra - rb); }
+  return g; }
+// at the wheel of it: straight at you when there's a clear run, otherwise the route round the sheds; rams you if you keep going (backs off and comes again),
+// rams you if you've pulled up too, and once he's put it into you and you've all but stopped he's out the door to drag you out by hand
 function mmPursue(n, dt) {
   const r = n.veh, st = r.state, P = MM.pur, D = WPN.VD[r.name];
   if (!st || !P || (D && D.wrecked) || r.mp) { mmLeaveRide(n); return; }
   n.pos.copy(st.pos);                                    // so shots and blasts still find him
   const sp = st.v, stop = () => npcDrive(r, dt, Math.abs(sp) > 0.3 ? -Math.sign(sp) * 0.8 : 0, 0);
   if (activeName !== 'ute') { stop(); if (Math.abs(sp) < 1.2) mmLeaveRide(n); return; }
-  const U = mmUteSt(), usp = Math.hypot(U.vx || 0, U.vz || 0), d = Math.hypot(U.pos.x - st.pos.x, U.pos.z - st.pos.z);
-  if (d < 9 && usp < 2.5) { stop(); if (Math.abs(sp) < 1.5) mmLeaveRide(n); return; }
+  const U = mmUteSt(), usp = Math.hypot(U.vx || 0, U.vz || 0), d = Math.hypot(U.pos.x - st.pos.x, U.pos.z - st.pos.z), oR = vehicleOBB(r), oU = vehicleOBB(VEH.ute);
+  // he's hit you (the bang itself is the two machines meeting: dents, damage and the shove)
+  if (oR && oU && obbGap(oR, oU) < 0.15 && !(MM.t - (P.hitAt || -1e9) < 1.2)) { P.hitAt = MM.t; P.hits = (P.hits || 0) + 1; P.ramT = 0; camShake = Math.max(camShake, Math.min(0.7, 0.25 + Math.abs(sp) * 0.04)); if (P.hits === 1 || Math.random() < 0.35) { P.sayT = 6 + Math.random() * 4; mmSay('pursue', 2.4, true); } }
+  if (usp < 2.5 && MM.t - (P.hitAt || -1e9) < 4) { stop(); if (Math.abs(sp) < 1.5) mmLeaveRide(n); return; }     // just hit you and you're stopped: out he gets
+  // you've pulled up: he doesn't stop short, he puts it into you first (stuck trying for a while, he leaves it and walks over)
+  const ram = usp < 2.5 && d < 25; P.ramT = ram ? (P.ramT || 0) + dt : 0;
+  if (ram && P.ramT > 8) { stop(); if (Math.abs(sp) < 1.5) { P.ramT = 0; mmLeaveRide(n); } return; }
   P.sayT -= dt; if (P.sayT <= 0) { P.sayT = 7 + Math.random() * 6; if (d < 45) mmSay('pursue', 2.4, true); }
   if (P.recT > 0) { P.recT -= dt; npcDrive(r, dt, -0.7, P.recStr); if (P.recT <= 0) P.fwdT = 3; return; }                 // backing out of whatever he's run into
   P.fwdT = (P.fwdT || 0) - dt;
   P.planT -= dt; if (P.planT <= 0) { P.planT = 0.8; P.pts = d < 10 || drvLOS(st.pos.x, st.pos.z, U.pos.x, U.pos.z) ? null : drvPath(st.pos.x, st.pos.z, U.pos.x, U.pos.z); P.i = 1; }
   let tx, tz;
   if (P.pts && P.pts.length > 1) { const Q = P.pts; while (P.i < Q.length - 1 && Math.hypot(Q[P.i][0] - st.pos.x, Q[P.i][1] - st.pos.z) < 6) P.i++; [tx, tz] = Q[P.i]; }
+  else if (ram && oU) { tx = oU.cx; tz = oU.cz; }                         // pulled up: straight into the middle of it
   else { const k = Math.min(1.5, d / 14); tx = U.pos.x + (U.vx || 0) * k; tz = U.pos.z + (U.vz || 0) * k; }
   const e = faAng(Math.atan2(tx - st.pos.x, tz - st.pos.z) - st.yaw);
+  if (ram && Math.abs(e) > 2 && d < 7) { npcDrive(r, dt, -0.9, 0); return; }                                          // right behind him: backs into it
   if (Math.abs(e) > 2 && Math.abs(sp) < 2 && d > 6 && P.fwdT <= 0) { P.recT = 1.4; P.recStr = Math.sign(e) || 1; return; }          // you're behind him: swing it round
-  let vt = Math.min(r.spec.top * 0.85, 24, 7 + d * 0.45 + usp * 0.9) * (1 - Math.min(0.72, Math.max(0, Math.abs(e) - 0.2) / 1.3)); if (P.pts) vt = Math.min(vt, 13);
+  let vt = Math.min(r.spec.top * 0.85, Math.max(24, usp + 7), 7 + d * 0.45 + usp * 0.9) * (1 - Math.min(0.72, Math.max(0, Math.abs(e) - 0.2) / 1.3)); if (P.pts) vt = Math.min(vt, 13);     // (quicker than you, so he does catch up)
+  if (ram) vt = THREE.MathUtils.clamp(4 + d * 0.7, 6, 11) * (Math.abs(e) > 0.9 ? 0.6 : 1);                      // a proper hit, not a write-off
   const want = THREE.MathUtils.clamp(-e * 1.7 / (1 + Math.abs(sp) * 0.07), -1, 1); P.str += (want - P.str) * Math.min(1, dt * 5);
   const thr = sp < vt - 0.3 ? THREE.MathUtils.clamp(0.5 + (vt - sp) * 0.3, 0, 1) : sp > vt + 1 ? -Math.min(1, 0.3 + (sp - vt) * 0.25) : 0.1;
   if (thr > 0.2 && Math.abs(sp) < 0.5) P.stuckT += dt; else P.stuckT = Math.max(0, P.stuckT - dt * 2);
