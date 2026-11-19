@@ -11248,6 +11248,9 @@ function npcThink(n, dt) {
     else if (n.atkPh === 'hit') { if (n.t > 0.25) { n.atkPh = ''; n.atk = 0.5 + Math.random() * 0.5; } }
     return;
   }
+  // the bunks going up: everyone looks
+  if (!n.sniper && bbWatchOn() && (n.st === 'wander' || n.st === 'toVeh' || n.st === 'bbWatch') && bbWatchNpc(n, dt, 'fr')) return;
+  if (n.st === 'bbWatch') { n.st = 'wander'; n.route = null; }
   // Alexandre on the hill; whoever's rebuilding the bunks
   if (n.sniper && (n.st === 'wander' || n.st === 'toVeh' || n.st.startsWith('sn'))) { snThink(n, dt); return; }
   if (bbBuilder(n) && (n.st === 'wander' || n.st === 'toVeh' || n.st.startsWith('bb'))) { n.veh = null; bbBuildThink(n, dt); return; }
@@ -11315,7 +11318,7 @@ function npcPose(n, dt) {
       shLx = s * (0.45 + run * 0.6); shRx = -s * (0.45 + run * 0.6); elL = elR = -0.3 - run * 0.9; bodyY += Math.abs(c) * (0.035 + run * 0.06); torsoX = 0.05 + run * 0.2; torsoY = -s * 0.12;
     } else { headY = Math.sin(NPC.t * 0.4 + n.ph) * 0.3; }
   }
-  if (n.mm || n.dima || n.sniper || n.st.startsWith('bb')) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.mm ? mmPoseHook(n, Q, dt) : n.dima ? dmPoseHook(n, Q) : n.sniper ? snPoseHook(n, Q) : bbPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
+  if (n.mm || n.dima || n.sniper || n.st.startsWith('bb')) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.st === 'bbWatch' || n.st === 'mmWatch' || n.st === 'dmWatch' ? bbWatchPose(n, Q) : n.mm ? mmPoseHook(n, Q, dt) : n.dima ? dmPoseHook(n, Q) : n.sniper ? snPoseHook(n, Q) : bbPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
   const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
   lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
   lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
@@ -12592,8 +12595,27 @@ function bbBoom() {
   const P = bbBottleP(new THREE.Vector3()); P.y += 0.15; BB.st = 'fire'; BB.t = 0; BB.heat = 0; BB.mmT = 3.2;
   NPC.calmBlast = true; if (MM.ready) MM.calmT = MM.t + 5; try { wpnBoom(P, 6.5, 1); } finally { NPC.calmBlast = false; }       // (everyone sees it, anyone close gets thrown about; nobody blames you for it)
   bbToastAll('The gas bottle’s gone up. The bunks are on fire!', 2.8);
-  const fr = NPC.list.filter(n => !n.mm && !n.dima && !n.sniper && !n.veh && npcAlive(n)).sort((a, b) => a.pos.distanceTo(P) - b.pos.distanceTo(P));
-  if (fr[0] && fr[0].pos.distanceTo(P) < 60) npcSay(fr[0], npcPick(NPC_L.fire), 3);
+  BB.barkT = 0.8;
+}
+// everyone comes to see it go: the backpackers run clear and stand there hands on heads, Madman and Dima wander over hands on
+// hips (nobody blames you, but nobody misses it either); the dogs go off in the tray
+const BB_WATCH = [[161.5, 41.5], [162.5, 36.0], [169.5, 31.5], [176.5, 31.5], [160.5, 47.2], [178.5, 35.5], [179.3, 46.9]];       // (the last: Dima's, in the breezeway across from the bunks' front)
+const bbWatchOn = () => BB.st === 'fire' || (BB.st === 'ruin' && BB.t < 5);
+function bbWatchNpc(n, dt, who) {
+  if (!n.bbW) { const used = new Set(NPC.list.filter(m => m !== n && m.bbW).map(m => m.bbW.k)); let best = 0, bd = 1e9;
+    BB_WATCH.forEach(([x, z], k) => { if (used.has(k) || (k === 6) !== (who === 'dm')) return; const d = Math.hypot(x - n.pos.x, z - n.pos.z); if (d < bd) { bd = d; best = k; } });
+    n.bbW = { k: best, said: who !== 'fr', sayT: 0.4 + Math.random() * 3.2, far: bd > 70 }; }
+  const W = n.bbW, [x, z] = BB_WATCH[W.k], d = Math.hypot(x - n.pos.x, z - n.pos.z), st = who === 'mm' ? 'mmWatch' : who === 'dm' ? 'dmWatch' : 'bbWatch';
+  W.sayT -= dt; if (!W.said && W.sayT <= 0) { W.said = true; npcSay(n, npcPick(NPC_L.fire), 3); }
+  if (W.far) return false;                                                  // (miles off: carry on)
+  n.st = st;
+  if (d > 1.0) { const sp = BB.st === 'fire' && BB.t < 8 ? (who === 'fr' ? 3.4 : 2.6) : 1.5;
+    if (who === 'mm') mmRun(n, x, z, sp, dt); else if (npcGoTo(n, x, z, sp, dt) === 'fail' && npcUnseen(n.pos.x, n.pos.z)) npcHop(n, x, z); return true; }
+  n.sp *= 0.8; const U = bbU(); npcFace(n, U.x, U.z, 3, dt); return true;
+}
+function bbWatchPose(n, Q) {
+  if (n.st === 'bbWatch') { const w = Math.sin(NPC.t * 2 + n.ph) * 0.08; Q.shLx = -2.7 + w; Q.shRx = -2.7 - w; Q.shLz = 0.55; Q.shRz = -0.55; Q.elL = -2.1; Q.elR = -2.1; Q.headX = -0.1; }       // hands on head
+  else { Q.shLx = -0.25; Q.shRx = -0.25; Q.shLz = 0.95; Q.shRz = -0.95; Q.elL = -1.9; Q.elR = -1.9; Q.headY = Math.sin(NPC.t * 0.5 + n.ph) * 0.15; }                            // hands on hips
 }
 
 /* ---------- what it looks like: the fire, the char, the ruin, the build ---------- */
@@ -12701,6 +12723,8 @@ function bbStep(dt) {
     if (BB.st === 'build' && BB.prog >= BB.N) bbDone();
     if (BB.mmT > 0) { BB.mmT -= dt; if (BB.mmT <= 0) { if (MM.n && npcAlive(MM.n) && !MM.n.veh && MM.n.pos.distanceTo(DG.root.position) < 60) mmSay('bunkFire', 3, true); if (DM.n && npcAlive(DM.n) && !DM.n.veh) setTimeout(() => { if (BB.st === 'fire' || BB.st === 'ruin') dmSay(DM.n, 'fire', 3); }, 4200); } }
     for (const id of Object.keys(BB.help)) if (id !== MP.me && !plById(id)) delete BB.help[id];     // (gone from the game)
+    if (bbWatchOn()) { BB.barkT = (BB.barkT || 0) - dt; if (BB.barkT <= 0 && MM.ready && MM.dogs.length && typeof mmBarkSfx === 'function') { BB.barkT = 1.1 + Math.random() * 2.2; const dg = MM.dogs[Math.floor(Math.random() * MM.dogs.length)]; dg.M.root.getWorldPosition(_w1); mmBarkSfx(dg.i, _w1.setY(_w1.y + 0.6), 1); dg.alert = 3; } }
+    else for (const m of NPC.list) if (m.bbW) m.bbW = null;
   } else BB.t += dt;
   bbApply();
   // the fire itself: up for 6 s, roaring, then dying down; embers and smoke for a while after
@@ -13155,6 +13179,7 @@ function dmThink(n, dt) {
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (n.st === 'dmDogs' && dmDogs(n, dt)) return;
   if (dmWood(n, dt)) return;
+  if (bbWatchOn() && (n.st === 'home' || n.st === 'dmWatch') && bbWatchNpc(n, dt, 'dm')) return;          // the bunks next door going up: he comes out to watch
   if (n.st !== 'home') { n.st = 'home'; n.t = 0; }
   const [x, z] = dmHome(), d = Math.hypot(x - n.pos.x, z - n.pos.z);
   if (d > 0.5) { const [wx, wz] = dmVia(n.pos.x, n.pos.z, x, z); if (d < 3 && Math.abs(n.pos.z - z) < 3) dgMove(n, x, z, 1.4, dt); else npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), d > 4 ? 1.8 : 1.2, dt); return; }
@@ -13937,6 +13962,8 @@ function mmThink(n, dt) {
   if (MH.mode && mhMadman(n, dt)) return;
   if (!n.veh && !MH.mode && mmDefend(n, dt)) return;
   if (n.st === 'drive') { if (n.veh !== v) mmPursue(n, dt); else if (MH.mode) mhDriveThink(n, dt); else mmDriveThink(n, dt); return; }
+  if (activeName !== 'ute' && !n.veh && MM.hostileT <= 0 && bbWatchOn() && ['lean', 'home', 'toUte', 'mmWatch'].includes(n.st) && bbWatchNpc(n, dt, 'mm')) return;      // the bunks are going up: he comes to look
+  if (n.st === 'mmWatch') { n.st = 'home'; n.t = 0; }
   // you're in his ute: he comes for you, on foot or in whatever he can get his hands on, and drags you out
   if (activeName === 'ute' && n.st !== 'toDoor' && n.st !== 'yank' && n.st !== 'toRide') { MM.gawpT = n.st === 'lean' || n.st === 'home' ? 1.2 : 0; n.st = 'toDoor'; n.t = 0; MM.lostT = 0; }
   if (n.st === 'toDoor') {
