@@ -2496,19 +2496,19 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
 /* NPC / coasting vehicle steps run the same physics in a sandbox: their own throttle and steering, none of the
    player's keys, touch steering, buttons or HUD, and every bit of the player's vehicle and handling state put back
    exactly as it was afterwards (even if the step throws). SIM.npc > 0 while one is running. */
-var SIM = { npc: 0 };
+var SIM = { npc: 0, real: null };       // real: while something else is being simulated, what you're actually driving and where it really is
 function simSaveS() { const o = {}; for (const k in S) { const v = S[k]; o[k] = v && v.isVector3 ? v.clone() : v; } return o; }
 function simLoadS(o) { for (const k of Object.keys(S)) if (!(k in o)) delete S[k]; for (const k in o) { const v = o[k]; if (v && v.isVector3 && S[k] && S[k].isVector3) S[k].copy(v); else S[k] = v; } }
 function simVeh(v, thr, str, body) {
-  const keepS = simSaveS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepM = { ...MOTO }, keepCS = camShake, keepPS = prevShake;
-  SIM.npc++;
+  const keepS = simSaveS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepM = { ...MOTO }, keepCS = camShake, keepPS = prevShake, keepR = SIM.real;
+  SIM.npc++; if (!keepR) SIM.real = { a: keepA, s: keepS };          // (a shove it gets from this machine goes into keepS, so it's there when you get it back)
   try {
     for (const k in input) { const t = typeof input[k]; if (t === 'number') input[k] = 0; else if (t === 'boolean') input[k] = false; }
     input.x = str; input.y = thr;
     activeName = v.name; T = v.model; V = v.spec; drift.on = false;
     return body();
   } finally {
-    SIM.npc--;
+    SIM.npc--; SIM.real = keepR;
     activeName = keepA; T = keepT; V = keepV; drift.on = keepD; simLoadS(keepS); Object.assign(input, keepIn);
     for (const k of Object.keys(MOTO)) if (!(k in keepM)) delete MOTO[k]; Object.assign(MOTO, keepM); camShake = keepCS; prevShake = keepPS;
   }
@@ -3234,9 +3234,9 @@ function startTumble(vel) {
 // circle-vs-parked-vehicle push out (vehicles are not part of the scan mesh)
 function pushOutOfVehicles(p, r) {
   for (const veh of Object.values(VEH)) {
-    if (veh.name === activeName || veh.name === 'drone' || veh === SEQ.veh) continue;
+    if ((p === F.pos && veh.name === activeName) || veh.name === 'drone' || veh === SEQ.veh) continue;      // (the one you're driving is as solid to everyone else as a parked one)
     const o = vehicleOBB(veh); if (!o) continue;
-    if (p.y > o.top + 0.2) continue;
+    if (p.y > o.top + 0.2 || p.y + 1.8 < o.bottom) continue;          // (over it, or under it: whatever you're flying overhead)
     const dx = p.x - o.cx, dz = p.z - o.cz;
     const lf = dx * o.fx + dz * o.fz, ll = dx * o.lx + dz * o.lz;
     const qf = THREE.MathUtils.clamp(lf, -o.hl, o.hl), ql = THREE.MathUtils.clamp(ll, -o.hw, o.hw);
@@ -4799,6 +4799,8 @@ function exitVehicle() {
 let activeName = 'foot';
 const activeVeh = () => (activeName === 'foot' ? null : VEH[activeName]);
 
+// where a ground machine really is: the one being simulated is S; the one you're driving, while something else is being simulated, is what was saved of S
+function vehSt(veh) { if (veh === activeVeh()) return S; if (SIM.real && SIM.real.a === veh.name) return SIM.real.s; return veh.state; }
 function vehicleOBB(veh) {
   if (veh.kind === 'air') {
     const A = veh.st; if (A.crashed || veh.name === 'drone') return null;
@@ -4806,7 +4808,7 @@ function vehicleOBB(veh) {
     const o = veh.P.obb || [1.42, 1.2], off = veh.P.plane ? -1.5 : 0;
     return { cx: A.pos.x + fx * off, cz: A.pos.z + fz * off, fx, fz, lx: fz, lz: -fx, hl: o[0], hw: o[1], bottom: A.pos.y, top: A.pos.y + veh.top };
   }
-  const s = veh === activeVeh() ? S : veh.state; if (!s) return null;
+  const s = vehSt(veh); if (!s) return null;
   const sp = veh.spec, fx = Math.sin(s.yaw), fz = Math.cos(s.yaw), mid = (sp.front - sp.rear) / 2;
   return { cx: s.pos.x + fx * mid, cz: s.pos.z + fz * mid, fx, fz, lx: fz, lz: -fx, hl: (sp.front + sp.rear) / 2, hw: sp.halfW, bottom: s.pos.y - 0.3, top: s.pos.y + veh.top };
 }
@@ -4831,7 +4833,8 @@ function groundVehicleHit(nx, nz, yaw) {
 // you've driven into another machine: it takes a dent and some damage too, and gets shunted (and Madman hears about it if it's his ute)
 function dmgRammed(veh, hitN, impact) {
   if (!veh || veh.kind !== 'ground' || !veh.state || veh.npc && veh.npc.mm && MM.npcDriving) return; const D = WPN.VD[veh.name]; if (D && D.wrecked) return;
-  const st = veh.state, m1 = VEH_MASS[activeName] || 1500, m2 = VEH_MASS[veh.name] || 1500, mEff = Math.min(m1, 3500), E = 0.5 * mEff * impact * impact / 1000;
+  const yours = !!(SIM.real && SIM.real.a === veh.name);          // somebody else's machine has run into the one you're driving
+  const st = vehSt(veh), m1 = VEH_MASS[activeName] || 1500, m2 = VEH_MASS[veh.name] || 1500, mEff = Math.min(m1, 3500), E = 0.5 * mEff * impact * impact / 1000;
   if (E < 6) return;
   const ix = -hitN.x, iz = -hitN.y, o = vehicleOBB(veh), wp = new THREE.Vector3(S.pos.x + ix * ((V.front + V.rear) / 2 + 0.2), st.pos.y + 0.7, S.pos.z + iz * ((V.front + V.rear) / 2 + 0.2));
   if (o) { const dx = wp.x - o.cx, dz = wp.z - o.cz, f = THREE.MathUtils.clamp(dx * o.fx + dz * o.fz, -o.hl, o.hl), l = THREE.MathUtils.clamp(dx * o.lx + dz * o.lz, -o.hw, o.hw); wp.set(o.cx + o.fx * f + o.lx * l, st.pos.y + 0.7, o.cz + o.fz * f + o.lz * l); }
@@ -4840,7 +4843,9 @@ function dmgRammed(veh, hitN, impact) {
   metalSound(wp, Math.min(1, E / 80), 0.75);
   // shunt it along: a little shove now, the rest as roll along its own axis
   const share = m1 / (m1 + m2), push = Math.min(0.7, impact * share * 0.08), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
-  st.pos.x += ix * push; st.pos.z += iz * push; st.v = (ix * fx + iz * fz) * impact * share * 0.7; st.vx = fx * st.v; st.vz = fz * st.v; if (!veh.npc && !veh.mp) veh.coast = true;
+  st.pos.x += ix * push; st.pos.z += iz * push;
+  if (yours) { const k = impact * share * 0.7; st.vx = (st.vx || 0) + ix * k; st.vz = (st.vz || 0) + iz * k; st.v = st.vx * fx + st.vz * fz; st.shake = Math.min(1, (st.shake || 0) + impact / 6); return; }     // a jolt on top of your own speed (and it's not you doing the ramming)
+  st.v = (ix * fx + iz * fz) * impact * share * 0.7; st.vx = fx * st.v; st.vz = fz * st.v; if (!veh.npc && !veh.mp) veh.coast = true;
   if (veh.name === 'ute' && typeof MM !== 'undefined' && MM.ready && !(MM.ramT > MM.t)) { MM.ramT = MM.t + 4; MM.shotSaidT = MM.t + 4; mmSay('ram', 2.4, true); mmOffend('ram', 25, true); for (const d of MM.dogs) d.alert = 3; }
 }
 function snapshotS() {
@@ -14005,7 +14010,7 @@ function mmThink(n, dt) {
     if (d > 9 && usp > 3) MM.lostT += dt; else MM.lostT = Math.max(0, MM.lostT - dt * 0.5);
     if (MM.lostT > 1.2 || d > 45) { MM.lostT = 0; const r = mmPickRide(n);            // (parked up a long way off: only if the machine's a good bit nearer than the ute)
       if (r && (usp > 1.5 || Math.hypot(r.state.pos.x - n.pos.x, r.state.pos.z - n.pos.z) < d * 0.6)) { n.ride = r; n.st = 'toRide'; n.t = 0; MM.slowT = 0; mmSay('pinch', 2.6, true); return; } }
-    const k = Math.min(1.2, d / 7); mmRun(n, door.x + (st.vx || 0) * k, door.z + (st.vz || 0) * k, d > 3 ? 6.4 : 2.6, dt, usp < 1); return;
+    const k = Math.min(1.2, d / 7), [rx, rz] = mmRound(n, vehicleOBB(VEH.ute), door.x + (st.vx || 0) * k, door.z + (st.vz || 0) * k); mmRun(n, rx, rz, d > 3 ? 6.4 : 2.6, dt, usp < 1); return;      // (round the ute to the door, not through it)
   }
   if (n.st === 'yank') { npcFace(n, mmUteSt().pos.x, mmUteSt().pos.z, 8, dt);
     if (activeName === 'ute' && Math.hypot(mmUteSt().vx || 0, mmUteSt().vz || 0) > 5.5) { n.st = 'toDoor'; n.t = 0; return; }       // you've floored it: he's left grabbing at air
@@ -14170,6 +14175,25 @@ function mmDrive(dt, thr, str) { MM.npcDriving = true; try { return npcDrive(mmU
 
 /* ---------- you've driven off in his ute: he gets it back any way he can ---------- */
 // run at a point; a long way off he follows the drive grid's route round the sheds (open ground, so straight along it)
+// does the line from one point to another cross a machine's footprint (grown by pad)?
+function boxSegHit(o, x0, z0, x1, z1, pad) {
+  const L = (x, z) => [(x - o.cx) * o.fx + (z - o.cz) * o.fz, (x - o.cx) * o.lx + (z - o.cz) * o.lz], [a0, b0] = L(x0, z0), [a1, b1] = L(x1, z1);
+  let t0 = 0, t1 = 1;
+  for (const [p, d, h] of [[a0, a1 - a0, o.hl + pad], [b0, b1 - b0, o.hw + pad]]) {
+    if (Math.abs(d) < 1e-9) { if (Math.abs(p) > h) return false; continue; }
+    let u = (-h - p) / d, w = (h - p) / d; if (u > w) [u, w] = [w, u];
+    t0 = Math.max(t0, u); t1 = Math.min(t1, w); if (t0 > t1) return false;
+  }
+  return true;
+}
+// where to head for a spot on the far side of a machine: round the end he's nearer (its corner on the far side, or first the one on his own side), not through it
+function mmRound(n, o, tx, tz) {
+  if (!o || !boxSegHit(o, n.pos.x, n.pos.z, tx, tz, 0.35)) return [tx, tz];
+  const L = (x, z) => [(x - o.cx) * o.fx + (z - o.cz) * o.fz, (x - o.cx) * o.lx + (z - o.cz) * o.lz], W = (a, b) => [o.cx + o.fx * a + o.lx * b, o.cz + o.fz * a + o.lz * b];
+  const [fm, lm] = L(n.pos.x, n.pos.z), [ft, lt] = L(tx, tz), ea = o.hl + 0.85, eb = o.hw + 0.85, sf = Math.abs(fm) > 0.3 ? Math.sign(fm) : (Math.sign(ft) || 1);
+  const far = W(sf * ea, (Math.sign(lt) || 1) * eb); if (!boxSegHit(o, n.pos.x, n.pos.z, far[0], far[1], 0.2)) return far;
+  return W(sf * ea, (Math.sign(lm) || 1) * eb);
+}
 function mmRun(n, x, z, sp, dt, still = true) {
   const d = Math.hypot(x - n.pos.x, z - n.pos.z);
   if (d > 14) {
@@ -15785,7 +15809,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
