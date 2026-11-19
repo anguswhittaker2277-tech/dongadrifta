@@ -10754,6 +10754,20 @@ function creatorDone() {
   const hd = document.querySelector('#lookSheet h2'); if (hd) hd.textContent = 'Customise Dazza'; const ok = $('lookOk'); if (ok && CRE.okTxt) ok.textContent = CRE.okTxt;
   const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); camYawF = h.yaw; camPitchF = 0.25; camInit = false; DN.doorA = 1; DN.creakT = 3;          // and you wake up in the dunny, door open
 }
+/* ---------- back after a long time away ----------
+   A phone often keeps the page alive in the background instead of closing it, so opening the game again
+   carries on wherever you left off (out in the yard, say) and skips the dunny. Away long enough and it
+   counts as opening the game fresh: everything back in its place, make your character, wake up in the dunny. */
+const AWAY = { at: 0, min: 5 * 60e3 };
+function awayMark() { if (!AWAY.at) AWAY.at = Date.now(); }
+function awayBack() {
+  const t = AWAY.at; AWAY.at = 0;
+  if (!t || Date.now() - t < AWAY.min || !window.__game || !window.__game.ready || CRE.on) return false;
+  resetAll(); if (creatorWanted()) creatorOpen(); return true;
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) awayMark(); else awayBack(); });
+addEventListener('pagehide', awayMark);
+addEventListener('pageshow', e => { if (e.persisted) awayBack(); });
 // the camera swings round to the front of Dazza while the sheet is open
 function lookCamStep(dt) {
   if (!LKUI.on) return;
@@ -15440,7 +15454,14 @@ function plEnd() {
   if (typeof WPN !== 'undefined') WPN.cur = s.w;
   PX.saved = null; PX.cur = null;
 }
-function plWith(q, fn) { const keep = SPK.to; plBegin(q); try { return fn(); } finally { plEnd(); SPK.to = keep; } }
+function plWith(q, fn) {
+  const keep = SPK.to, outer = PX.cur;
+  if (outer && q && q.id === outer.id) { SPK.to = q.id; try { return fn(); } finally { SPK.to = keep; } }     // already them
+  // inside another player's turn (an NPC thinking about one mate says something to another): step out of it for this and back in after,
+  // or the rest of that turn would land on whoever holds this phone
+  if (outer) plEnd();
+  plBegin(q); try { return fn(); } finally { plEnd(); if (outer) plBegin(outer); SPK.to = keep; }
+}
 // what an NPC does to a player on another phone goes to that phone
 {
   const _tum = startTumble; startTumble = function (vel) { if (PX.cur) { mpSend({ k: 'ptum', f: MP.me, to: PX.cur.id, v: [mpR(vel.x), mpR(vel.y), mpR(vel.z)] }); return; } return _tum.apply(this, arguments); };
@@ -15764,7 +15785,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { WMAT, input, CRE, creatorOpen, creatorDone, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
