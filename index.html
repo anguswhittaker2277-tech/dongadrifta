@@ -6004,7 +6004,7 @@ function collect(it) {
   sfx('find'); sfx('g_reload', F.pos, 0.5, 1, 5);
   const amt = W.kind === 'flame' ? '' : ` +${add}`;
   const first = !WPN.told.aim; if (activeName === 'foot' && !WPN.cur) wpnSelect(id);
-  toast((had ? `${W.label}${amt}` : `Picked up: ${W.label}${amt}`) + (first && WPN.cur ? ' · drag right side to aim, hold FIRE' : ''), first ? 3.2 : 1.8);
+  toast((had ? `${W.label}${amt}` : `Picked up: ${W.label}${amt}`) + (first && WPN.cur ? ' · drag anywhere to aim, hold FIRE' : ''), first ? 3.2 : 1.8);
   wpnHud(true);
 }
 function resetHunt() { for (const it of HUNT_ST.items) { it.got = false; it.flyT = 0; it.back = 0; it.root.visible = true; it.root.scale.setScalar(1); it.root.position.y = it.y; } }
@@ -9677,13 +9677,26 @@ function wpnApplyHit(hit, d, dmg, W) {
 }
 function wpnMuzzle(out) {
   if (MH.pax) return mhMuzzle(out);
+  if (WPN.vm && WPN.vm.visible && WPN.vmG) { WPN.vmG.updateWorldMatrix(true, true); return WPN.vmG.localToWorld(out.set(0, 0.03, 0.55)); }      // first person: off the end of the one you can see
   const h = WPN.cache && WPN.cache.g; if (h) { h.updateWorldMatrix(true, true); return h.localToWorld(out.set(0, 0, 0.55)); }
   return out.set(F.pos.x, F.pos.y + 1.35, F.pos.z);
 }
 function wpnTracer(a, b) { const T = WPN.tracer, i = T.i; T.i = (T.i + 1) % 40; const A = T.m.geometry.attributes.position.array;
   A[i * 6] = a.x; A[i * 6 + 1] = a.y; A[i * 6 + 2] = a.z; A[i * 6 + 3] = b.x; A[i * 6 + 4] = b.y; A[i * 6 + 5] = b.z; T.life[i] = 0.06; T.m.geometry.attributes.position.needsUpdate = true; }
 function wpnFlashAt(p) { WPN.flash.position.copy(p); WPN.flash.intensity = 6; WPN.flashS.position.copy(p); WPN.flashS.visible = true; WPN.flashS.scale.setScalar(0.7 + Math.random() * 0.8); WPN.flashT = 0.05; }
+// first person: the farmer's hidden, so you hold one in front of the camera (the gun, or the axe), with a kick when it goes off
+function wpnViewModel(dt) {
+  const on = wpnArmed() && activeName === 'foot' && !!F.fp && !WPN.scope && !MH.pax && DAZZA.root.visible === false;
+  if (on && WPN.vmId !== WPN.cur) { if (WPN.vm && WPN.vm.parent) WPN.vm.parent.remove(WPN.vm); if (camera.parent !== scene) scene.add(camera);
+    const axe = WPN.cur === 'axe', g = axe ? wlAxe() : wpnGunModel(WPN.cur), vm = new THREE.Group(); vm.add(g);
+    if (axe) { g.rotation.set(-0.45, 0.3, -0.5); vm.position.set(0.3, -0.5, -0.55); } else { g.rotation.y = Math.PI; vm.position.set(0.17, -0.17, -0.4); }
+    WPN.vm = vm; WPN.vmG = g; WPN.vmId = WPN.cur; WPN.vmZ = vm.position.z; camera.add(vm); }
+  if (!WPN.vm) return; WPN.vm.visible = on; if (!on) return;
+  WPN.vmKick = Math.max(0, (WPN.vmKick || 0) - dt * 6); const bob = Math.sin(F.t * 9) * Math.min(1, F.speedH / 3) * 0.012;
+  WPN.vm.position.z = WPN.vmZ + WPN.vmKick * 0.06; WPN.vm.position.y = (WPN.vmId === 'axe' ? -0.5 : -0.17) + bob; WPN.vm.rotation.x = WPN.vmKick * 0.12;
+}
 function wpnShoot(W) {
+  WPN.vmKick = 1;
   let o = camera.position.clone(), aim = camera.getWorldDirection(new THREE.Vector3());
   const muzzle = wpnMuzzle(new THREE.Vector3());
   if (MH.pax) { const tgt = wpnTrace(o, aim, W.range).point; aim = tgt.sub(muzzle).normalize(); o = muzzle.clone(); } const n = W.pellets || 1; const spread = W.spread * (WPN.scope ? 0.2 : 1) * (1 + Math.min(1, F.speedH / 4));
@@ -9848,7 +9861,7 @@ function wpnSelect(id) {
   if (id && WEAPONS[id].kind === 'gun' && WPN.mag[id] == null) WPN.mag[id] = 0;
   if (id && WEAPONS[id].kind === 'gun' && !WPN.mag[id]) wpnReload(true);
   wpnHold(DAZZA, id, WPN.cache); wpnHud(true); $('wWheel').classList.remove('show');
-  if (id && !WPN.told.aim) { WPN.told.aim = 1; toast('Drag the right side to aim · hold FIRE (drag it to aim while firing)', 3); }
+  if (id && !WPN.told.aim) { WPN.told.aim = 1; toast('Drag anywhere to aim · hold FIRE (drag it to aim while firing)', 3); }
 }
 function wpnReload(instant) {
   const id = WPN.cur, W = WEAPONS[id]; if (!W || W.kind !== 'gun' || !W.reload) return;
@@ -9929,8 +9942,9 @@ function wpnStep(dt) {
     if (F.dead <= 0) { $('wasted').classList.remove('show'); const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); F.hp = 100; camInit = false; toast('Back on your feet', 1.4); } }
   // firing
   const armed = wpnArmed(); wpnHud(false);
-  if (!armed) { WPN.fire = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
+  if (!armed) { WPN.fire = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); wpnViewModel(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
   if (WPN.cache.id !== WPN.cur) wpnHold(DAZZA, WPN.cur, WPN.cache);
+  wpnCam(dt); WPN.camDone = true;          // the aiming camera before the shot: the shot goes out along what's drawn (the on-foot camera from earlier in the frame can look elsewhere)
   const id = WPN.cur, W = WEAPONS[id], fire = (WPN.fire || keys.has('f')) && (F.mode === 'walk' || F.mode === 'air' || MH.pax);
   WPN.cd -= dt; WPN.throwT = Math.max(0, (WPN.throwT || 0) - dt);
   if (WPN.pend) { WPN.pend.t -= dt; if (WPN.pend.t <= 0) { const p = WPN.pend; WPN.pend = null; wpnThrow(p.id); } }
@@ -9952,7 +9966,7 @@ function wpnStep(dt) {
   }
   WPN.firePrev = fire;
   if (WPN.hitT > 0) { WPN.hitT -= dt; } $('xhair').classList.toggle('hit', WPN.hitT > 0);
-  wpnCam(dt);
+  if (!WPN.camDone) wpnCam(dt); WPN.camDone = false; wpnViewModel(dt);
 }
 // minigun motor and flamethrower roar: two little looping voices
 function wpnMiniVoice(k) {
@@ -12593,7 +12607,7 @@ function bbIgnite() {
 }
 function bbBoom() {
   const P = bbBottleP(new THREE.Vector3()); P.y += 0.15; BB.st = 'fire'; BB.t = 0; BB.heat = 0; BB.mmT = 3.2;
-  NPC.calmBlast = true; if (MM.ready) MM.calmT = MM.t + 5; try { wpnBoom(P, 6.5, 1); } finally { NPC.calmBlast = false; }       // (everyone sees it, anyone close gets thrown about; nobody blames you for it)
+  NPC.calmBlast = true; if (MM.ready) MM.blastT = MM.t + 5; try { wpnBoom(P, 6.5, 1); } finally { NPC.calmBlast = false; }       // (everyone sees it, anyone close gets thrown about; nobody blames you for it)
   bbToastAll('The gas bottle’s gone up. The bunks are on fire!', 2.8);
   BB.barkT = 0.8;
 }
@@ -13256,7 +13270,7 @@ function dmDogs(n, dt) {
   D.at = (D.at || 0) + dt; n.sp *= 0.7; npcFace(n, T.x, T.z, 6, dt);
   if (D.sayT <= 0) { D.sayT = 4.5 + Math.random() * 1.5; dmSay(n, 'dogs', 3.4); }
   if (D.at > 7) CT.scare = true;                                                          // enough of that: they bail out
-  if (!D.mm && D.t > 3.8 && (n.lineT || 0) < 0 && MM.n && npcAlive(MM.n) && !MM.n.veh && !MH.mode && MM.hostileT <= 0 && Math.hypot(MM.n.pos.x - n.pos.x, MM.n.pos.z - n.pos.z) < 45) { D.mm = true; D.sayT = Math.max(D.sayT, 3.6); mmSay('dogTub', 3.2, true); }
+  if (!D.mm && D.t > 3.8 && (n.lineT || 0) < 0 && MM.n && npcAlive(MM.n) && !MM.n.veh && !MH.mode && MM.hostileT <= 0 && Math.hypot(MM.n.pos.x - n.pos.x, MM.n.pos.z - n.pos.z) < 45) { D.mm = true; D.sayT = Math.max(D.sayT, 3.6); SPK.allow = true; try { mmSay('dogTub', 3.2, true); } finally { SPK.allow = false; } }
   return true;
 }
 // someone (or you) in there?
@@ -13731,7 +13745,7 @@ function dgStep(dt) {
   if (!inside) { DG.inT = 0; if (DG.warnT > 0) DG.warnT -= dt; else DG.warnN = 0; if (dP > 12) DG.okSaid = false; return; }
   DG.inT += dt; if (!n || MM.hostileT > 0 || MH.mode) return;
   const dM = Math.hypot(n.pos.x - DG.x, n.pos.z - DG.z), home = n.st === 'dgIn' || n.st === 'dgVer';
-  if (dM > 40 && !home) return;                               // he's not about: nobody to notice
+  if (dM > 9 && !home) return;                                // not close enough to notice (from over at his ute he can't see in)
   if (n.st === 'dgIn' && MM.anger < 20) { if (!DG.okSaid && DG.inT > 0.8) { DG.okSaid = true; mmSay('dongaOk', 0, true); } return; }
   // barging in uninvited: a telling-off, a bit of anger (never enough on its own to start a fight)
   if ((DG.warnN === 0 && DG.inT > 1.2) || (DG.warnN > 0 && DG.inT > 1.2 + DG.warnN * 10 && DG.warnN < 3)) { DG.warnN++; DG.warnT = 30; mmSay('donga', 0, true); if (MM.anger < 35) MM.anger = Math.min(35, MM.anger + 8); MM.calmT = 10;
@@ -13911,7 +13925,7 @@ function mmReset() {
 
 /* ---------- anger ---------- */
 function mmOffend(kind, amt, strike) {
-  if (MM.calmT > MM.t) return;          // (the gas bottle just went up: the ute and him getting knocked about isn't on you)
+  if (MM.blastT > MM.t) return;         // (the gas bottle just went up: the ute and him getting knocked about isn't on you)
   MM.anger = Math.min(100, MM.anger + amt); MM.calmT = 10;
   if (strike) { MM.strikes++; MM.strikeT = 75; }
   if (MM.anger > 30) MM.refuseT = Math.max(MM.refuseT, 30);
@@ -14096,7 +14110,7 @@ function mmPeek(n, dt) {
   n.sp *= 0.7; n.pos.x += (px - n.pos.x) * Math.min(1, dt * 4); n.pos.z += (pz - n.pos.z) * Math.min(1, dt * 4); n.yaw += faAng(Math.atan2(wx - px, wz - pz) - n.yaw) * Math.min(1, dt * 5);
   if (!P.said) {
     if (!saOccupants().length && P.t > 1.5) { done(60 + Math.random() * 30); return; }               // nobody in after all
-    if (P.t > 1.2 && (!DM.n || (DM.n.lineT || 0) < 0 || P.t > 7)) { P.said = P.t; mmSay('sauna', 3.6, true); }   // (lets Dima finish first)
+    if (P.t > 1.2 && (!DM.n || (DM.n.lineT || 0) < 0 || P.t > 7)) { P.said = P.t; SPK.allow = true; try { mmSay('sauna', 3.6, true); } finally { SPK.allow = false; } }   // (lets Dima finish first)
     return;
   }
   if (P.t - P.said > 4) done(60 + Math.random() * 40);
@@ -15329,15 +15343,16 @@ function mhChipStep() {
    quest, Madman talking to you) goes ahead of chatter. Out of earshot it's just the bubble. So two players talking to Dima
    and to Madman at once each hear their own conversation, and neither one is cut short or switched off.
    ================================================================ */
-const SPK = { q: [], floor: null, to: null, net: false, HEAR: 22 };
+const SPK = { q: [], floor: null, to: null, net: false, allow: false, HEAR: 22 };
 const spkNow = () => performance.now() / 1000;
 function spkLine(n, kind, line, dur) {
   if (!n || !n.bub || !line) return;
   const to = SPK.to || null;
   if (MP.on) {
     if (!MP.host) { if (!SPK.net) return; }                                   // a guest says only what the host's NPCs say
-    else mpSend({ k: 'say', f: MP.me, i: n.name, kd: kind, ln: line, dur: Math.round((dur || 3) * 100) / 100, ad: to });     // (ad, not to: everyone gets it)
+    else mpSend({ k: 'say', f: MP.me, i: n.name, kd: kind, ln: line, dur: Math.round((dur || 3) * 100) / 100, ad: to, al: SPK.allow ? 1 : 0 });     // (ad, not to: everyone gets it)
   }
+  if (spkMuted(n)) return;                                                   // you're on a quest: the others keep it to themselves
   spkOffer({ n, kind, line, dur: dur || 3, to, at: spkNow() });
 }
 function spkDist(n) { const me = plRealPos(), p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z); }
@@ -15357,6 +15372,18 @@ function spkShow(L, voice) {
   const v = voice ? voxSay(n, L.kind === 'fr' ? L.line[0] : L.line) || 0 : 0;
   if (v) n.bub.time = Math.max(n.bub.time, v + 0.5);
   if (voice) SPK.floor = { n, pri: L.pri, until: spkNow() + (v ? v + 0.15 : Math.min(L.dur * 0.7, 2.6)) };
+}
+// on a quest you hear who you're doing it with; the rest don't chip in, unless they're fighting you, they're right by you (you
+// walked up to them), or it's something they have to say (SPK.allow: Madman at the sauna window, the dogs in Dima's tub)
+function spkQuestNpc() {
+  if (SA.q && (!MP.on || !SA.q.who || SA.q.who === MP.me)) return DM.n || null;
+  if (typeof BB !== 'undefined' && BB.st === 'build' && BB.help[MP.me]) return (BB.who && npcByName(BB.who)) || null;
+  if (MH.mode === 'guided' && (MH.pax || MH.paxId === MP.me)) return MM.n || null;
+  return undefined;
+}
+function spkMuted(n) {
+  if (SPK.allow) return false; const q = spkQuestNpc(); if (q === undefined || n === q || n.angry) return false;
+  const me = plRealPos(); return Math.hypot(n.pos.x - me.x, n.pos.z - me.z) > 8;
 }
 function spkStep() {
   if (!SPK.q.length) return; const now = spkNow(), F0 = SPK.floor;
@@ -15503,7 +15530,7 @@ function mpwRecv(m) {
   if (m.k === 'pv') { for (const nm in m.v) { const v = VEH[nm], g = m.v[nm]; if (!v || !v.state || v.npc || v.mp || nm === activeName || SEQ.veh === v || v.coast) continue;
       const st = v.state; if (Math.hypot(st.pos.x - g[0], st.pos.z - g[2]) > 0.3 || Math.abs(faAng((st.yaw || 0) - g[3])) > 0.06 || Math.abs(st.pos.y - g[1]) > 0.3) { mpDriveCopy(null, v, { g }, null, 0, 0); st.pitch = g[4]; st.roll = g[5]; } }
     return true; }
-  if (m.k === 'say') { const n = npcByName(m.i); if (n) { SPK.net = true; const keep = SPK.to; SPK.to = m.ad || null; try { spkLine(n, m.kd, m.ln, m.dur); } finally { SPK.net = false; SPK.to = keep; } } return true; }
+  if (m.k === 'say') { const n = npcByName(m.i); if (n) { SPK.net = true; SPK.allow = !!m.al; const keep = SPK.to; SPK.to = m.ad || null; try { spkLine(n, m.kd, m.ln, m.dur); } finally { SPK.net = false; SPK.allow = false; SPK.to = keep; } } return true; }
   if (m.k === 'snd') { if (m.b != null && typeof mmBarkSfx === 'function') mmBarkSfx(m.b, _mpwP.set(...m.p), m.n); else if (m.fa) faSay(_mpwP.set(...m.p), m.n, m.vol, m.rate, m.ref); else sfx(m.n, _mpwP.set(...m.p), m.vol, m.rate, m.ref); return true; }
   if (m.k === 'toast') { toast(m.s, m.d); return true; }
   if (m.k === 'ptum') { if (activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air' || F.mode === 'emote')) { if (F.mode === 'emote') endEmote(); startTumble(new THREE.Vector3(...m.v)); camShake = Math.max(camShake, 0.4); } return true; }
