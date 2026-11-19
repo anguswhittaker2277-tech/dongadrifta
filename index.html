@@ -2496,19 +2496,19 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
 /* NPC / coasting vehicle steps run the same physics in a sandbox: their own throttle and steering, none of the
    player's keys, touch steering, buttons or HUD, and every bit of the player's vehicle and handling state put back
    exactly as it was afterwards (even if the step throws). SIM.npc > 0 while one is running. */
-var SIM = { npc: 0 };
+var SIM = { npc: 0, real: null };       // real: while something else is being simulated, what you're actually driving and where it really is
 function simSaveS() { const o = {}; for (const k in S) { const v = S[k]; o[k] = v && v.isVector3 ? v.clone() : v; } return o; }
 function simLoadS(o) { for (const k of Object.keys(S)) if (!(k in o)) delete S[k]; for (const k in o) { const v = o[k]; if (v && v.isVector3 && S[k] && S[k].isVector3) S[k].copy(v); else S[k] = v; } }
 function simVeh(v, thr, str, body) {
-  const keepS = simSaveS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepM = { ...MOTO }, keepCS = camShake, keepPS = prevShake;
-  SIM.npc++;
+  const keepS = simSaveS(), keepT = T, keepV = V, keepD = drift.on, keepA = activeName, keepIn = { ...input }, keepM = { ...MOTO }, keepCS = camShake, keepPS = prevShake, keepR = SIM.real;
+  SIM.npc++; if (!keepR) SIM.real = { a: keepA, s: keepS };          // (a shove it gets from this machine goes into keepS, so it's there when you get it back)
   try {
     for (const k in input) { const t = typeof input[k]; if (t === 'number') input[k] = 0; else if (t === 'boolean') input[k] = false; }
     input.x = str; input.y = thr;
     activeName = v.name; T = v.model; V = v.spec; drift.on = false;
     return body();
   } finally {
-    SIM.npc--;
+    SIM.npc--; SIM.real = keepR;
     activeName = keepA; T = keepT; V = keepV; drift.on = keepD; simLoadS(keepS); Object.assign(input, keepIn);
     for (const k of Object.keys(MOTO)) if (!(k in keepM)) delete MOTO[k]; Object.assign(MOTO, keepM); camShake = keepCS; prevShake = keepPS;
   }
@@ -3234,9 +3234,9 @@ function startTumble(vel) {
 // circle-vs-parked-vehicle push out (vehicles are not part of the scan mesh)
 function pushOutOfVehicles(p, r) {
   for (const veh of Object.values(VEH)) {
-    if (veh.name === activeName || veh.name === 'drone' || veh === SEQ.veh) continue;
+    if ((p === F.pos && veh.name === activeName) || veh.name === 'drone' || veh === SEQ.veh) continue;      // (the one you're driving is as solid to everyone else as a parked one)
     const o = vehicleOBB(veh); if (!o) continue;
-    if (p.y > o.top + 0.2) continue;
+    if (p.y > o.top + 0.2 || p.y + 1.8 < o.bottom) continue;          // (over it, or under it: whatever you're flying overhead)
     const dx = p.x - o.cx, dz = p.z - o.cz;
     const lf = dx * o.fx + dz * o.fz, ll = dx * o.lx + dz * o.lz;
     const qf = THREE.MathUtils.clamp(lf, -o.hl, o.hl), ql = THREE.MathUtils.clamp(ll, -o.hw, o.hw);
@@ -4799,6 +4799,8 @@ function exitVehicle() {
 let activeName = 'foot';
 const activeVeh = () => (activeName === 'foot' ? null : VEH[activeName]);
 
+// where a ground machine really is: the one being simulated is S; the one you're driving, while something else is being simulated, is what was saved of S
+function vehSt(veh) { if (veh === activeVeh()) return S; if (SIM.real && SIM.real.a === veh.name) return SIM.real.s; return veh.state; }
 function vehicleOBB(veh) {
   if (veh.kind === 'air') {
     const A = veh.st; if (A.crashed || veh.name === 'drone') return null;
@@ -4806,7 +4808,7 @@ function vehicleOBB(veh) {
     const o = veh.P.obb || [1.42, 1.2], off = veh.P.plane ? -1.5 : 0;
     return { cx: A.pos.x + fx * off, cz: A.pos.z + fz * off, fx, fz, lx: fz, lz: -fx, hl: o[0], hw: o[1], bottom: A.pos.y, top: A.pos.y + veh.top };
   }
-  const s = veh === activeVeh() ? S : veh.state; if (!s) return null;
+  const s = vehSt(veh); if (!s) return null;
   const sp = veh.spec, fx = Math.sin(s.yaw), fz = Math.cos(s.yaw), mid = (sp.front - sp.rear) / 2;
   return { cx: s.pos.x + fx * mid, cz: s.pos.z + fz * mid, fx, fz, lx: fz, lz: -fx, hl: (sp.front + sp.rear) / 2, hw: sp.halfW, bottom: s.pos.y - 0.3, top: s.pos.y + veh.top };
 }
@@ -4831,7 +4833,8 @@ function groundVehicleHit(nx, nz, yaw) {
 // you've driven into another machine: it takes a dent and some damage too, and gets shunted (and Madman hears about it if it's his ute)
 function dmgRammed(veh, hitN, impact) {
   if (!veh || veh.kind !== 'ground' || !veh.state || veh.npc && veh.npc.mm && MM.npcDriving) return; const D = WPN.VD[veh.name]; if (D && D.wrecked) return;
-  const st = veh.state, m1 = VEH_MASS[activeName] || 1500, m2 = VEH_MASS[veh.name] || 1500, mEff = Math.min(m1, 3500), E = 0.5 * mEff * impact * impact / 1000;
+  const yours = !!(SIM.real && SIM.real.a === veh.name);          // somebody else's machine has run into the one you're driving
+  const st = vehSt(veh), m1 = VEH_MASS[activeName] || 1500, m2 = VEH_MASS[veh.name] || 1500, mEff = Math.min(m1, 3500), E = 0.5 * mEff * impact * impact / 1000;
   if (E < 6) return;
   const ix = -hitN.x, iz = -hitN.y, o = vehicleOBB(veh), wp = new THREE.Vector3(S.pos.x + ix * ((V.front + V.rear) / 2 + 0.2), st.pos.y + 0.7, S.pos.z + iz * ((V.front + V.rear) / 2 + 0.2));
   if (o) { const dx = wp.x - o.cx, dz = wp.z - o.cz, f = THREE.MathUtils.clamp(dx * o.fx + dz * o.fz, -o.hl, o.hl), l = THREE.MathUtils.clamp(dx * o.lx + dz * o.lz, -o.hw, o.hw); wp.set(o.cx + o.fx * f + o.lx * l, st.pos.y + 0.7, o.cz + o.fz * f + o.lz * l); }
@@ -4840,7 +4843,9 @@ function dmgRammed(veh, hitN, impact) {
   metalSound(wp, Math.min(1, E / 80), 0.75);
   // shunt it along: a little shove now, the rest as roll along its own axis
   const share = m1 / (m1 + m2), push = Math.min(0.7, impact * share * 0.08), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
-  st.pos.x += ix * push; st.pos.z += iz * push; st.v = (ix * fx + iz * fz) * impact * share * 0.7; st.vx = fx * st.v; st.vz = fz * st.v; if (!veh.npc && !veh.mp) veh.coast = true;
+  st.pos.x += ix * push; st.pos.z += iz * push;
+  if (yours) { const k = impact * share * 0.7; st.vx = (st.vx || 0) + ix * k; st.vz = (st.vz || 0) + iz * k; st.v = st.vx * fx + st.vz * fz; st.shake = Math.min(1, (st.shake || 0) + impact / 6); return; }     // a jolt on top of your own speed (and it's not you doing the ramming)
+  st.v = (ix * fx + iz * fz) * impact * share * 0.7; st.vx = fx * st.v; st.vz = fz * st.v; if (!veh.npc && !veh.mp) veh.coast = true;
   if (veh.name === 'ute' && typeof MM !== 'undefined' && MM.ready && !(MM.ramT > MM.t)) { MM.ramT = MM.t + 4; MM.shotSaidT = MM.t + 4; mmSay('ram', 2.4, true); mmOffend('ram', 25, true); for (const d of MM.dogs) d.alert = 3; }
 }
 function snapshotS() {
@@ -10754,6 +10759,20 @@ function creatorDone() {
   const hd = document.querySelector('#lookSheet h2'); if (hd) hd.textContent = 'Customise Dazza'; const ok = $('lookOk'); if (ok && CRE.okTxt) ok.textContent = CRE.okTxt;
   const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); camYawF = h.yaw; camPitchF = 0.25; camInit = false; DN.doorA = 1; DN.creakT = 3;          // and you wake up in the dunny, door open
 }
+/* ---------- back after a long time away ----------
+   A phone often keeps the page alive in the background instead of closing it, so opening the game again
+   carries on wherever you left off (out in the yard, say) and skips the dunny. Away long enough and it
+   counts as opening the game fresh: everything back in its place, make your character, wake up in the dunny. */
+const AWAY = { at: 0, min: 5 * 60e3 };
+function awayMark() { if (!AWAY.at) AWAY.at = Date.now(); }
+function awayBack() {
+  const t = AWAY.at; AWAY.at = 0;
+  if (!t || Date.now() - t < AWAY.min || !window.__game || !window.__game.ready || CRE.on) return false;
+  resetAll(); if (creatorWanted()) creatorOpen(); return true;
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) awayMark(); else awayBack(); });
+addEventListener('pagehide', awayMark);
+addEventListener('pageshow', e => { if (e.persisted) awayBack(); });
 // the camera swings round to the front of Dazza while the sheet is open
 function lookCamStep(dt) {
   if (!LKUI.on) return;
@@ -13991,7 +14010,7 @@ function mmThink(n, dt) {
     if (d > 9 && usp > 3) MM.lostT += dt; else MM.lostT = Math.max(0, MM.lostT - dt * 0.5);
     if (MM.lostT > 1.2 || d > 45) { MM.lostT = 0; const r = mmPickRide(n);            // (parked up a long way off: only if the machine's a good bit nearer than the ute)
       if (r && (usp > 1.5 || Math.hypot(r.state.pos.x - n.pos.x, r.state.pos.z - n.pos.z) < d * 0.6)) { n.ride = r; n.st = 'toRide'; n.t = 0; MM.slowT = 0; mmSay('pinch', 2.6, true); return; } }
-    const k = Math.min(1.2, d / 7); mmRun(n, door.x + (st.vx || 0) * k, door.z + (st.vz || 0) * k, d > 3 ? 6.4 : 2.6, dt, usp < 1); return;
+    const k = Math.min(1.2, d / 7), [rx, rz] = mmRound(n, vehicleOBB(VEH.ute), door.x + (st.vx || 0) * k, door.z + (st.vz || 0) * k); mmRun(n, rx, rz, d > 3 ? 6.4 : 2.6, dt, usp < 1); return;      // (round the ute to the door, not through it)
   }
   if (n.st === 'yank') { npcFace(n, mmUteSt().pos.x, mmUteSt().pos.z, 8, dt);
     if (activeName === 'ute' && Math.hypot(mmUteSt().vx || 0, mmUteSt().vz || 0) > 5.5) { n.st = 'toDoor'; n.t = 0; return; }       // you've floored it: he's left grabbing at air
@@ -14156,6 +14175,25 @@ function mmDrive(dt, thr, str) { MM.npcDriving = true; try { return npcDrive(mmU
 
 /* ---------- you've driven off in his ute: he gets it back any way he can ---------- */
 // run at a point; a long way off he follows the drive grid's route round the sheds (open ground, so straight along it)
+// does the line from one point to another cross a machine's footprint (grown by pad)?
+function boxSegHit(o, x0, z0, x1, z1, pad) {
+  const L = (x, z) => [(x - o.cx) * o.fx + (z - o.cz) * o.fz, (x - o.cx) * o.lx + (z - o.cz) * o.lz], [a0, b0] = L(x0, z0), [a1, b1] = L(x1, z1);
+  let t0 = 0, t1 = 1;
+  for (const [p, d, h] of [[a0, a1 - a0, o.hl + pad], [b0, b1 - b0, o.hw + pad]]) {
+    if (Math.abs(d) < 1e-9) { if (Math.abs(p) > h) return false; continue; }
+    let u = (-h - p) / d, w = (h - p) / d; if (u > w) [u, w] = [w, u];
+    t0 = Math.max(t0, u); t1 = Math.min(t1, w); if (t0 > t1) return false;
+  }
+  return true;
+}
+// where to head for a spot on the far side of a machine: round the end he's nearer (its corner on the far side, or first the one on his own side), not through it
+function mmRound(n, o, tx, tz) {
+  if (!o || !boxSegHit(o, n.pos.x, n.pos.z, tx, tz, 0.35)) return [tx, tz];
+  const L = (x, z) => [(x - o.cx) * o.fx + (z - o.cz) * o.fz, (x - o.cx) * o.lx + (z - o.cz) * o.lz], W = (a, b) => [o.cx + o.fx * a + o.lx * b, o.cz + o.fz * a + o.lz * b];
+  const [fm, lm] = L(n.pos.x, n.pos.z), [ft, lt] = L(tx, tz), ea = o.hl + 0.85, eb = o.hw + 0.85, sf = Math.abs(fm) > 0.3 ? Math.sign(fm) : (Math.sign(ft) || 1);
+  const far = W(sf * ea, (Math.sign(lt) || 1) * eb); if (!boxSegHit(o, n.pos.x, n.pos.z, far[0], far[1], 0.2)) return far;
+  return W(sf * ea, (Math.sign(lm) || 1) * eb);
+}
 function mmRun(n, x, z, sp, dt, still = true) {
   const d = Math.hypot(x - n.pos.x, z - n.pos.z);
   if (d > 14) {
@@ -14192,26 +14230,40 @@ function mmLeaveRide(n) {
   n.st = activeName === 'ute' ? 'toDoor' : MM.hostileT > 0 && n.angry ? 'chase' : 'home';
   if (typeof sfx === 'function' && st) sfx('thud', st.pos, 0.25, 1.2, 6);
 }
-// at the wheel of it: straight at you when there's a clear run, otherwise the route round the sheds; rams you if you keep going,
-// and once you've all but stopped he's out the door to drag you out by hand
+// how far apart two machines' footprints are (below zero: into each other)
+function obbGap(a, b) { const dx = b.cx - a.cx, dz = b.cz - a.cz; let g = -1e9;
+  for (const [ax, az] of [[a.fx, a.fz], [a.lx, a.lz], [b.fx, b.fz], [b.lx, b.lz]]) { const ra = a.hl * Math.abs(a.fx * ax + a.fz * az) + a.hw * Math.abs(a.lx * ax + a.lz * az), rb = b.hl * Math.abs(b.fx * ax + b.fz * az) + b.hw * Math.abs(b.lx * ax + b.lz * az); g = Math.max(g, Math.abs(dx * ax + dz * az) - ra - rb); }
+  return g; }
+// at the wheel of it: straight at you when there's a clear run, otherwise the route round the sheds; rams you if you keep going (backs off and comes again),
+// rams you if you've pulled up too, and once he's put it into you and you've all but stopped he's out the door to drag you out by hand
 function mmPursue(n, dt) {
   const r = n.veh, st = r.state, P = MM.pur, D = WPN.VD[r.name];
   if (!st || !P || (D && D.wrecked) || r.mp) { mmLeaveRide(n); return; }
   n.pos.copy(st.pos);                                    // so shots and blasts still find him
   const sp = st.v, stop = () => npcDrive(r, dt, Math.abs(sp) > 0.3 ? -Math.sign(sp) * 0.8 : 0, 0);
   if (activeName !== 'ute') { stop(); if (Math.abs(sp) < 1.2) mmLeaveRide(n); return; }
-  const U = mmUteSt(), usp = Math.hypot(U.vx || 0, U.vz || 0), d = Math.hypot(U.pos.x - st.pos.x, U.pos.z - st.pos.z);
-  if (d < 9 && usp < 2.5) { stop(); if (Math.abs(sp) < 1.5) mmLeaveRide(n); return; }
+  const U = mmUteSt(), usp = Math.hypot(U.vx || 0, U.vz || 0), d = Math.hypot(U.pos.x - st.pos.x, U.pos.z - st.pos.z), oR = vehicleOBB(r), oU = vehicleOBB(VEH.ute);
+  // he's hit you (the bang itself is the two machines meeting: dents, damage and the shove)
+  if (oR && oU && obbGap(oR, oU) < 0.15 && !(MM.t - (P.hitAt || -1e9) < 1.2)) { P.hitAt = MM.t; P.hits = (P.hits || 0) + 1; P.ramT = 0; camShake = Math.max(camShake, Math.min(0.7, 0.25 + Math.abs(sp) * 0.04)); if (P.hits === 1 || Math.random() < 0.35) { P.sayT = 6 + Math.random() * 4; mmSay('pursue', 2.4, true); } }
+  if (usp < 2.5 && MM.t - (P.hitAt || -1e9) < 4) { stop(); if (Math.abs(sp) < 1.5) mmLeaveRide(n); return; }     // just hit you and you're stopped: out he gets
+  // you've pulled up: he doesn't stop short, he puts it into you first (stuck trying for a while, he leaves it and walks over)
+  const ram = usp < 2.5 && d < 25; P.ramT = ram ? (P.ramT || 0) + dt : 0;
+  if (ram && P.ramT > 8) { stop(); if (Math.abs(sp) < 1.5) { P.ramT = 0; mmLeaveRide(n); } return; }
   P.sayT -= dt; if (P.sayT <= 0) { P.sayT = 7 + Math.random() * 6; if (d < 45) mmSay('pursue', 2.4, true); }
   if (P.recT > 0) { P.recT -= dt; npcDrive(r, dt, -0.7, P.recStr); if (P.recT <= 0) P.fwdT = 3; return; }                 // backing out of whatever he's run into
   P.fwdT = (P.fwdT || 0) - dt;
   P.planT -= dt; if (P.planT <= 0) { P.planT = 0.8; P.pts = d < 10 || drvLOS(st.pos.x, st.pos.z, U.pos.x, U.pos.z) ? null : drvPath(st.pos.x, st.pos.z, U.pos.x, U.pos.z); P.i = 1; }
-  let tx, tz;
-  if (P.pts && P.pts.length > 1) { const Q = P.pts; while (P.i < Q.length - 1 && Math.hypot(Q[P.i][0] - st.pos.x, Q[P.i][1] - st.pos.z) < 6) P.i++; [tx, tz] = Q[P.i]; }
+  let tx, tz, turn = 0;
+  if (P.pts && P.pts.length > 1) { const Q = P.pts; while (P.i < Q.length - 1 && Math.hypot(Q[P.i][0] - st.pos.x, Q[P.i][1] - st.pos.z) < 6) P.i++; [tx, tz] = Q[P.i];
+    for (let j = P.i; j < Math.min(Q.length - 1, P.i + 3); j++) { const a = j === P.i ? [Q[j][0] - st.pos.x, Q[j][1] - st.pos.z] : [Q[j][0] - Q[j - 1][0], Q[j][1] - Q[j - 1][1]], b = [Q[j + 1][0] - Q[j][0], Q[j + 1][1] - Q[j][1]];
+      if (Math.hypot(...a) > 0.5 && Math.hypot(...b) > 0.5) turn = Math.max(turn, Math.abs(faAng(Math.atan2(b[0], b[1]) - Math.atan2(a[0], a[1])))); } }      // how sharp the route bends just ahead
+  else if (ram && oU) { tx = oU.cx; tz = oU.cz; }                         // pulled up: straight into the middle of it
   else { const k = Math.min(1.5, d / 14); tx = U.pos.x + (U.vx || 0) * k; tz = U.pos.z + (U.vz || 0) * k; }
   const e = faAng(Math.atan2(tx - st.pos.x, tz - st.pos.z) - st.yaw);
+  if (ram && Math.abs(e) > 2 && d < 7) { npcDrive(r, dt, -0.9, 0); return; }                                          // right behind him: backs into it
   if (Math.abs(e) > 2 && Math.abs(sp) < 2 && d > 6 && P.fwdT <= 0) { P.recT = 1.4; P.recStr = Math.sign(e) || 1; return; }          // you're behind him: swing it round
-  let vt = Math.min(r.spec.top * 0.85, 24, 7 + d * 0.45 + usp * 0.9) * (1 - Math.min(0.72, Math.max(0, Math.abs(e) - 0.2) / 1.3)); if (P.pts) vt = Math.min(vt, 13);
+  let vt = Math.min(r.spec.top * 0.85, Math.max(24, usp + 7), 7 + d * 0.45 + usp * 0.9) * (1 - Math.min(0.72, Math.max(0, Math.abs(e) - 0.2) / 1.3)); if (P.pts) vt = Math.min(vt, 13 + 13 * (1 - Math.min(1, turn / 0.7)));     // (quicker than you, so he does catch up; on the route, flat out where it runs straight)
+  if (ram) vt = THREE.MathUtils.clamp(4 + d * 0.7, 6, 11) * (Math.abs(e) > 0.9 ? 0.6 : 1);                      // a proper hit, not a write-off
   const want = THREE.MathUtils.clamp(-e * 1.7 / (1 + Math.abs(sp) * 0.07), -1, 1); P.str += (want - P.str) * Math.min(1, dt * 5);
   const thr = sp < vt - 0.3 ? THREE.MathUtils.clamp(0.5 + (vt - sp) * 0.3, 0, 1) : sp > vt + 1 ? -Math.min(1, 0.3 + (sp - vt) * 0.25) : 0.1;
   if (thr > 0.2 && Math.abs(sp) < 0.5) P.stuckT += dt; else P.stuckT = Math.max(0, P.stuckT - dt * 2);
@@ -15440,7 +15492,14 @@ function plEnd() {
   if (typeof WPN !== 'undefined') WPN.cur = s.w;
   PX.saved = null; PX.cur = null;
 }
-function plWith(q, fn) { const keep = SPK.to; plBegin(q); try { return fn(); } finally { plEnd(); SPK.to = keep; } }
+function plWith(q, fn) {
+  const keep = SPK.to, outer = PX.cur;
+  if (outer && q && q.id === outer.id) { SPK.to = q.id; try { return fn(); } finally { SPK.to = keep; } }     // already them
+  // inside another player's turn (an NPC thinking about one mate says something to another): step out of it for this and back in after,
+  // or the rest of that turn would land on whoever holds this phone
+  if (outer) plEnd();
+  plBegin(q); try { return fn(); } finally { plEnd(); if (outer) plBegin(outer); SPK.to = keep; }
+}
 // what an NPC does to a player on another phone goes to that phone
 {
   const _tum = startTumble; startTumble = function (vel) { if (PX.cur) { mpSend({ k: 'ptum', f: MP.me, to: PX.cur.id, v: [mpR(vel.x), mpR(vel.y), mpR(vel.z)] }); return; } return _tum.apply(this, arguments); };
@@ -15764,7 +15823,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); } };
-Object.assign(window.__game, { WMAT, input, CRE, creatorOpen, creatorDone, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
