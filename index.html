@@ -13353,10 +13353,9 @@ function dmDogs(n, dt) {
    He goes for a record and you spot him. When the bar stalls on the way up, get your hands under it (SPOT): not before (it's
    his rep, and he hates being touched on it) and not too late, or it comes down on his chest. Then it's your turn under the bar:
    take it off the rack, let it down to your chest, then hammer PUSH to drive it back up through the sticking point. Five reps,
-   heavier as you tire; get pinned and he takes it off you. Do the set and your punches land harder for it. */
-const BP = { q: null, done: 0, best: 0, pow: 1, vk: 1, vrk: 1, chip: null, meter: null, punch: '', hot: false, ui: false };
+   heavier as you tire; get pinned and he takes it off you. Do the set and you're pumped for a while: your punches land harder until it wears off. */
+const BP = { q: null, done: 0, best: 0, pow: 1, pumpT: 0, PUMP: 600, PUMP_POW: 1.25, vk: 1, vrk: 1, chip: null, meter: null, punch: '', hot: false, ui: false };
 try { const v = JSON.parse(localStorage.getItem('wfy.bench') || '{}'); BP.done = v.done || 0; BP.best = v.best || 0; } catch (_) {}
-BP.pow = 1 + 0.15 * Math.min(3, BP.done);
 function melPow(M) { const k = BP.pow || 1; return k > 1.001 ? Object.assign({}, M, { dmg: Math.round(M.dmg * k), push: M.push * (1 + (k - 1) * 0.6) }) : M; }
 // the room's own frame: u along the bench (its head end at u 0.3, its foot at 1.5), v across, y up from the slab
 const BP_SPOT = [-0.08, 0.3], BP_SIDE = [1.0, 0.95], BP_LIE_U = 0.75, BP_BAR = { rackU: 0.4, u: 0.62, rack: 1.02, chest: 0.8, top: 1.13, v: 0.3 };
@@ -13462,11 +13461,14 @@ function bpEnd(win, why) {
   if (n && n.st.startsWith('bp')) { if (n.st === 'bpLie') bpDimaUp(n); n.tilt = 0; n.st = 'home'; n.t = 0; }          // (mid-scrap, the fight code has him)
   BP.q = null;
 }
+// the set's done: you're pumped for the next ten minutes of play (do it again and the clock starts over; it doesn't stack)
 function bpWon() {
-  BP.done++; BP.best = Math.max(BP.best, 60); BP.pow = 1 + 0.15 * Math.min(3, BP.done); try { localStorage.setItem('wfy.bench', JSON.stringify({ done: BP.done, best: BP.best })); } catch (_) {}
-  toast('Bench day done! Five reps. Your punches land harder: +' + Math.round((BP.pow - 1) * 100) + '%', 3.4);
+  BP.done++; BP.best = Math.max(BP.best, 60); try { localStorage.setItem('wfy.bench', JSON.stringify({ done: BP.done, best: BP.best })); } catch (_) {}
+  BP.pumpT = BP.PUMP; BP.pow = BP.PUMP_POW;
+  toast('Bench day done! You’re pumped: punches +' + Math.round((BP.PUMP_POW - 1) * 100) + '% for the next ' + Math.round(BP.PUMP / 60) + ' minutes', 3.6);
 }
-function bpReset() { BP.q = null; if (bpLying() || bpSpotting()) { EM.cur = null; F.mode = 'walk'; } BP.vk = 1; BP.vrk = 1; bpBarPlace(); }
+function bpPumpLeft() { return BP.pumpT > 0 ? Math.max(1, Math.ceil(BP.pumpT / 60)) : 0; }
+function bpReset() { BP.q = null; BP.pumpT = 0; BP.pow = 1; if (bpLying() || bpSpotting()) { EM.cur = null; F.mode = 'walk'; } BP.vk = 1; BP.vrk = 1; bpBarPlace(); }
 // ---- your side of it, on your own phone ----
 function bpTapMode() { const q = bpMine(); if (!q) return ''; if (bpSpotting() && (q.ph === 'wait' || q.ph === 'dima')) return 'spot'; if (bpLying() && q.ph === 'you') return 'push'; return ''; }
 function bpTap() { const el = $('mPunch'); if (el) { el.classList.add('on'); setTimeout(() => el.classList.remove('on'), 90); } bpSend('bp:tap'); }
@@ -13496,6 +13498,7 @@ function bpBarPlace() {
 }
 function bpStep(dt) {
   if (typeof DM === 'undefined' || !DM.ready || !dmUnit() || !dmUnit().bpBar) return;
+  if (BP.pumpT > 0) { BP.pumpT -= dt; if (BP.pumpT <= 0) { BP.pumpT = 0; BP.pow = 1; toast('Your pump’s worn off: punches back to normal', 2.4); } }       // (counts down while you play)
   if (BP.q && !BP.q.mirror && DM.n && (DM.n.angry || !npcAlive(DM.n))) bpEnd(false, 'angry');           // you've started on him: bench day's off
   const q = BP.q, mine = bpMine();
   BP.vk += ((q ? q.k : 1) - BP.vk) * Math.min(1, dt * 14); BP.vrk += ((q ? q.rk : 1) - BP.vrk) * Math.min(1, dt * 10); bpBarPlace();
@@ -13573,7 +13576,7 @@ function saMenuOpen() {
   const b = SA.sheet.querySelector('[data-sa="quest"]'), busy = !!q, mine = q && (!q.who || q.who === MP.me), who = q && !mine ? (plById(q.who) || {}).name || 'your mate' : ''; b.setAttribute('aria-disabled', busy ? 'true' : 'false');
   b.querySelector('span').textContent = mine ? 'Already on: ' + saStepText() : q ? 'He\u2019s doing it with ' + who + ' (come and sit in)' : 'Fell a gum, split it, sit in the leil, then the cold tub';
   const bb = SA.sheet.querySelector('[data-sa="bench"]'), bq = BP.q; bb.setAttribute('aria-disabled', q || bq ? 'true' : 'false');
-  bb.querySelector('span').textContent = bq ? (bq.who === MP.me ? 'Already on' : 'He\u2019s at it with ' + ((plById(bq.who) || {}).name || 'your mate')) : q ? 'Finish the sauna challenge first' : 'Spot him on his record, then your turn under the bar' + (BP.done ? ' (done ' + BP.done + '×, punches +' + Math.round((BP.pow - 1) * 100) + '%)' : '');
+  bb.querySelector('span').textContent = bq ? (bq.who === MP.me ? 'Already on' : 'He\u2019s at it with ' + ((plById(bq.who) || {}).name || 'your mate')) : q ? 'Finish the sauna challenge first' : 'Spot him on his record, then your turn under the bar' + (BP.pumpT > 0 ? ' (you’re pumped: ' + bpPumpLeft() + ' min left)' : ', and you’re pumped for a while after');
   SA.sheet.classList.add('show'); npcFace(n, F.pos.x, F.pos.z, 99, 1);
 }
 function saChoose(k) {
@@ -16071,7 +16074,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { BP, bpStart, bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { BP, bpStart, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
