@@ -6953,8 +6953,8 @@ function emotePose(id, t) {
     const sh = -0.4 - 2.6 * up + 2.3 * dn + 0.7 * rec; p.shLx = p.shRx = sh; p.shLz = 0.12; p.shRz = -0.12; p.elL = p.elR = -0.5 + 0.3 * dn; p.torsoX = -0.15 * up + 0.5 * dn - 0.35 * rec; p.headX = 0.2 * dn;
     p.kneeL = p.kneeR = 0.25 + 0.2 * dn; p.hipL = p.hipR = -0.15 - 0.2 * dn; return p;
   }
-  if (id === 'bpLie') { p.flip = Math.PI / 2; p.hipL = p.hipR = 0.05; p.kneeL = p.kneeR = 1.45; bpPressArms(p, BP.vk); p.headX = -0.12; p.torsoX = 0; return p; }     // flat on the bench, pressing
-  if (id === 'bpSpot') { bpSpotArms(p, BP.vk, BP.q && BP.q.stall === 3); return p; }                                                       // at the head of the bench, hands under the bar
+  if (id === 'bpLie') { p.flip = Math.PI / 2; p.hipL = p.hipR = 0.05; p.kneeL = p.kneeR = 1.45; bpPressArms(p, BP.vk, DAZZA); p.headX = -0.12; p.torsoX = 0; return p; }     // flat on the bench, pressing
+  if (id === 'bpSpot') { bpSpotArms(p, BP.vk, BP.q && BP.q.stall === 3, DAZZA); return p; }                                                       // at the head of the bench, hands under the bar
   if (id === 'sit') {                     // sat down: on the sauna bench, or up to the chest in the cold tub, hands on the knees
     const tub = EM.cur && EM.cur.sit === 'tub', br = Math.sin(t * 1.6) * 0.02;
     p.hipL = p.hipR = -1.5; p.kneeL = p.kneeR = tub ? 1.75 : 1.45; p.shLx = p.shRx = tub ? -0.35 : -1.0; p.shLz = tub ? 0.55 : 0.2; p.shRz = tub ? -0.55 : -0.2; p.elL = p.elR = tub ? -0.25 : -0.6;
@@ -13281,8 +13281,8 @@ function dmThink(n, dt) {
 // fights and hurts from the shared code come through npcSay with the backpackers' French: give him his own
 function dmSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) dmSay(n, m, 2.6); return; } }
 function dmPoseHook(n, Q) {
-  if (n.st === 'bpLie') { Q.hipL = Q.hipR = 0.05; Q.kneeL = Q.kneeR = 1.45; bpPressArms(Q, BP.vk); Q.headX = -0.1; Q.headY = 0; Q.torsoX = 0; Q.torsoY = 0; Q.bodyY = 0.78; return; }          // flat out on his bench
-  if (n.st === 'bpSpot') { bpSpotArms(Q, BP.vk, BP.q && BP.q.my && BP.q.my.sub === 'help'); Q.headY = 0; return; }                                                                                        // at the head of it, spotting you
+  if (n.st === 'bpLie') { Q.hipL = Q.hipR = 0.05; Q.kneeL = Q.kneeR = 1.45; bpPressArms(Q, BP.vk, n.P); Q.headX = -0.1; Q.headY = 0; Q.torsoX = 0; Q.torsoY = 0; Q.bodyY = 0.78; return; }          // flat out on his bench
+  if (n.st === 'bpSpot') { bpSpotArms(Q, BP.vk, BP.q && BP.q.my && BP.q.my.sub === 'help', n.P); Q.headY = 0; return; }                                                                                        // at the head of it, spotting you
   if (n.st === 'saSit' && activeName === 'foot' && saInside(F.pos)) { const rel = faAng(Math.atan2(F.pos.x - n.pos.x, F.pos.z - n.pos.z) - n.yaw), a = THREE.MathUtils.clamp(rel, -1.5, 1.5);       // on the bench with you: he turns to look at you
     Q.headY = a * 0.7; Q.torsoY = a * 0.3; }
   if (n.st === 'dmWood' && DM.wood && (DM.wood.ph === 'lift' || DM.wood.ph === 'carry')) {          // the log up on his right shoulder, a hand steadying it
@@ -13354,7 +13354,7 @@ function dmDogs(n, dt) {
    his rep, and he hates being touched on it) and not too late, or it comes down on his chest. Then it's your turn under the bar:
    take it off the rack, let it down to your chest, then hammer PUSH to drive it back up through the sticking point. Five reps,
    heavier as you tire; get pinned and he takes it off you. Do the set and you're pumped for a while: your punches land harder until it wears off. */
-const BP = { q: null, done: 0, best: 0, pow: 1, pumpT: 0, PUMP: 600, PUMP_POW: 1.25, vk: 1, vrk: 1, chip: null, meter: null, punch: '', hot: false, ui: false };
+const BP = { q: null, done: 0, best: 0, pow: 1, pumpT: 0, stacks: 0, PUMP: 600, PUMP_POW: 0.25, MAXST: 4, vk: 1, vrk: 1, chip: null, meter: null, punch: '', hot: false, ui: false };
 try { const v = JSON.parse(localStorage.getItem('wfy.bench') || '{}'); BP.done = v.done || 0; BP.best = v.best || 0; } catch (_) {}
 function melPow(M) { const k = BP.pow || 1; return k > 1.001 ? Object.assign({}, M, { dmg: Math.round(M.dmg * k), push: M.push * (1 + (k - 1) * 0.6) }) : M; }
 // the room's own frame: u along the bench (its head end at u 0.3, its foot at 1.5), v across, y up from the slab
@@ -13461,14 +13461,14 @@ function bpEnd(win, why) {
   if (n && n.st.startsWith('bp')) { if (n.st === 'bpLie') bpDimaUp(n); n.tilt = 0; n.st = 'home'; n.t = 0; }          // (mid-scrap, the fight code has him)
   BP.q = null;
 }
-// the set's done: you're pumped for the next ten minutes of play (do it again and the clock starts over; it doesn't stack)
+// the set's done: you're pumped. Each set stacks another +25% (up to +100%) and starts the ten minutes over; when they run out, it all goes
 function bpWon() {
   BP.done++; BP.best = Math.max(BP.best, 60); try { localStorage.setItem('wfy.bench', JSON.stringify({ done: BP.done, best: BP.best })); } catch (_) {}
-  BP.pumpT = BP.PUMP; BP.pow = BP.PUMP_POW;
-  toast('Bench day done! You’re pumped: punches +' + Math.round((BP.PUMP_POW - 1) * 100) + '% for the next ' + Math.round(BP.PUMP / 60) + ' minutes', 3.6);
+  BP.stacks = Math.min(BP.MAXST, BP.stacks + 1); BP.pumpT = BP.PUMP; BP.pow = 1 + BP.PUMP_POW * BP.stacks;
+  toast('Bench day done! You’re pumped: punches +' + Math.round((BP.pow - 1) * 100) + '%' + (BP.stacks > 1 ? ' (' + BP.stacks + ' sets)' : '') + ' for the next ' + Math.round(BP.PUMP / 60) + ' minutes' + (BP.stacks >= BP.MAXST ? '. That’s as pumped as you get' : ''), 3.8);
 }
 function bpPumpLeft() { return BP.pumpT > 0 ? Math.max(1, Math.ceil(BP.pumpT / 60)) : 0; }
-function bpReset() { BP.q = null; BP.pumpT = 0; BP.pow = 1; if (bpLying() || bpSpotting()) { EM.cur = null; F.mode = 'walk'; } BP.vk = 1; BP.vrk = 1; bpBarPlace(); }
+function bpReset() { BP.q = null; BP.pumpT = 0; BP.pow = 1; BP.stacks = 0; if (bpLying() || bpSpotting()) { EM.cur = null; F.mode = 'walk'; } BP.vk = 1; BP.vrk = 1; bpBarPlace(); }
 // ---- your side of it, on your own phone ----
 function bpTapMode() { const q = bpMine(); if (!q) return ''; if (bpSpotting() && (q.ph === 'wait' || q.ph === 'dima')) return 'spot'; if (bpLying() && q.ph === 'you') return 'push'; return ''; }
 function bpTap() { const el = $('mPunch'); if (el) { el.classList.add('on'); setTimeout(() => el.classList.remove('on'), 90); } bpSend('bp:tap'); }
@@ -13498,7 +13498,7 @@ function bpBarPlace() {
 }
 function bpStep(dt) {
   if (typeof DM === 'undefined' || !DM.ready || !dmUnit() || !dmUnit().bpBar) return;
-  if (BP.pumpT > 0) { BP.pumpT -= dt; if (BP.pumpT <= 0) { BP.pumpT = 0; BP.pow = 1; toast('Your pump’s worn off: punches back to normal', 2.4); } }       // (counts down while you play)
+  if (BP.pumpT > 0) { BP.pumpT -= dt; if (BP.pumpT <= 0) { BP.pumpT = 0; BP.pow = 1; BP.stacks = 0; toast('Your pump’s worn off: punches back to normal', 2.4); } }       // (counts down while you play)
   if (BP.q && !BP.q.mirror && DM.n && (DM.n.angry || !npcAlive(DM.n))) bpEnd(false, 'angry');           // you've started on him: bench day's off
   const q = BP.q, mine = bpMine();
   BP.vk += ((q ? q.k : 1) - BP.vk) * Math.min(1, dt * 14); BP.vrk += ((q ? q.rk : 1) - BP.vrk) * Math.min(1, dt * 10); bpBarPlace();
@@ -13539,9 +13539,33 @@ function bpCam(dt) {
   camera.position.copy(camPos); if (camShake > 0) camera.position.addScaledVector(_v2.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), 0.12 * camShake);
   camera.lookAt(lookAt); F.fpK = 0; F.fp = false; return true;
 }
-// poses: you (on the emote machinery) and Dima (his pose hook) share them: flat out pressing, or stood at the head of the bench spotting
-function bpPressArms(p, k) { p.shLx = p.shRx = -0.35 - 1.15 * k; p.shLz = 0.95 - 0.65 * k; p.shRz = -p.shLz; p.elL = p.elR = -2.0 + 1.95 * k; }
-function bpSpotArms(p, k, help) { p.torsoX = 0.42 - 0.12 * k; p.shLx = p.shRx = -0.75 - 0.6 * k - (help ? 0.15 : 0); p.shLz = 0.22; p.shRz = -0.22; p.elL = p.elR = -0.45 + 0.2 * k; p.kneeL = p.kneeR = 0.14; p.hipL = p.hipR = -0.12; p.headX = 0.35; }
+// poses: you (on the emote machinery) and Dima (his pose hook) share them: flat out pressing, or stood at the head of the bench spotting.
+// The hands go on the bar itself: each arm is solved (shoulder swing and spread, elbow bend) to put its hand on a grip point
+const _ikM = new THREE.Matrix4(), _ikT = new THREE.Vector3(), _ikS = new THREE.Vector3(), _ikG = [new THREE.Vector3(), new THREE.Vector3()];
+function armReach(P, left, target, g) {
+  const T = P.torso, sh = left ? P.shL : P.shR; T.updateWorldMatrix(true, false); _ikT.copy(target).applyMatrix4(_ikM.copy(T.matrixWorld).invert());
+  const S = sh.position, ak = sh.scale.x, a = 0.31, b = 0.28, sg = left ? 1 : -1, z0 = sg * 0.75;
+  const err = (x, z, e) => { const fy = -b * Math.cos(e) - 0.01 * Math.sin(e), fz = (-b * Math.sin(e) + 0.01 * Math.cos(e)) * ak, vy = -a + fy;          // hand in the torso's frame (shoulder turned X·Z, elbow X)
+    const X = -vy * Math.sin(z), Y = vy * Math.cos(z), Z = fz, hx = S.x + X, hy = S.y + Y * Math.cos(x) - Z * Math.sin(x), hz = S.z + Y * Math.sin(x) + Z * Math.cos(x);
+    return (hx - _ikT.x) ** 2 + (hy - _ikT.y) ** 2 + (hz - _ikT.z) ** 2 + 0.002 * (z - z0) ** 2; };
+  let x = g.x, z = g.z, e = g.el, best = err(x, z, e), step = 0.3;
+  const lim = (v, lo, hi) => Math.max(lo, Math.min(hi, v)), zlo = left ? -0.2 : -1.7, zhi = left ? 1.7 : 0.2;
+  for (let it = 0; it < 70 && step > 0.003; it++) { let moved = false;
+    for (const [dx, dz, de] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) { const nx = lim(x + dx * step, -3.3, 0.6), nz = lim(z + dz * step, zlo, zhi), ne = lim(e + de * step, -2.7, 0), v = err(nx, nz, ne); if (v < best) { best = v; x = nx; z = nz; e = ne; moved = true; } }
+    if (!moved) step *= 0.5; }
+  g.x = x; g.z = z; g.el = e; return g;
+}
+// both hands on the bar: w = how far out from the middle they grip, dy = a little under it (a spotter's hands)
+function barHands(P, Q, w, dy) {
+  const U = dmUnit(), bar = U && U.bpBar; if (!bar) return; bar.updateWorldMatrix(true, false);
+  bar.localToWorld(_ikG[0].set(0, 0, w)); bar.localToWorld(_ikG[1].set(0, 0, -w)); _ikG[0].y += dy; _ikG[1].y += dy;
+  P.shL.getWorldPosition(_ikS); const lFirst = _ikS.distanceToSquared(_ikG[0]) < _ikS.distanceToSquared(_ikG[1]);
+  const G = P._ik || (P._ik = { L: { x: -1.2, z: 0.7, el: -1.2 }, R: { x: -1.2, z: -0.7, el: -1.2 } });
+  const L = armReach(P, true, lFirst ? _ikG[0] : _ikG[1], G.L), R = armReach(P, false, lFirst ? _ikG[1] : _ikG[0], G.R);
+  Q.shLx = L.x; Q.shLz = L.z; Q.elL = L.el; Q.shRx = R.x; Q.shRz = R.z; Q.elR = R.el;
+}
+function bpPressArms(p, k, P) { if (P) { barHands(P, p, 0.4, 0); return; } p.shLx = p.shRx = -0.35 - 1.15 * k; p.shLz = 0.95 - 0.65 * k; p.shRz = -p.shLz; p.elL = p.elR = -2.0 + 1.95 * k; }
+function bpSpotArms(p, k, help, P) { p.torsoX = 0.42 - 0.12 * k; p.kneeL = p.kneeR = 0.14; p.hipL = p.hipR = -0.12; p.headX = 0.35; if (P) { barHands(P, p, 0.24, help ? -0.01 : -0.03); return; } p.shLx = p.shRx = -0.75 - 0.6 * k - (help ? 0.15 : 0); p.shLz = 0.22; p.shRz = -0.22; p.elL = p.elR = -0.45 + 0.2 * k; }
 // someone (or you) in there?
 function saOccupants() { const out = []; if (activeName === 'foot' && saInside(F.pos)) out.push('you'); for (const n of NPC.list) if (!n.veh && saInside(n.pos)) out.push(n.name); return out; }
 const saDima = () => NPC.list.find(n => n.dima);
@@ -13576,7 +13600,7 @@ function saMenuOpen() {
   const b = SA.sheet.querySelector('[data-sa="quest"]'), busy = !!q, mine = q && (!q.who || q.who === MP.me), who = q && !mine ? (plById(q.who) || {}).name || 'your mate' : ''; b.setAttribute('aria-disabled', busy ? 'true' : 'false');
   b.querySelector('span').textContent = mine ? 'Already on: ' + saStepText() : q ? 'He\u2019s doing it with ' + who + ' (come and sit in)' : 'Fell a gum, split it, sit in the leil, then the cold tub';
   const bb = SA.sheet.querySelector('[data-sa="bench"]'), bq = BP.q; bb.setAttribute('aria-disabled', q || bq ? 'true' : 'false');
-  bb.querySelector('span').textContent = bq ? (bq.who === MP.me ? 'Already on' : 'He\u2019s at it with ' + ((plById(bq.who) || {}).name || 'your mate')) : q ? 'Finish the sauna challenge first' : 'Spot him on his record, then your turn under the bar' + (BP.pumpT > 0 ? ' (you’re pumped: ' + bpPumpLeft() + ' min left)' : ', and you’re pumped for a while after');
+  bb.querySelector('span').textContent = bq ? (bq.who === MP.me ? 'Already on' : 'He\u2019s at it with ' + ((plById(bq.who) || {}).name || 'your mate')) : q ? 'Finish the sauna challenge first' : 'Spot him on his record, then your turn under the bar' + (BP.pumpT > 0 ? ' (pumped +' + Math.round((BP.pow - 1) * 100) + '%, ' + bpPumpLeft() + ' min left' + (BP.stacks < BP.MAXST ? ': another set stacks it' : '') + ')' : ', and you’re pumped for a while after');
   SA.sheet.classList.add('show'); npcFace(n, F.pos.x, F.pos.z, 99, 1);
 }
 function saChoose(k) {
@@ -14241,6 +14265,7 @@ function mmThink(n, dt) {
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
   if (typeof dgStuckIn === 'function' && dgStuckIn(n, dt)) return;
   if (MH.mode && mhMadman(n, dt)) return;
+  if (n.veh === v && n.st === 'drive' && !MH.mode && activeName !== 'ute' && MM.hostileT <= 0 && mmFightNear(n, 30)) mmLeaveUte(false);      // parking the ute when a scrap starts: he leaves it and comes over
   if (!n.veh && !MH.mode && mmDefend(n, dt)) return;
   if (n.st === 'drive') { if (n.veh !== v) mmPursue(n, dt); else if (MH.mode) mhDriveThink(n, dt); else mmDriveThink(n, dt); return; }
   if (activeName !== 'ute' && !n.veh && MM.hostileT <= 0 && bbWatchOn() && ['lean', 'home', 'toUte', 'mmWatch'].includes(n.st) && bbWatchNpc(n, dt, 'mm')) return;      // the bunks are going up: he comes to look
@@ -14324,13 +14349,14 @@ function mmChatter(n, dt, dP) {
    He can't stand them: when one wanders close he has a dig (and sometimes gets one back). But if one of them has a go
    at you and he's about, he's on your side: he storms over and sorts them out. */
 const mmBackpackers = () => NPC.list.filter(b => !b.mm && !b.dima && !b.veh && npcAlive(b));
+// a backpacker having a go at you (or a mate), within reach of him
+function mmFightNear(n, r) { return mmBackpackers().find(b => b.angry && (b.st === 'chase' || b.st === 'fight') && Math.hypot(b.pos.x - n.pos.x, b.pos.z - n.pos.z) < r) || null; }
 function mmDefend(n, dt) {
   const calm = MM.hostileT <= 0 && F.dead <= 0 && npcAlive(n) && !['tumble', 'down', 'ko', 'getup', 'stag', 'chase', 'fight'].includes(n.st);
   if (n.st !== 'defend') {
-    if (!calm || !(['lean', 'home', 'toUte', 'wander'].includes(n.st) || DG_ST.includes(n.st))) return false;
-    const b = mmBackpackers().find(b => b.angry && (b.st === 'chase' || b.st === 'fight') && Math.hypot(b.pos.x - n.pos.x, b.pos.z - n.pos.z) < 35);
-    if (!b) return false;
-    n.st = 'defend'; n.t = 0; n.def = b; n.defT = 0; n.atkPh = ''; n.atk = 0.3; mmSay('defend', 2.4, true); return true;
+    if (!calm || !(['lean', 'home', 'toUte', 'wander', 'mmWatch', 'bbWatch'].includes(n.st) || DG_ST.includes(n.st))) return false;
+    const b = mmFightNear(n, 35); if (!b) return false;
+    n.st = 'defend'; n.t = 0; n.def = b; n.defT = 0; n.atkPh = ''; n.atk = 0.3; SPK.allow = true; try { mmSay('defend', 2.4, true); } finally { SPK.allow = false; } return true;      // (heard even mid-quest: it's him coming to help)
   }
   const b = n.def; n.defT += dt;
   const done = !b || !calm || b.st === 'ko' || !b.angry || n.defT > 30 || F.dead > 0;
@@ -16074,7 +16100,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { BP, bpStart, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
