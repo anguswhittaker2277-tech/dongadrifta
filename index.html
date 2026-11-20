@@ -14163,9 +14163,16 @@ function mtWalk(n, dt) {        // true while still walking
   if (dgMove(n, x, z, 1.5, dt)) { MT.path.shift(); MT.walkT = 0; MT.walkBest = 1e9; if (!MT.path.length) { const S0 = MT_SPOT[MT.spot]; n.st = 'home'; n.t = 0; return false; } }
   n.gT -= dt; if (n.gT <= 0) { n.gT = 0.12; n.gy = mtFloor(n.pos.x, n.pos.z); } return true;
 }
+function mtCalm(n) {
+  if (n.veh) { if (n.st === 'drive' || n.veh.npc === n) npcEject(n, 'kick'); if (n.veh && n.veh.npc === n) n.veh.npc = null; n.veh = null; }
+  n.st = 'home'; n.t = 0; n.angry = false; n.vehT = 1e9; n.route = null; n.bbPh = null; MT.path = null; mtGo(MT.spot && MT_SPOT[MT.spot] && MT.spot !== 'box' && MT.spot !== 'trolley' ? MT.spot : 'bench');
+}
 function mtThink(n, dt) {
   n.t += dt; n.lineT = (n.lineT || 0) - dt;
-  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) { npcThink(n, dt); if (n.st === 'wander') { n.st = 'home'; n.t = 0; n.angry = false; MT.path = null; mtGo('bench'); } return; }
+  // calmed down (or never meant to be in the backpackers' other routines: off to nick a car, watching the bunks burn, building): straight back to the shed.
+  // Handled here, before the shared code gets a look at 'wander', or he'd go and steal your car and never be talkable again
+  if (['wander', 'toVeh', 'drive', 'bbWatch'].includes(n.st) || n.st.startsWith('bb')) { mtCalm(n); return; }
+  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee'].includes(n.st)) { npcThink(n, dt); n.vehT = 1e9; if (['wander', 'toVeh', 'drive', 'bbWatch'].includes(n.st) || n.st.startsWith('bb')) mtCalm(n); return; }
   const veh = faNearT('veh', n.pos);
   if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
