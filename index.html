@@ -1487,7 +1487,7 @@ function treePush(t, dir, speed, mass) {
     if (!t.cracked) { t.cracked = true; if (activeName !== 'foot') toast('Trunk cracked', 1.4); }
   }
   t.lean += E / (30 * sizeK * sizeK) * 0.05 + (mass / 18000) * 0.5 * (1 / 60) / sizeK;
-  if (!t.pushT || performance.now() - t.pushT > 1500) { creakSound(t.base); if (AU.buf.tin) sfx('creak', t.base, 0.5, 1.6, 15); }
+  if (!t.pushT || performance.now() - t.pushT > 1500) { creakSound(t.base); }
   t.pushT = performance.now();
   if (t.lean > 0.3 || t.dmg > 55 * sizeK * sizeK) { t.falling = true; t.lean = Math.max(t.lean, 0.08); t.w = 0.25; say('tree', true); }
   treeSync(t);
@@ -7082,7 +7082,7 @@ function clearBlast() {
    roar falling from 2 kHz to 60 Hz, a sub-bass thump and a crackling tail. Fire: brown-noise roar
    with crackles. All synthesised, like the engines. */
 function metalSound(p, k, rate) { if (!AU.buf.tin) return; sfx(Math.random() < 0.5 ? 'tin' : 'tin2', p, 0.35 + 0.65 * k, (rate || 1) * (0.85 + Math.random() * 0.3), 14); }
-function creakSound(p) { if (AU.buf.creak) sfx('creak', p, 0.9, 0.9 + Math.random() * 0.2, 25); }
+function creakSound(p) { if (AU.buf.tree_creak) sfx('tree_creak', p, 0.9, 0.9 + Math.random() * 0.2, 25); }
 function synthTin(seed) {
   const sr = AU.sr, n = Math.round(sr * 1.6), d = new Float32Array(n), r = rng(seed);
   const modes = [[170, 0.55], [393, 0.45], [741, 0.36], [1230, 0.26], [1904, 0.2], [2760, 0.13], [3810, 0.08]].map(([f, a]) => [f * (0.94 + r() * 0.12), a, 0.25 + r() * 0.5, r() * 6.28]);
@@ -10025,9 +10025,9 @@ function wpnHurt(dmg, vel, how) {
 // a pig's health: two pistol rounds drop a sow, three a boar (a piglet less, a big one a touch more)
 const pigHp = a => Math.round((a.boar ? 42 : 28) * Math.min(1.15, Math.max(0.5, a.s || 1)));
 function wpnPigShot(a, dir, dmg, point) {
-  a.hp = (a.hp == null ? pigHp(a) : a.hp) - dmg;
+  const hp0 = a.hp == null ? pigHp(a) : a.hp; a.hp = hp0 - dmg;
   wpnBloodSpray(point, dir, Math.min(26, 4 + dmg * 0.5));
-  const hpNow = a.hp; if (!(a.sqT > FA.t)) { a.sqT = FA.t + 0.55; faSay(a.pos, hpNow <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.25, (0.92 + Math.random() * 0.16) / (a.s || 1), 25); }
+  const hpNow = a.hp; if (hp0 > 0 && !(a.sqT > FA.t)) { a.sqT = FA.t + 0.55; faSay(a.pos, hpNow <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.25, (0.92 + Math.random() * 0.16) / (a.s || 1), 25); }
   if (a.st !== 'down' && a.st !== 'tumble' && a.hp <= 0) {
     a.st = 'tumble'; a.t = 0; a.vel.set(dir.x * (2 + dmg * 0.05), 1.6 + dmg * 0.03, dir.z * (2 + dmg * 0.05)); a.spin.set((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 8);
     _fe.set(0, a.yaw, 0, 'YXZ'); a.q.setFromEuler(_fe); a.pos.y += 0.1; FA.pigsDown++; toast(FA.pigsDown === 1 ? 'Feral pig down' : 'Feral pigs down: ' + FA.pigsDown, 1.6); a.bleed = 6;
@@ -10626,11 +10626,11 @@ function melHitWal(w) {
 }
 function melHitPig(a, kind, M) {
   const dx = a.pos.x - F.pos.x, dz = a.pos.z - F.pos.z, d = Math.hypot(dx, dz) || 1, nx = dx / d, nz = dz / d;
-  a.hp = (a.hp == null ? pigHp(a) : a.hp) - M.dmg;
+  const hp0 = a.hp == null ? pigHp(a) : a.hp; a.hp = hp0 - M.dmg;
   const P = new THREE.Vector3(a.pos.x - nx * 0.25 * a.s, a.pos.y + 0.55 * a.s, a.pos.z - nz * 0.25 * a.s);
   sfx('m_punch', P, M.big ? 1 : 0.75, 0.85 + Math.random() * 0.25, 9); camShake = Math.max(camShake, M.big ? 0.35 : 0.16);
   if (typeof wpnBloodSpray === 'function') wpnBloodSpray(P, new THREE.Vector3(nx, 0.4, nz), M.big ? 7 : 3);
-  if (!(a.sqT > FA.t)) { a.sqT = FA.t + 0.45; faSay(a.pos, a.hp <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.2, (0.95 + Math.random() * 0.15) / (a.s || 1), 25); }
+  if (hp0 > 0 && !(a.sqT > FA.t)) { a.sqT = FA.t + 0.45; faSay(a.pos, a.hp <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.2, (0.95 + Math.random() * 0.15) / (a.s || 1), 25); }
   a.atk = null; a.fight = 16;
   if (a.hp <= 0 || kind === 'head' || kind === 'upper' || (kind === 'kick' && Math.random() < 0.75)) {        // knocked off its feet (the uppercut pops it up)
     a.st = 'tumble'; a.t = 0; a.knock = a.hp > 0;
@@ -11856,7 +11856,7 @@ function npcStep(dt) {
   if (mpwCli()) { mpwCliNpc(dt); return; }
   spkStep();
   for (const n of NPC.list) { plBegin(MP.on ? plFocus(n) : plList()[0]);
-    try { if (n.mm) mmThink(n, dt); else if (n.matt) mtThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.lineT = (n.lineT || 0) - dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
+    try { if (n.mm) mmThink(n, dt); else if (n.matt) { mtThink(n, dt); mtSolid(n); } else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.lineT = (n.lineT || 0) - dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
     npcPose(n, dt); }
   shedFauna(dt);
 }
@@ -14116,6 +14116,7 @@ function mtW(u, v) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.cos(t)
 function mtUV(x, z) { return shedLocal(mtD(), x, z); }
 function mtYaw(du, dv) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.cos(t), s = Math.sin(t); return Math.atan2(c * du - s * dv, s * du + c * dv); }
 function mtFloor(x, z) { const f = shedFloorAt(x, z); return f !== null ? f : groundAt(x, z, 30, 0); }
+function mtGround(x, z) { const sk = STRUCTS.skip; STRUCTS.skip = MT.rk ? MT.rk.gr : sk; try { return mtFloor(x, z); } finally { STRUCTS.skip = sk; } }      // (under the rocket: not its own box)
 // where Matt works ([u, v, facing du, dv]), the welding spot, the trolley's way out to the pad and the control box
 const MT_SPOT = { bench: [-5, -14.35, 0, -1], board: [14.3, -10, 1, 0], lathe: [4.8, -14.3, 0, -1], rocket: [1.25, -8, -1, 0], watch: [9.9, -12.5, -0.5, 1], box: [6.4, 18.8, -0.8, 0.6], trolley: [0, -9.2, 0, 1] };
 const MT_AISLE = -12.9, MT_WELD = [8, -12.15], MT_TABLE = [8, -11], MT_ROCK = [0, -8], MT_PAD = [0, 30], MT_BOX = [5, 18];
@@ -14320,7 +14321,7 @@ function mtRocketBuild() {
 }
 const _mtV = new THREE.Vector3(), _mtV2 = new THREE.Vector3(), _mtQ = new THREE.Quaternion(), _mtQ2 = new THREE.Quaternion();
 function mtRocketHome() {
-  const R = MT.R; if (!R) return; const [x, z] = mtW(MT_ROCK[0], MT_ROCK[1]), y = mtFloor(x, z);
+  const R = MT.R; if (!R) return; const [x, z] = mtW(MT_ROCK[0], MT_ROCK[1]), y = mtGround(x, z);
   R.ph = 'shed'; R.t = 0; R.s = 0; R.tr.set(x, y, z); R.pos.set(x, y + 0.56, z); R.vel.set(0, 0, 0); R.q.identity(); R.fail = false; R.apo = 0; R.spin.set(0, 0, 0);
 }
 // the rocket's place on the trolley's way out (s metres along MT_ROLL)
@@ -14331,9 +14332,10 @@ function mtFly(dt) {
   const R = MT.R; if (R.ph === 'landed' || R.ph === 'crash') return; R.t += dt; const g = 9.8;
   if (R.ph === 'boost' || R.ph === 'tumble') {
     const ax = _mtV.set(0, 1, 0).applyQuaternion(R.q);
-    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crash', 3.2); }
-    if (R.t < 2.6) R.vel.addScaledVector(ax, 26 * dt);
-    R.vel.y -= g * dt; R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt;
+    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crash', 3.2); mtAim(R); }
+    if (R.t < 2.6 && !R.target) R.vel.addScaledVector(ax, 26 * dt);
+    R.vel.y -= g * dt; if (!R.target) { R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt; }
+    if (R.target && R.pos.distanceTo(R.target.p) < 2.6) { mtStrike(R); return; }
     if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
     else if (R.vel.lengthSq() > 4) { _mtV2.copy(R.vel).normalize(); _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
     if (R.ph === 'boost' && R.t > 2.6) R.ph = 'coast';
@@ -14349,6 +14351,22 @@ function mtFly(dt) {
     if (gy > -1e8 && R.pos.y <= gy && (R.ph !== 'boost' || R.t > 0.5)) { R.pos.y = gy; R.vel.set(0, 0, 0);
       if (R.ph === 'chute') { R.ph = 'landed'; R.t = 0; _mtQ.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2 - 0.2)); R.q.copy(_mtQ); mtFlightDone(true); }
       else { R.ph = 'crash'; R.t = 0; wpnBoom(R.pos.clone().setY(gy + 0.5), 4, 0.6, false); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false); } } }
+}
+// a fin's gone: she corkscrews off and comes down on whichever's about, the fuel tank or Madman's ute (aimed on a plain throw, no thrust)
+function mtAim(R) {
+  const opts = [], T = STRUCTS.boxes && STRUCTS.boxes.tank, u = VEH.ute;
+  if (T && T.rb && !STRUCTS.blown) opts.push({ kind: 'tank', p: T.rb.pos.clone().setY(T.rb.pos.y + 0.6) });
+  if (u && u.state && u.state.pos && !u.wrecked && !(WPN.VD.ute && WPN.VD.ute.wrecked) && !u.mp && activeName !== 'ute') opts.push({ kind: 'ute', p: u.state.pos.clone().setY(u.state.pos.y + 0.9) });
+  if (!opts.length) return;
+  const tg = opts[Math.floor(Math.random() * opts.length)], d = Math.hypot(tg.p.x - R.pos.x, tg.p.z - R.pos.z), t = THREE.MathUtils.clamp(d / 32, 2.2, 7); R.target = tg;
+  R.vel.set((tg.p.x - R.pos.x) / t, (tg.p.y - R.pos.y) / t + 0.5 * 9.8 * t, (tg.p.z - R.pos.z) / t);
+}
+function mtStrike(R) {
+  const tg = R.target, dir = _mtV2.copy(R.vel).normalize(); R.ph = 'crash'; R.t = 0; R.hit = tg.kind; R.vel.set(0, 0, 0); R.target = null;
+  if (tg.kind === 'tank' && STRUCTS.boxes.tank && !STRUCTS.blown) explodeTank(STRUCTS.boxes.tank, dir.clone(), R.pos.clone());
+  else if (tg.kind === 'ute' && VEH.ute) { wpnVehDamage(VEH.ute, 9999, dir.clone(), 'blast', true); wpnBoom(R.pos.clone(), 4, 0.7, false); }
+  else wpnBoom(R.pos.clone(), 4, 0.6, false);
+  R.pos.y = groundAt(R.pos.x, R.pos.z, R.pos.y + 2, R.pos.y - 6); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false);
 }
 // the model: where MT.R says, the flame and smoke while it burns, the chute once it's out
 function mtRocketVis(dt) {
@@ -14408,23 +14426,52 @@ function mtPlace() {
 }
 function mtSay(k, dur) { const n = MT.n, L = MATT_L[k]; if (!n || !L || !n.bub || !npcAlive(n)) return; const line = pickFresh(L); dur = dur || Math.max(2.4, Math.min(6, line.length * 0.065)); mmSayBub(n, line, dur); n.lineT = dur; MT.talkT = Math.max(MT.talkT, dur + 8); }
 function mtSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) mtSay(m, 2.6); return; } }
+// he can't walk through the shed's walls or his own benches, whatever he's doing (fights included): out of any solid box he's got into,
+// sideways, along whichever of its level sides is nearest
+function mtSolid(n) {
+  const P = n.pos;
+  for (const G of STRUCTS.groups) {
+    if (!G.parts.length || Math.hypot(G.ctr.x - P.x, G.ctr.z - P.z) > G.rad + 2) continue;
+    for (const p of G.parts) {
+      if (!p.alive || !p.inv || !p.h || !p.m || p.kind === 'tree' || p.kind === 'floor') continue;
+      const e = p.m.elements, h = p.h, cy = e[13], ey = Math.abs(e[1]) * h[0] + Math.abs(e[5]) * h[1] + Math.abs(e[9]) * h[2];
+      if (cy + ey < P.y + 0.4 || cy - ey > P.y + 1.8) continue;                 // under his knees or over his head
+      _mtV.set(P.x, P.y + 0.9, P.z).applyMatrix4(p.inv); let best = 0, ax = -1;
+      for (let k = 0; k < 3; k++) { if (Math.abs(e[k * 4 + 1]) > 0.7) continue; const o = h[k] + 0.3 - Math.abs(_mtV.getComponent(k)); if (o <= 0) { ax = -2; break; } if (ax < 0 || o < best) { best = o; ax = k; } }
+      if (ax < 0) continue;
+      _mtV.setComponent(ax, _mtV.getComponent(ax) + Math.sign(_mtV.getComponent(ax) || 1) * best); _mtV.applyMatrix4(p.m); P.x = _mtV.x; P.z = _mtV.z;
+    }
+  }
+}
 // a walk round the shed: out to the aisle, along it, in to the spot (or out through the lean-to to the pad and back)
 function mtPathTo(u1, v1) {
   const [u0, v0] = mtUV(MT.n.pos.x, MT.n.pos.z), P = [], door = 1.5;
+  if (v0 < 2.4 && (Math.abs(u0) > 15.4 || v0 < -16)) {       // outside the walls (chased you out, or knocked out there): round to the open side, not through them
+    const su = u0 >= 0 ? 1 : -1; P.push([su * 17.6, Math.max(v0, -18.2)], [su * 17.6, 17.5], [door, 12]); if (v1 > -1) { P.push([u1, v1]); return P; } P.push([door, MT_AISLE], [u1, MT_AISLE], [u1, v1]); return P; }
   if (v0 > -1) { if (v1 > -1) { P.push([u1, v1]); return P; } P.push([door, Math.min(v0, 12)], [door, MT_AISLE]); }
   else if (v1 > -1) { P.push([u0, MT_AISLE], [door, MT_AISLE], [door, 12], [u1, v1]); return P; }
   else P.push([u0, MT_AISLE]);
   P.push([u1, MT_AISLE], [u1, v1]); return P;
 }
-function mtGo(spot) { MT.spot = spot; const S0 = MT_SPOT[spot]; MT.path = mtPathTo(S0[0], S0[1]); MT.n.st = 'mtWalk'; MT.n.t = 0; }
+function mtGo(spot) { MT.spot = spot; const S0 = MT_SPOT[spot]; MT.path = mtPathTo(S0[0], S0[1]); MT.n.st = 'mtWalk'; MT.n.t = 0; MT.walkT = 0; MT.walkBest = 1e9; }
 function mtWalk(n, dt) {        // true while still walking
   if (!MT.path || !MT.path.length) return false; const [u, v] = MT.path[0], [x, z] = mtW(u, v);
-  if (dgMove(n, x, z, 1.5, dt)) { MT.path.shift(); if (!MT.path.length) { const S0 = MT_SPOT[MT.spot]; n.st = 'home'; n.t = 0; return false; } }
+  const dW = Math.hypot(x - n.pos.x, z - n.pos.z); MT.walkT = (MT.walkT || 0) + dt; if (dW < (MT.walkBest || 1e9) - 0.2) { MT.walkBest = dW; MT.walkT = 0; }
+  if (MT.walkT > 3) { MT.walkT = 0; MT.walkBest = 1e9;               // blocked: skip this corner, or (out of anyone's sight) just be there
+    if (faCamD(n.pos) > 30 && faCamD(_mtV.set(x, n.pos.y, z)) > 30) { n.pos.x = x; n.pos.z = z; n.gy = n.pos.y = mtFloor(x, z); } else MT.path.shift(); if (!MT.path.length) { n.st = 'home'; n.t = 0; return false; } return true; }
+  if (dgMove(n, x, z, 1.5, dt)) { MT.path.shift(); MT.walkT = 0; MT.walkBest = 1e9; if (!MT.path.length) { const S0 = MT_SPOT[MT.spot]; n.st = 'home'; n.t = 0; return false; } }
   n.gT -= dt; if (n.gT <= 0) { n.gT = 0.12; n.gy = mtFloor(n.pos.x, n.pos.z); } return true;
+}
+function mtCalm(n) {
+  if (n.veh) { if (n.st === 'drive' || n.veh.npc === n) npcEject(n, 'kick'); if (n.veh && n.veh.npc === n) n.veh.npc = null; n.veh = null; }
+  n.st = 'home'; n.t = 0; n.angry = false; n.vehT = 1e9; n.route = null; n.bbPh = null; MT.path = null; mtGo(MT.spot && MT_SPOT[MT.spot] && MT.spot !== 'box' && MT.spot !== 'trolley' ? MT.spot : 'bench');
 }
 function mtThink(n, dt) {
   n.t += dt; n.lineT = (n.lineT || 0) - dt;
-  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) { npcThink(n, dt); if (n.st === 'wander') { n.st = 'home'; n.t = 0; n.angry = false; MT.path = null; mtGo('bench'); } return; }
+  // calmed down (or never meant to be in the backpackers' other routines: off to nick a car, watching the bunks burn, building): straight back to the shed.
+  // Handled here, before the shared code gets a look at 'wander', or he'd go and steal your car and never be talkable again
+  if (['wander', 'toVeh', 'drive', 'bbWatch'].includes(n.st) || n.st.startsWith('bb')) { mtCalm(n); return; }
+  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee'].includes(n.st)) { npcThink(n, dt); n.vehT = 1e9; if (['wander', 'toVeh', 'drive', 'bbWatch'].includes(n.st) || n.st.startsWith('bb')) mtCalm(n); return; }
   const veh = faNearT('veh', n.pos);
   if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
@@ -14434,7 +14481,8 @@ function mtThink(n, dt) {
     if (q.ph === 'fetch') { if (n.st !== 'mtWalk' || MT.spot !== 'trolley') { MT.spot = 'trolley'; MT.path = mtPathTo(MT_SPOT.trolley[0], MT_SPOT.trolley[1]); n.st = 'mtWalk'; }
       if (!mtWalk(n, dt)) { q.ph = 'roll'; R.ph = 'roll'; R.s = 0; } return; }
     if (q.ph === 'roll') { R.s = Math.min(MT_ROLL_L, R.s + 1.6 * dt); const a = mtRollAt(R.s, _mtV), b = mtRollAt(R.s - 1.15, _mtV2), [tx, tz] = mtW(a.x, a.z), [mx, mz] = mtW(b.x, b.z);
-      R.tr.set(tx, mtFloor(tx, tz), tz); R.pos.set(tx, R.tr.y + 0.56, tz); n.yaw += faAng(Math.atan2(tx - mx, tz - mz) - n.yaw) * Math.min(1, dt * 6); n.pos.x = mx; n.pos.z = mz; n.sp = 1.6; n.st = 'mtPush';
+      const gy = mtGround(tx, tz); R.tr.set(tx, R.s < 0.05 ? gy : R.tr.y + (gy - R.tr.y) * Math.min(1, dt * 6), tz); R.pos.set(tx, R.tr.y + 0.56, tz);      // (eased over steps, like the lip of the shed floor)
+      n.yaw += faAng(Math.atan2(tx - mx, tz - mz) - n.yaw) * Math.min(1, dt * 6); n.pos.x = mx; n.pos.z = mz; n.sp = 1.6; n.st = 'mtPush';
       n.gT -= dt; if (n.gT <= 0) { n.gT = 0.1; n.gy = mtFloor(mx, mz); } n.pos.y += (n.gy - n.pos.y) * Math.min(1, dt * 12); return; }
     if (n.st === 'mtPush') { MT.spot = 'box'; MT.path = [MT_SPOT.box.slice(0, 2)]; n.st = 'mtWalk'; }
     if (n.st === 'mtWalk' && mtWalk(n, dt)) return;
@@ -14446,7 +14494,9 @@ function mtThink(n, dt) {
   if (q && q.kind === 'weld' && MT.spot !== 'watch' && n.st !== 'mtWalk') mtGo('watch');
   if (n.st === 'mtWalk') { if (mtWalk(n, dt)) return; }
   const S0 = MT_SPOT[MT.spot] || MT_SPOT.bench, [x, z] = mtW(S0[0], S0[1]);
-  if (Math.hypot(x - n.pos.x, z - n.pos.z) > 0.6) { mtGo(MT.spot); return; }
+  const dHome = Math.hypot(x - n.pos.x, z - n.pos.z);
+  if (dHome > 2.5) { mtGo(MT.spot); return; }
+  if (dHome > 0.35) { dgMove(n, x, z, 1.2, dt); n.st = 'mtStep'; return; }           // nudged off his spot: a step straight back (not the long way round)
   n.st = 'home'; n.sp *= 0.8; n.pos.x += (x - n.pos.x) * Math.min(1, dt * 3); n.pos.z += (z - n.pos.z) * Math.min(1, dt * 3); n.pos.y += (n.gy - n.pos.y) * Math.min(1, dt * 10);
   const me = activeName === 'foot' ? F.pos : S.pos, dP = Math.hypot(me.x - n.pos.x, me.z - n.pos.z), talking = MT.talkUntil > NPC.t || (MT.sheet && MT.sheet.classList.contains('show') && dP < 5);
   if (q && q.kind === 'weld') { const [tx, tz] = mtW(MT_TABLE[0], MT_TABLE[1]); npcFace(n, tx, tz, 4, dt); return; }
@@ -14545,12 +14595,12 @@ function mtEnd(win, why) {
   if (q.kind === 'parts') { if (win) { MT.stage = Math.max(MT.stage, 1); mtSay('partsDone', 3); } }
   if (q.kind === 'weld') { if (win) { MT.stage = Math.max(MT.stage, 2); MT.weldQ = THREE.MathUtils.clamp(q.qs / Math.max(1, q.seams), 0.3, 1); mtSay('weldWin', 3.5); } else if (why === 'holes') mtSay('weldFail', 3.5); }
   if (q.kind === 'launch' && win) { MT.stage = Math.max(MT.stage, 3); MT.launches++; MT.best = Math.max(MT.best, MT.R.apo || 0); }
-  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? 'Parts run done! Matt will patch up any machine you bring to the shed' : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute'))
+  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? 'Parts run done! Matt will patch up any machine you bring to the shed' : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.hit === 'tank' ? 'She lost a fin and came down on the fuel tank' : MT.R.hit === 'ute' ? 'She lost a fin and came down on Madman’s ute' : MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute'))
     : why === 'holes' ? 'Too many holes: the fins are ruined. Talk to Matt to try again' : why === 'angry' ? 'Matt’s not doing jobs with you right now' : 'Job’s off', 3.4));
   if (win && q.who !== MP.me) mpSend({ k: 'qdone', f: MP.me, to: q.who, q: 'matt', stage: MT.stage, best: MT.best, launches: MT.launches, weldQ: MT.weldQ });
   MT.q = null; mtSave(); if (MT.partG) for (const p of MT.partG) p.g.visible = false;
 }
-function mtQualTxt() { const qv = MT.weldQ; return qv > 0.85 ? 'Lovely welds' : qv > 0.65 ? 'Decent welds' : 'Ugly welds (she might not hold)'; }
+function mtQualTxt() { const qv = MT.weldQ; return qv >= 0.95 ? 'Perfect welds: she’ll hold' : qv > 0.8 ? 'Decent welds (she might let go)' : 'Ugly welds (she probably won’t hold)'; }
 function mtFlightDone(ok) { const q = MT.q; if (q && q.kind === 'launch') { q.ph = 'done'; q.endAt = q.t + (ok ? 3 : 3.5); if (ok) (q.lines = q.lines || []).push([q.t + 1.2, 'landed']); } }
 // what a player did, on the host (a mate's comes in over the network as theirs)
 function mtDo(id, pid, x) {
@@ -14576,10 +14626,10 @@ function mtHost(dt) {
   }
   if (q.kind === 'launch') {
     const R = MT.R;
-    if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, groundAt(tx, tz, MT.padY + 3, MT.padY - 3), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
+    if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, mtGround(tx, tz), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
     if (q.ph === 'count') { q.cd += dt; const keys = ['c5', 'c4', 'c3', 'c2', 'c1', 'ign']; while (q.said < keys.length && q.cd >= q.said * 1.0) { SPK.allow = true; try { mtSay(keys[q.said], 0.95); } finally { SPK.allow = false; } q.said++; }
       if (q.cd >= 5.3) { q.ph = 'fly'; R.ph = 'boost'; R.t = 0; R.alt0 = R.pos.y; R.vel.set(0, 0, 0); R.q.identity(); const a = Math.random() * 6.283; R.wind = [Math.cos(a) * 2.8, Math.sin(a) * 2.8];
-        R.fail = Math.random() < THREE.MathUtils.clamp(0.88 - MT.weldQ, 0.04, 0.55); sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
+        R.fail = MT.weldQ < 0.95 && Math.random() < THREE.MathUtils.clamp((0.95 - MT.weldQ) * 2.2 + 0.1, 0.1, 0.75); R.target = null; R.hit = ''; sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
     if (q.ph === 'fly' || q.ph === 'done') mtFly(dt);
     if (q.lines) q.lines = q.lines.filter(([at, k]) => { if (q.t < at) return true; if (k !== 'liftoff' || R.ph === 'boost') mtSay(k, 3); return false; });          // (lines due at a game time)
     if (q.ph === 'done' && q.t >= q.endAt) { mtEnd(true); return; }
