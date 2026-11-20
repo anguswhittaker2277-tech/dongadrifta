@@ -504,7 +504,6 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 <button id="emobtn" type="button" aria-label="Emotes"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c1.9 2.2 5.1 2.2 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/></svg></button>
 <button id="viewbtn" type="button" aria-label="Change camera view" data-v="chase"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.4l1.6-2.2h7l1.6 2.2h2.4A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.6"/></svg></button>
 <button id="mpbtn" type="button" aria-label="Play with a mate"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5"/><circle cx="17" cy="9" r="2.6"/><path d="M15.8 14.2c2.6-.3 4.6 1.2 5.2 4.3"/></svg><span id="mpCount"></span></button>
-<button id="chatbtn" type="button" aria-label="Chat to the other players"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16v10H10l-4.5 3.5v-3.5H4z"/></svg></button>
 <button id="wxbtn" type="button" aria-label="Weather" data-m="auto"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 17.2 9.1 3.5 3.5 0 0 1 17 16z"/><path class="dr" d="M9 19l-1 2M13 19l-1 2M17 19l-1 2"/></svg><span id="wxlbl">Auto</span></button>
 <button id="chal" type="button" aria-label="Time trials and pickups"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg></button>
 <button id="snd" type="button" aria-label="Sound on or off" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="w" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path class="x" d="M17 9l5 6M22 9l-5 6"/></svg></button>
@@ -5297,9 +5296,9 @@ function buildMinimapBase() {
   mmBase = c; mmW = { cx, cz, half, N };
 }
 function mapPx(x, z) { return [((x - mmW.cx) / (2 * mmW.half) + 0.5) * mmW.N, ((z - mmW.cz) / (2 * mmW.half) + 0.5) * mmW.N]; }
-function drawMinimap() {
+function drawMinimap(cvArg, rFix) {
   if (!mmBase) return;
-  const cv = $('minimap'), css = cv.clientWidth || 112, dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(css * dpr);
+  const cv = cvArg || $('minimap'), css = cv.clientWidth || 112, dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(css * dpr);
   if (cv.width !== W) { cv.width = cv.height = W; }
   const ctx = cv.getContext('2d');
   const v = activeVeh();
@@ -5308,8 +5307,8 @@ function drawMinimap() {
   const camYawNow = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   const rot = -Math.PI / 2 - Math.atan2(Math.cos(camYawNow), Math.sin(camYawNow));
   const want = !v ? 55 : v.kind === 'air' ? (v.P.plane ? 700 : 60 + Math.min(400, Math.max(0, me.y - padHeight(me.x, me.z)) * 6)) : 55 + Math.abs(S.v) * 2;
-  mmR += (want - mmR) * 0.08;
-  const ppm = (W / 2) / mmR, scale = ppm / (mmW.N / (2 * mmW.half));
+  if (!rFix) mmR += (want - mmR) * 0.08;
+  const ppm = (W / 2) / (rFix || mmR), scale = ppm / (mmW.N / (2 * mmW.half));
   const [pu, pv] = mapPx(me.x, me.z);
   ctx.save(); ctx.clearRect(0, 0, W, W);
   ctx.beginPath(); ctx.arc(W / 2, W / 2, W / 2, 0, Math.PI * 2); ctx.clip();
@@ -5437,7 +5436,7 @@ function updateWorld(dt) {
   hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
-  if ((mmFrame++ % 3) === 0) drawMinimap();
+  if ((mmFrame++ % 3) === 0) { drawMinimap(); if (CHAT.open && CHAT.map) drawMinimap(CHAT.map, CHAT.R); }
 }
 
 /* flight card + speed source for the shared speedo */
@@ -9204,11 +9203,12 @@ function mpLeave(quiet) {
 /* ---------- multiplayer chat: a small speech-bubble button by the other buttons (only in a game), a one-line box, and a
    short feed of messages under the map that fades on its own. Enter opens it on a keyboard. ---------- */
 const CHAT = { open: false, lastT: 0, feed: null, box: null, inp: null };
-function chatClean(t) { return String(t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
+function chatClean(t) { return String(t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80); }
 function chatShow(name, text, mine) {
   if (!CHAT.feed) return; const row = document.createElement('div'); row.className = 'cl' + (mine ? ' me' : '');
   const b = document.createElement('b'); b.textContent = name + ': '; row.appendChild(b); row.appendChild(document.createTextNode(text));
   CHAT.feed.appendChild(row); while (CHAT.feed.children.length > 5) CHAT.feed.firstChild.remove();
+  if (CHAT.hist) { CHAT.hist.push([name, text, mine]); if (CHAT.hist.length > 30) CHAT.hist.shift(); if (CHAT.open) chatLog(); }
   setTimeout(() => { row.classList.add('out'); setTimeout(() => row.remove(), 600); }, 9000);
 }
 function chatIn(m) { const t = chatClean(m.t); if (!t) return; const p = MP.peers.get(m.f); const nm = chatClean((p && p.name) || m.n || 'Mate').slice(0, 14); chatShow(nm, t, false); }
@@ -9216,35 +9216,46 @@ function chatSend(text) {
   const t = chatClean(text); if (!t || !MP.on) return false; const now = performance.now(); if (now - CHAT.lastT < 700) return false; CHAT.lastT = now;
   mpSend({ k: 'chat', f: MP.me, n: MP.name, t }); chatShow(MP.name || 'You', t, true); return true;
 }
-function chatOpen(on) {
-  CHAT.open = on && MP.on; CHAT.box.classList.toggle('show', CHAT.open);
-  if (CHAT.open) { CHAT.inp.value = ''; setTimeout(() => CHAT.inp.focus(), 30); } else CHAT.inp.blur();
+// tap the minimap: a big map, and (in multiplayer) the chat beside it
+function chatOpen(on, typing) {
+  CHAT.open = !!on; CHAT.box.classList.toggle('show', CHAT.open); CHAT.box.classList.toggle('mp', !!MP.on);
+  if (CHAT.open) { CHAT.inp.value = ''; chatLog(); drawMinimap(CHAT.map, CHAT.R); if (typing && MP.on) setTimeout(() => CHAT.inp.focus(), 30); } else CHAT.inp.blur();
 }
+function chatLog() { const L = CHAT.logEl; if (!L) return; L.textContent = ''; for (const [n, t, me] of CHAT.hist) { const d = document.createElement('div'); if (me) d.className = 'me'; const b = document.createElement('b'); b.textContent = n + ': '; d.appendChild(b); d.appendChild(document.createTextNode(t)); L.appendChild(d); } L.scrollTop = L.scrollHeight; }
 (() => {
   const st = document.createElement('style');
-  st.textContent = '#chatbtn:not(.mp){display:none!important}' +
+  st.textContent = '#minimap{pointer-events:auto!important;cursor:pointer;z-index:7}' +
     '#chatFeed{position:fixed;z-index:6;left:max(16px,env(safe-area-inset-left,0px));top:calc(134px + env(safe-area-inset-top,0px));max-width:min(340px,46vw);pointer-events:none;display:flex;flex-direction:column;gap:4px}' +
     '#chatFeed .cl{font:600 12.5px/1.3 var(--font);color:#fff;background:rgba(20,24,22,.55);padding:4px 9px;border-radius:10px;width:fit-content;max-width:100%;overflow-wrap:anywhere;transition:opacity .6s}' +
     '#chatFeed .cl b{font-weight:800;color:#ffd36a}#chatFeed .cl.me b{color:#9fe0ff}#chatFeed .cl.out{opacity:0}' +
     '@media (max-height:400px){#chatFeed{top:calc(112px + env(safe-area-inset-top,0px))}#chatFeed .cl{font-size:11.5px}}' +
-    '#chatBox{position:fixed;z-index:45;left:50%;top:calc(10px + env(safe-area-inset-top,0px));transform:translateX(-50%);width:min(520px,92vw);display:none;flex-direction:column;gap:6px;background:var(--card);box-shadow:var(--shadow);border-radius:16px;padding:8px}' +
-    '#chatBox.show{display:flex}#chatBox .r{display:flex;gap:6px}#chatBox input{flex:1;min-width:0;border:1.5px solid var(--inset);background:var(--card-2);color:var(--ink);border-radius:10px;padding:9px 11px;font:600 15px var(--font)}' +
-    '#chatBox button{border:0;border-radius:10px;padding:0 13px;font:800 13px var(--font);cursor:pointer;background:var(--accent);color:#fff}#chatBox button.x{background:var(--card-2);color:var(--ink)}' +
-    '#chatBox .q{display:flex;gap:5px;flex-wrap:wrap}#chatBox .q button{background:var(--card-2);color:var(--ink);font:700 12px var(--font);padding:6px 10px}';
+    '#mapSheet{position:fixed;inset:0;z-index:45;display:none;align-items:center;justify-content:center;gap:14px;padding:12px;background:rgba(14,16,15,.42)}#mapSheet.show{display:flex}' +
+    '#mapSheet .mapC{position:relative;width:min(84vh,58vw,520px);aspect-ratio:1}#mapSheet canvas{width:100%;height:100%;border-radius:50%;border:4px solid var(--card);box-shadow:var(--shadow);background:var(--card)}' +
+    '#mapSheet .zm{position:absolute;right:2%;bottom:2%;display:flex;gap:6px}#mapSheet .zm button,#mapSheet .x{width:40px;height:40px;border-radius:50%;border:0;background:var(--card);box-shadow:var(--shadow);font:800 20px var(--font);color:var(--ink);cursor:pointer}' +
+    '#mapSheet .x{position:absolute;left:2%;top:2%;font-size:16px}' +
+    '#mapSheet .chat{display:none;flex-direction:column;gap:6px;width:min(320px,36vw);max-height:min(84vh,520px);background:var(--card);border-radius:16px;box-shadow:var(--shadow);padding:10px}#mapSheet.mp .chat{display:flex}' +
+    '#mapSheet .chat h3{margin:0;font:800 12px var(--font);letter-spacing:.06em;color:var(--ink);opacity:.7}' +
+    '#mapSheet .log{flex:1;min-height:40px;overflow-y:auto;font:600 13px/1.35 var(--font);color:var(--ink);display:flex;flex-direction:column;gap:3px}#mapSheet .log b{font-weight:800;color:#b07a10}#mapSheet .log .me b{color:#1f6f9a}' +
+    '#mapSheet .q{display:flex;gap:5px;flex-wrap:wrap}#mapSheet .q button{border:0;border-radius:10px;padding:7px 10px;font:700 12px var(--font);background:var(--card-2);color:var(--ink);cursor:pointer}' +
+    '#mapSheet .r{display:flex;gap:6px}#mapSheet input{flex:1;min-width:0;border:1.5px solid var(--inset);background:var(--card-2);color:var(--ink);border-radius:10px;padding:9px 10px;font:600 15px var(--font)}' +
+    '#mapSheet .r button{border:0;border-radius:10px;padding:0 12px;font:800 13px var(--font);background:var(--accent);color:#fff;cursor:pointer}' +
+    '@media (max-height:420px){#mapSheet .q button{padding:5px 8px;font-size:11px}#mapSheet .chat{gap:4px;padding:8px}}';
   document.head.appendChild(st);
   const feed = document.createElement('div'); feed.id = 'chatFeed'; feed.setAttribute('aria-live', 'polite'); document.body.appendChild(feed); CHAT.feed = feed;
-  const box = document.createElement('div'); box.id = 'chatBox'; box.className = 'ui';
-  box.innerHTML = '<div class="r"><input id="chatIn" type="text" maxlength="120" autocomplete="off" enterkeyhint="send" placeholder="Say something…" aria-label="Chat message"><button type="button" id="chatGo">Send</button><button type="button" class="x" id="chatX" aria-label="Close chat">✕</button></div>' +
-    '<div class="q"><button type="button">G’day</button><button type="button">Follow me</button><button type="button">Wait up</button><button type="button">Nice one!</button><button type="button">Ha ha</button></div>';
-  document.body.appendChild(box); CHAT.box = box; CHAT.inp = box.querySelector('#chatIn');
-  const send = () => { if (chatSend(CHAT.inp.value)) chatOpen(false); };
-  // typing never drives the game: keys stop at the box
+  const box = document.createElement('div'); box.id = 'mapSheet'; box.className = 'ui';
+  box.innerHTML = '<div class="mapC"><canvas aria-label="Map of the yard"></canvas><button type="button" class="x" aria-label="Close map">✕</button><div class="zm"><button type="button" data-z="1" aria-label="Zoom in">+</button><button type="button" data-z="-1" aria-label="Zoom out">−</button></div></div>' +
+    '<div class="chat"><h3>CHAT</h3><div class="log"></div><div class="q"><button type="button">G’day</button><button type="button">Follow me</button><button type="button">Wait up</button><button type="button">Over here!</button><button type="button">Nice one!</button><button type="button">Ha ha</button></div>' +
+    '<div class="r"><input id="chatIn" type="text" maxlength="80" autocomplete="off" enterkeyhint="send" placeholder="Write a short line…" aria-label="Chat message"><button type="button" id="chatGo">Send</button></div></div>';
+  document.body.appendChild(box); CHAT.box = box; CHAT.inp = box.querySelector('#chatIn'); CHAT.map = box.querySelector('canvas'); CHAT.logEl = box.querySelector('.log'); CHAT.R = 160; CHAT.hist = [];
+  const send = () => { if (chatSend(CHAT.inp.value)) { CHAT.inp.value = ''; chatLog(); } };
   ['keydown', 'keyup', 'keypress'].forEach(ev => CHAT.inp.addEventListener(ev, e => { e.stopPropagation(); if (ev === 'keydown') { if (e.key === 'Enter') { e.preventDefault(); send(); } else if (e.key === 'Escape') chatOpen(false); } }));
-  box.querySelector('#chatGo').addEventListener('click', send); box.querySelector('#chatX').addEventListener('click', () => chatOpen(false));
-  box.querySelectorAll('.q button').forEach(b => b.addEventListener('click', () => { if (chatSend(b.textContent)) chatOpen(false); }));
-  const btn = $('chatbtn'); if (btn) btn.addEventListener('click', () => chatOpen(!CHAT.open));
-  addEventListener('keydown', e => { if (e.key === 'Enter' && MP.on && !CHAT.open && !(document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) { e.preventDefault(); chatOpen(true); } });
-  setInterval(() => { if (btn) btn.classList.toggle('mp', !!MP.on); if (!MP.on && CHAT.open) chatOpen(false); }, 500);
+  box.querySelector('#chatGo').addEventListener('click', send); box.querySelector('.x').addEventListener('click', () => chatOpen(false));
+  box.addEventListener('click', e => { if (e.target === box) chatOpen(false); });          // tap outside: close
+  box.querySelectorAll('.q button').forEach(b => b.addEventListener('click', () => { if (chatSend(b.textContent)) chatLog(); }));
+  box.querySelectorAll('.zm button').forEach(b => b.addEventListener('click', () => { CHAT.R = THREE.MathUtils.clamp(CHAT.R * (+b.dataset.z > 0 ? 0.6 : 1.65), 40, 900); drawMinimap(CHAT.map, CHAT.R); }));
+  const mm = $('minimap'); if (mm) mm.addEventListener('click', () => chatOpen(!CHAT.open));
+  addEventListener('keydown', e => { if (e.key === 'Enter' && MP.on && !CHAT.open && !(document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) { e.preventDefault(); chatOpen(true, true); } });
+  setInterval(() => { if (CHAT.open) CHAT.box.classList.toggle('mp', !!MP.on); }, 500);
 })();
 
 function mpStatus(s) { MP.status = s; const el = $('mpNote'); if (el) el.textContent = s; }
