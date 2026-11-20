@@ -2722,7 +2722,7 @@ function step(dt) {
       if (blocked) break;
     }
     // step limit: the leading wheels can't climb onto something taller than the vehicle can ride over (the MX track is all ramps, and in the air there's nothing to climb)
-    if (!blocked && !S.air && !(MX.ready && mxIn(nx, nz))) {
+    if (!blocked && !S.air && !(MX.ready && mxIn(nx, nz)) && !fmxIn(nx, nz)) {
       const leadDist = (along >= 0 ? V.wb + V.rF * 0.8 : V.rR * 0.9);
       for (const lx of [V.trackF * 1.1, -V.trackF * 1.1]) {
         const sgn = along >= 0 ? 1 : -1;
@@ -7736,6 +7736,7 @@ addEventListener('keydown', e => { if (!e.repeat && e.key && e.key.toLowerCase()
 let camInit = false, camYaw = 0;
 const camPos = new THREE.Vector3(), lookAt = new THREE.Vector3(), lookTarget = new THREE.Vector3();
 function updateCamera(dt) {
+  fmxCamRestore();
   let targetYaw = S.yaw;
   const spd = Math.hypot(S.vx, S.vz);
   if (drift.on && spd > 3) {                                    // in a slide, look partly along the direction of travel
@@ -7819,7 +7820,7 @@ function frame() {
     camera.position.set(0, 60, 120); camera.lookAt(0, 0, 0);
   }
   if (collider) { slodStep(); dtlStep(raw); }
-  renderer.render(scene, camera); bubDom();
+  fmxCine(raw); renderer.render(scene, camera); bubDom();
   // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down
   ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05;
   if (collider && ftAvg > 20 && pixelRatio > PR_MIN) { lowFor += raw; highFor = 0; if (lowFor > 2) { pixelRatio = Math.max(PR_MIN, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); lowFor = 0; } }
@@ -11972,23 +11973,25 @@ var slideSet = function (v, quiet) {
 var FMX_ON = false;
 const FMXZ = 78, FMXZ2 = 91;
 const FMX_RAMPS = [
-  { id: 'bigK', k: 'k', x0: -28, z: FMXZ, W: 9, L: 10, H: 2.6, e: 1.4 },
-  { id: 'bigL', k: 'l', x0: 0, z: FMXZ, W: 13, Lr: 14, H: 3.0, Ld: 27 },
+  { id: 'bigK', k: 'k', x0: -30, z: FMXZ, W: 5.5, L: 7.5, H: 4.0, e: 1.9, sk: 1 },          // pro steel kicker: steep lip, square sides
+  { id: 'bigL', k: 'l', x0: 0, z: FMXZ, W: 16, Lr: 9, D: 3, H: 5.0, Ld: 31, bl: 2.5 },       // big dirt landing: face, deck, long downslope
   { id: 'smK', k: 'k', x0: -28, z: FMXZ2, W: 7, L: 6, H: 1.3, e: 1.3 },
   { id: 'smL', k: 'l', x0: -14, z: FMXZ2, W: 9, Lr: 8, H: 1.2, Ld: 15 },
 ];
 function fmxRampH(R, x, z) {
   const u = x - R.x0, dz = Math.abs(z - R.z), edge = R.W / 2; if (u < 0 || dz >= edge) return -Infinity;
   let h = 0;
+  const D = R.D || 0;
   if (R.k === 'k') { if (u <= R.L) h = R.H * Math.pow(u / R.L, R.e); else if (u <= R.L + 0.8) h = R.H * (1 - (u - R.L) / 0.8); else return -Infinity; }
-  else { if (u <= R.Lr) { const t = u / R.Lr; h = R.H * t * t * (3 - 2 * t); } else if (u <= R.Lr + R.Ld) h = R.H * Math.pow(1 - (u - R.Lr) / R.Ld, 1.6); else return -Infinity; }
-  const t = Math.min(1, (edge - dz) / 1.0); return h * t * t * (3 - 2 * t);
+  else { if (u <= R.Lr) { const t = u / R.Lr; h = R.H * t * t * (3 - 2 * t); } else if (u <= R.Lr + D) h = R.H; else if (u <= R.Lr + D + R.Ld) h = R.H * Math.pow(1 - (u - R.Lr - D) / R.Ld, 1.6); else return -Infinity; }
+  if (R.sk) return h;                                        // steel kicker: full height right to its side skirts
+  const t = Math.min(1, (edge - dz) / (R.bl || 1.0)); return h * t * t * (3 - 2 * t);
 }
 function fmxHeight(x, z) {
-  if (!FMX_ON || z < FMXZ - 8 || z > FMXZ2 + 8 || x < -30 || x > 45) return -Infinity;
+  if (!FMX_ON || z < FMXZ - 9 || z > FMXZ2 + 8 || x < -31 || x > 44) return -Infinity;
   let b = -Infinity; for (const R of FMX_RAMPS) { const h = fmxRampH(R, x, z); if (h > b) b = h; } return b;
 }
-function fmxIn(x, z) { return FMX_ON && z > FMXZ - 9 && z < FMXZ2 + 9 && x > -32 && x < 46; }
+function fmxIn(x, z) { return FMX_ON && z > FMXZ - 10 && z < FMXZ2 + 9 && x > -33 && x < 46; }
 (() => {
   // galvanised steel decking: diamond-plate sheets with seams and rivets
   const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
@@ -12004,14 +12007,24 @@ function fmxIn(x, z) { return FMX_ON && z > FMXZ - 9 && z < FMXZ2 + 9 && x > -32
   const dtex = new THREE.CanvasTexture(dc); dtex.wrapS = dtex.wrapT = THREE.RepeatWrapping; dtex.colorSpace = THREE.SRGBColorSpace;
   const dirtMat = new THREE.MeshLambertMaterial({ map: dtex });
   for (const R of FMX_RAMPS) {
-    const len = R.k === 'k' ? R.L + 0.8 : R.Lr + R.Ld, st = 0.5, nx = Math.ceil(len / st), nz = Math.ceil(R.W / st), pos = [], uv = [], idx = [];
+    const len = R.k === 'k' ? R.L + 0.8 : R.Lr + (R.D || 0) + R.Ld, st = 0.5, nx = Math.ceil(len / st), nz = Math.ceil(R.W / st), pos = [], uv = [], idx = [], zin = R.sk ? 0.02 : 0;
     for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
-      const x = R.x0 + Math.min(len, i * st), z = R.z - R.W / 2 + j * (R.W / nz), h = fmxRampH(R, x, z);
+      const x = R.x0 + Math.min(len, i * st), z = R.z - R.W / 2 + zin + j * ((R.W - 2 * zin) / nz), h = fmxRampH(R, x, z);
       pos.push(x, h === -Infinity ? 0 : h + 0.01, z); uv.push(R.k === 'k' ? x / 2.4 : x * 0.35, R.k === 'k' ? z / 2.4 : z * 0.35);
     }
     for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) { const a = i * (nz + 1) + j, b = a + 1, d = a + nz + 1, e = d + 1; idx.push(a, b, d, b, e, d); }
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
     const m = new THREE.Mesh(geo, R.k === 'k' ? mat : dirtMat); m.receiveShadow = true; m.castShadow = true; scene.add(m);
+    if (R.sk) {        // steel side skirts and a braced back, so it reads as a real FMX kicker rather than a mound
+      const skin = new THREE.MeshStandardMaterial({ color: 0x6d747b, metalness: 0.5, roughness: 0.5, side: THREE.DoubleSide });
+      for (const sg of [-1, 1]) { const sp = [], si = []; const zz = R.z + sg * (R.W / 2 - 0.01);
+        for (let i = 0; i <= nx; i++) { const x = R.x0 + Math.min(len, i * st), h = Math.max(0, fmxRampH(R, x, R.z)); sp.push(x, 0, zz, x, h + 0.01, zz); }
+        for (let i = 0; i < nx; i++) { const a = i * 2; si.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        const g2 = new THREE.BufferGeometry(); g2.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3)); g2.setIndex(si); g2.computeVertexNormals();
+        const sk = new THREE.Mesh(g2, skin); sk.castShadow = true; scene.add(sk); }
+      const legM = new THREE.MeshStandardMaterial({ color: 0x3f454b, metalness: 0.6, roughness: 0.45 });
+      for (const fz of [-1, 0, 1]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, R.H, 0.14), legM); leg.position.set(R.x0 + R.L - 0.1, R.H / 2, R.z + fz * (R.W / 2 - 0.3)); leg.castShadow = true; scene.add(leg); }
+    }
   }
   // signs and lip flags
   const sign = (txt, x, z, ry) => {
@@ -12066,14 +12079,14 @@ function fmxLaunch() {
   if (!FMX.mode) return;
   const R = FMX_RAMPS.find(r => r.k === 'k' && Math.abs(S.pos.x - (r.x0 + r.L)) < 2.8 && Math.abs(S.pos.z - r.z) < r.W / 2 + 1); if (!R) return;
   const Ld = FMX_RAMPS.find(r => r.id === FMX_LAND[R.id]), sp = Math.hypot(S.vx, S.vz); if (S.vx < sp * 0.35 || sp < 3) return;
-  const xt = Ld.x0 + Ld.Lr + (R.id === 'bigK' ? 4 : 3), zt = Ld.z, yt = fmxRampH(Ld, xt, zt);
+  const xt = Ld.x0 + Ld.Lr + (Ld.D || 0) + (R.id === 'bigK' ? 7 : 3), zt = Ld.z, yt = fmxRampH(Ld, xt, zt);
   const dx = xt - S.pos.x, dz = (zt - S.pos.z) * 0.7, dist = Math.hypot(dx, dz);
-  const T = Math.max(R.id === 'bigK' ? 2.3 : 1.7, dist / THREE.MathUtils.clamp(sp, 9, 22)), vh = dist / T;
+  const T = Math.max(R.id === 'bigK' ? 2.9 : 1.7, dist / THREE.MathUtils.clamp(sp, 9, 22)), vh = dist / T;        // big kicker: about 3 s of air, ~13 m up
   S.yaw = Math.atan2(dx, dz); S.r = 0; S.v = vh; S.vx = dx / dist * vh; S.vz = dz / dist * vh;
-  S.vy = (yt - S.pos.y + 4.9 * T * T) / T; S.fmxA = true; FMX.slowOn = FMX.mode === 2;
+  S.vy = (yt - S.pos.y + 4.9 * T * T) / T; S.fmxA = true; FMX.slowOn = false;
 }
 let fmxTS = 1;
-function fmxTimeScale(raw) { fmxTS += ((FMX.slowOn && S.air ? 0.5 : 1) - fmxTS) * Math.min(1, raw * 5); if (fmxTS > 0.995) fmxTS = 1; return fmxTS; }
+function fmxTimeScale(raw) { const tg = FMX.slowOn && S.air ? 0.3 : 1; fmxTS += (tg - fmxTS) * Math.min(1, raw * (tg < fmxTS ? 9 : 4)); if (fmxTS > 0.995) fmxTS = 1; return fmxTS; }
 const fmxVn = x => S.fmxA ? Math.min(x, 4.5) : x;
 function fmxStart(sx, sy, qid) {
   const id = qid || fmxPick(sx, sy), tk = FMX_TRICKS[id], left = fmxAirLeft();
@@ -12110,11 +12123,12 @@ function fmxAir(dt, traj) {
     FMX.done.push(tk.name); FMX.cur = null; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; S.pitch = FMX.bp; S.pitchV = FMX.bpV; FMX.armed = false;
     const n = FMX.done.length; motoPop('<b>' + tk.name + '</b> +' + tk.pts + (n > 1 ? ' &middot; x' + (1 + 0.5 * (n - 1)).toFixed(1) : ''), 1.0, 'ok');
     if (FMX.q) { const q = FMX.q; FMX.q = null; if (FMX.held) fmxStart(0, 0, q); }
+    else if (FMX.tq) { const q = FMX.tq; FMX.tq = null; fmxStart(0, 0, q); }
   }
   return true;
 }
 function fmxLanded(verdict, airT) {
-  S.fmxA = false; FMX.slowOn = false;
+  S.fmxA = false; FMX.slowOn = false; FMX.tq = null;
   const cur = FMX.cur, list = FMX.done; FMX.q = null; FMX.cur = null; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; FMX.done = [];
   if (cur && !cur.tk.flip && !cur.tk.roll && cur.t / cur.tk.T > 0.7) list.push(cur.tk.name);
   if (!list.length) { if (cur) motoPop('<b>' + cur.tk.name + '</b> &middot; not finished', 1.8, 'meh'); return; }
@@ -12127,7 +12141,7 @@ function fmxLanded(verdict, airT) {
   motoPop(verdict === 'Crash' ? '<b>Bailed</b> &middot; ' + names + ' &middot; <span class="v">0 pts</span>' : '<b>' + total.toLocaleString() + ' pts</b> &middot; ' + names + ' &middot; <span class="v">' + verdict + '</span>' + (best ? ' &middot; best!' : ''), 3.4, verdict === 'Clean' ? 'ok' : verdict === 'Crash' ? 'bad' : 'meh');
   FMX.last = total;
 }
-function fmxReset() { S.fmxA = false; FMX.slowOn = false; fmxTS = 1; FMX.cur = null; FMX.q = null; FMX.done = []; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; FMX.held = false; fmxRiderRestore(); }
+function fmxReset() { S.fmxA = false; FMX.slowOn = false; FMX.tq = null; FMX.cineK = 0; document.body.classList.remove('fmxcine', 'fmxair'); fmxTS = 1; FMX.cur = null; FMX.q = null; FMX.done = []; FMX.flip = 0; FMX.rollOn = false; FMX.roll = 0; FMX.held = false; fmxRiderRestore(); }
 
 /* ---------- the rider's pose ---------- */
 let fmxPosed = false;
@@ -12152,15 +12166,69 @@ function fmxRider() {
   R.position.set(s.x + dx * e, s.hip - 0.702 * k + dy * e, s.z + dz * e); R.rotation.set(rx * e, ry * e, rz * e);
 }
 
+
+/* ---------- simple tricks: tap one of four big buttons in the air (keys 1-4); slow-mo and a side-on camera while it plays ---------- */
+const FMX_TOUCH = (navigator.maxTouchPoints || 0) > 0 && matchMedia('(pointer: coarse)').matches;
+const FMX_TAP = [['back', 'BACKFLIP', '1'], ['up', 'SUPERMAN', '2'], ['left', 'NAC-NAC', '3'], ['right', 'HEEL CLICK', '4']];
+function fmxTap(id) {
+  if (!(V.moto && activeName !== 'foot' && S.air)) return;
+  if (FMX.cur) { FMX.tq = id; return; }                      // one at a time: the next one goes when this lands
+  fmxStart(0, 0, id);
+}
+function fmxCanDo(id, left) { const tk = FMX_TRICKS[id]; return left >= tk.T * (tk.flip || tk.roll ? 0.95 : 0.7) + 0.05; }
+function fmxTapStep(dt) {
+  const air = !!(V.moto && activeName !== 'foot' && S.air && F.mode === 'seated');
+  document.body.classList.toggle('fmxair', air);
+  const left = air ? fmxAirLeft() : 0; FMX.left = left;
+  if (air && FMX.tapEls) for (const [id, el] of FMX.tapEls) el.classList.toggle('dim', !FMX.cur && !fmxCanDo(id, left));
+  // slow-mo: on while a trick is in the air (Easy + slow-mo), off again in time for the landing
+  FMX.slowOn = FMX.mode === 2 && air && !!FMX.cur && left > 0.45;
+}
+let fmxCamSave = null; const _fc1 = new THREE.Vector3(), _fc2 = new THREE.Vector3(), _fcQ = new THREE.Quaternion(), _fcM = new THREE.Matrix4();
+function fmxCamRestore() { if (!fmxCamSave) return; camera.position.copy(fmxCamSave.p); camera.quaternion.copy(fmxCamSave.q); if (camera.fov !== fmxCamSave.fov) { camera.fov = fmxCamSave.fov; camera.updateProjectionMatrix(); } fmxCamSave = null; }
+function fmxCine(raw) {
+  const want = FMX.slowOn ? 1 : 0; FMX.cineK = (FMX.cineK || 0) + (want - (FMX.cineK || 0)) * Math.min(1, raw * (want ? 5 : 3.5));
+  document.body.classList.toggle('fmxcine', FMX.cineK > 0.35);
+  if (FMX.cineK < 0.01 || !V.moto) { FMX.cineK = want ? FMX.cineK : 0; fmxCamSave = null; return; }
+  fmxCamSave = { p: camera.position.clone(), q: camera.quaternion.clone(), fov: camera.fov };
+  // side-on to the flight, a touch ahead and below, slowly swinging round as the trick plays
+  const sp = Math.hypot(S.vx, S.vz) || 1, hx = S.vx / sp, hz = S.vz / sp, sd = FMX.cineSide || (FMX.cineSide = 1);
+  const k = FMX.cur ? Math.min(1, FMX.cur.t / FMX.cur.tk.T) : 1, ang = (1.25 - 0.5 * k) * sd;          // ~70 deg off the line of travel, easing toward side-on and past
+  const ca = Math.cos(ang), sa = Math.sin(ang), dx = hx * ca - hz * sa, dz = hz * ca + hx * sa;
+  const c = _fc1.set(S.pos.x, S.pos.y + 0.9, S.pos.z), p = _fc2.set(c.x + dx * 7.5, c.y + 0.4, c.z + dz * 7.5);
+  const gy = groundAt(p.x, p.z, p.y + 3, -1e9); if (p.y < gy + 1.2) p.y = gy + 1.2;
+  _fcM.lookAt(p, c, camera.up); _fcQ.setFromRotationMatrix(_fcM);
+  const e = FMX.cineK * FMX.cineK * (3 - 2 * FMX.cineK);
+  camera.position.lerp(p, e); camera.quaternion.slerp(_fcQ, e);
+  const fov = fmxCamSave.fov + (48 - fmxCamSave.fov) * e; if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
+}
+(() => {
+  const st = document.createElement('style');
+  st.textContent = '#fmxTaps{position:fixed;z-index:8;display:none;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(150px + env(safe-area-inset-bottom,0px));grid-template-columns:repeat(2,76px);gap:8px}' +
+    'body.fmxair #fmxTaps{display:grid}#fmxTaps button{width:76px;height:76px;border-radius:20px;border:0;background:var(--glass);box-shadow:var(--shadow);color:var(--accent);font:800 11px/1.15 var(--font);letter-spacing:.04em;touch-action:none;-webkit-user-select:none;user-select:none;cursor:pointer;display:grid;place-items:center;padding:4px}' +
+    '#fmxTaps button i{display:block;font-style:normal;font-size:22px;line-height:1;margin-bottom:3px}#fmxTaps button:active,#fmxTaps button.go{background:var(--accent);color:#fff}#fmxTaps button.dim{opacity:.35}' +
+    '#fmxTaps small{display:none}@media (pointer:fine){#fmxTaps small{display:block;font-size:9px;opacity:.7;margin-top:2px}}' +
+    '@media (max-height:400px){#fmxTaps{bottom:calc(126px + env(safe-area-inset-bottom,0px));grid-template-columns:repeat(4,64px)}#fmxTaps button{width:64px;height:64px;font-size:9.5px}#fmxTaps button i{font-size:18px}}' +
+    'body.fmxcine #lbox{display:block}body.fmxcine #lbox::before,body.fmxcine #lbox::after{height:9vh;transition:height .25s}';
+  document.head.appendChild(st);
+  const box = document.createElement('div'); box.id = 'fmxTaps'; box.className = 'ui'; const icons = { back: '↺', up: '✈', left: '⇠', right: '✦' }; FMX.tapEls = [];
+  for (const [id, label, key] of FMX_TAP) { const b = document.createElement('button'); b.type = 'button'; b.innerHTML = '<span><i>' + icons[id] + '</i>' + label + '<small>' + key + '</small></span>';
+    b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); b.classList.add('go'); setTimeout(() => b.classList.remove('go'), 180); fmxTap(id); });
+    b.addEventListener('contextmenu', e => e.preventDefault()); box.appendChild(b); FMX.tapEls.push([id, b]); }
+  document.body.appendChild(box);
+  addEventListener('keydown', e => { if (e.repeat) return; const t = FMX_TAP.find(x => x[2] === e.key); if (t && V.moto && S.air) fmxTap(t[0]); });
+})();
+
 /* ---------- per frame: button, hint, rider ---------- */
 function fmxStep(dt) {
   const b = document.getElementById('trick');
-  if (b) { b.classList.toggle('on', FMX.held); b.classList.toggle('air', !!S.air && !!V.moto); }
+  if (b) { b.classList.toggle('on', FMX.held); b.classList.toggle('air', !!S.air && !!V.moto && !FMX_TOUCH); }
   if (!(V.moto && activeName !== 'foot')) FMX.held = false;
   if (!S.air && FMX.cur) fmxReset();
   fmxRider();
   if (FMX.mode && V.moto && !S.air && input.gas && S.v > 0.8 && S.v < 8.5) for (const r of FMX_RAMPS) if (r.k === 'k' && S.pos.x > r.x0 + 0.5 && S.pos.x < r.x0 + r.L && Math.abs(S.pos.z - r.z) < r.W / 2) { S.v += (9 - S.v) * Math.min(1, 3 * dt); break; }
-  if (V.moto && fmxIn(S.pos.x, S.pos.z) && !FMX.told) { FMX.told = true; toast('FMX park: hit a kicker, then hold TRICK in the air and flick the stick', 4); }
+  if (V.moto && fmxIn(S.pos.x, S.pos.z) && !FMX.told) { FMX.told = true; toast('FMX park: send it off the big kicker, then tap a trick button in the air', 4); }
+  fmxTapStep(dt);
 }
 (() => {
   const st = document.createElement('style');
