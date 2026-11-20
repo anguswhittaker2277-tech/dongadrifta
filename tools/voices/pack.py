@@ -1,5 +1,5 @@
 # post-process the rendered clips with ffmpeg and pack them into one file: [u32 header length][JSON header][mp3 bytes...]
-import json, subprocess, os, struct, sys, concurrent.futures as cf
+import json, subprocess, os, struct, sys, csv, glob, concurrent.futures as cf
 TRIM = "silenceremove=start_periods=1:start_threshold=-48dB,areverse,silenceremove=start_periods=1:start_threshold=-48dB,areverse"
 FX = {
   # Madman: a big rough bloke: pitched down (formants too, so he sounds bigger), chest and low-mid weight, the nasal band
@@ -8,6 +8,8 @@ FX = {
   # the backpackers off one French voice: Chloe as recorded, the two blokes pitched down (formants and all, so they sound bigger)
   # Dima: a huge Russian: pitched down a little, a big chest and a slow, heavy delivery, clean (no gravel; he's healthy)
   'dm': TRIM + ",asetrate=24000*0.9,aresample=24000,atempo=1.04,equalizer=f=110:t=q:w=0.9:g=6,equalizer=f=300:t=q:w=1:g=2,equalizer=f=2600:t=q:w=1.2:g=1.5,acompressor=threshold=0.12:ratio=3:attack=5:release=80,volume=2",
+  # Matt: his own recordings (Voicebox, off his voice profile), just trimmed and levelled
+  'mt': TRIM,
   'C': TRIM, 'M': TRIM + ",asetrate=24000*0.82,aresample=24000,atempo=1.2195", 'A': TRIM + ",asetrate=24000*0.77,aresample=24000,atempo=1.2987",
 }
 def enc(src, fx, dst):
@@ -22,11 +24,16 @@ for k, v in mm.items(): jobs.append(('mm', k, 'out_mm/' + v['f'], FX['mm'], 'mp3
 for k, v in fr.items():
     for who in 'MAC': jobs.append((who, k, 'out_fr/' + v['f'], FX[who], 'mp3/fr' + who + '_' + v['f'][:-4] + '.mp3', v['text']))
 for k, v in dm.items(): jobs.append(('dm', k, 'out_dm/' + v['f'], FX['dm'], 'mp3/dm_' + v['f'][:-4] + '.mp3', v['text']))
+# Matt: one file per row of matt-lines.csv (mt_001.wav or .mp3 ...) in rec_mt/, any he's missing just stay as bubbles
+if os.path.isdir('rec_mt'):
+    for row in csv.DictReader(open('matt-lines.csv', encoding='utf-8')):
+        src = next(iter(sorted(glob.glob('rec_mt/' + row['file'] + '.*'))), None)
+        if src: jobs.append(('mt', row['game_key'], src, FX['mt'], 'mp3/mt_' + row['file'] + '.mp3', row['line']))
 with cf.ThreadPoolExecutor(8) as ex: durs = list(ex.map(lambda j: enc(j[2], j[3], j[4]), jobs))
-head = {'mm': {}, 'fr': {'M': {}, 'A': {}, 'C': {}}, 'dm': {}}; blob = bytearray()
+head = {'mm': {}, 'fr': {'M': {}, 'A': {}, 'C': {}}, 'dm': {}, 'mt': {}}; blob = bytearray()
 for j, d in zip(jobs, durs):
     b = open(j[4], 'rb').read(); ent = [len(blob), len(b), round(d, 3)]; blob += b
-    if j[0] in ('mm', 'dm'): head[j[0]][j[1]] = ent + [j[5][-1:] in ',.!?']
+    if j[0] in ('mm', 'dm', 'mt'): head[j[0]][j[1]] = ent + [j[5][-1:] in ',.!?']
     else: head['fr'][j[0]][j[1]] = ent
 h = json.dumps(head, ensure_ascii=False, separators=(',', ':')).encode()
 open(sys.argv[1], 'wb').write(struct.pack('<I', len(h)) + h + bytes(blob))
