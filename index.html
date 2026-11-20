@@ -4486,6 +4486,7 @@ function sprayStep(ac, dt, agl) {
   if (!A.spraying || A.landed) { SPRAYFX.last[key] = null; return; }
   if (A.tank <= 0) { A.spraying = false; SPRAYFX.last[key] = null; toast(P.plane ? 'Hopper empty. Land back at the strip to load up' : 'Tank empty. Land at home to refill', 3); actKey = ''; return; }
   A.tank = Math.max(0, A.tank - P.flow * dt);
+  if (key === 'spray') toxSpray(ac, dt, agl);
   // mist
   const emit = P.plane ? 7 : 4;
   for (let i = 0; i < emit; i++) {
@@ -4493,7 +4494,7 @@ function sprayStep(ac, dt, agl) {
     let p;
     if (P.plane) p = M.tilt.localToWorld(_v2.set((Math.random() - 0.5) * 12.4, 0.73, -0.7));
     else { const sp = M.sprinklers[Math.floor(Math.random() * M.sprinklers.length)]; p = sp.getWorldPosition(_v2); }
-    q.life = q.max = 1.1 + Math.random() * 0.7; q.s.position.copy(p); q.s.visible = true;
+    q.life = q.max = 1.1 + Math.random() * 0.7; q.s.position.copy(p); q.s.visible = true; q.s.material.color.set(A.toxic ? 0x9be03a : 0xffffff);
     q.vel.set(A.vel.x * 0.35 + (Math.random() - 0.5) * 1.5, -1.5 - Math.random() * 2.5, A.vel.z * 0.35 + (Math.random() - 0.5) * 1.5);
   }
   // swath on the ground when low enough
@@ -4516,6 +4517,71 @@ function updateMist(dt) {
     const sc = 0.6 + t * 3.2; q.s.scale.set(sc, sc * 0.8, 1); q.s.material.opacity = 0.42 * (1 - t) * Math.min(1, t * 8); }
 }
 const coverPct = () => (SPRAYFX.cov && SPRAYFX.cov.total ? SPRAYFX.cov.done / SPRAYFX.cov.total * 100 : 0);
+
+/* ================= Toxic spray: the spray drone's tank can be switched to a nasty chemical =================
+   (Toggle "Toxic" while flying the spray drone.) The mist turns green and leaves drifting clouds on the ground under it.
+   Anyone on foot inside a cloud chokes and takes damage (you included, if you fly over yourself): other players (each
+   phone hurts its own player from the clouds, which are shared over multiplayer), the backpackers, Madman (who takes it
+   badly) and the pigs. Machines, people in cabs and the drone itself are fine. Clouds fade after a few seconds. */
+const TOX = { clouds: [], pool: [], tex: null, dropT: 0, quiet: false, expT: 0, told: false, vig: null };
+function toxInit() {
+  if (TOX.tex) return; TOX.tex = radialTex([150, 220, 60], true);
+  for (let i = 0; i < 70; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TOX.tex, color: 0x9be03a, transparent: true, depthWrite: false, opacity: 0 })); s.visible = false; scene.add(s); TOX.pool.push(s); }
+  const v = document.createElement('div'); v.id = 'toxV'; v.className = 'ui';
+  v.style.cssText = 'inset:0;pointer-events:none;z-index:5;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at center,transparent 40%,rgba(110,170,20,.55) 100%)';
+  document.body.appendChild(v); TOX.vig = v;
+}
+// a new cloud (local: also tell the other phones)
+function toxCloud(x, z, r, life, from, net) {
+  toxInit(); if (TOX.clouds.length > 40) toxEnd(TOX.clouds.shift());
+  const gy = groundAt(x, z, 400, 0), c = { x, z, gy, r, life, t: 0, tick: Math.random() * 0.3, from: from || (MP.on ? MP.me : 'me'), sp: [] };
+  for (let k = 0; k < 2; k++) { const s = TOX.pool.find(o => !o.visible); if (!s) break; s.visible = true; s.userData.o = [(Math.random() - 0.5) * r, (Math.random() - 0.5) * r, Math.random() * 9]; c.sp.push(s); }
+  TOX.clouds.push(c);
+  if (!net && MP.on) mpSend({ k: 'tox', f: MP.me, p: [mpR(x), mpR(z)], r: mpR(r), life });
+  return c;
+}
+function toxEnd(c) { for (const s of c.sp) { s.visible = false; s.material.opacity = 0; } c.sp = []; }
+function toxNet(m) { if (m.p) toxCloud(m.p[0], m.p[1], m.r || 3, m.life || 7, m.f, true); }
+// called from sprayStep while the drone is spraying: lay clouds under it
+function toxSpray(ac, dt, agl) {
+  const A = ac.st; if (!A.toxic) return;
+  TOX.dropT -= dt; if (TOX.dropT > 0 || agl > 30) return; TOX.dropT = 0.35;
+  const fall = Math.min(3, agl / 2.5), r = THREE.MathUtils.clamp(ac.P.swath * 0.45 + agl * 0.08, 2.5, 5.5);
+  toxCloud(A.pos.x + A.vel.x * fall * 0.5, A.pos.z + A.vel.z * fall * 0.5, r, 7 + Math.random() * 2);
+}
+// who's breathing it
+function toxArea(c, dt) {
+  TOX.quiet = true;
+  try {
+    const R = c.r * (1 + Math.min(0.5, c.t * 0.06));
+    // you (each phone does its own player)
+    const exposed = (activeName === 'foot' && !MH.pax) || F.mode === 'pilot';
+    if (exposed && F.dead <= 0 && Math.hypot(F.pos.x - c.x, F.pos.z - c.z) < R && F.pos.y - c.gy < 3.2) {
+      TOX.expT = 1.2; if (!TOX.told) { TOX.told = true; toast('Chemical! Get out of the spray', 2); }
+      const hp0 = F.hp; wpnHurt(4, null, 'toxic');
+      if (hp0 > 0 && F.hp <= 0 && MP.on && c.from !== MP.me) { const p = MP.peers.get(c.from); if (p) toast(p.name + ' gassed you', 2.4); }
+    }
+    // the backpackers and Madman, the pigs: worked out by whoever runs them
+    if (mpwHost()) {
+      for (const n of NPC.list) { if (n.st === 'drive' || n.veh || !npcAlive(n)) continue; if (n.mm && MH.pax) continue;
+        if (Math.hypot(n.pos.x - c.x, n.pos.z - c.z) < R && n.pos.y - c.gy < 3) npcShot(n, _w2.set(n.pos.x - c.x, 0.2, n.pos.z - c.z).normalize(), 5, _w3.copy(n.pos), false); }
+      for (const a of FA.pigs) { if (a.st === 'down' || a.st === 'tumble') continue;
+        if (Math.hypot(a.pos.x - c.x, a.pos.z - c.z) < R + 0.3) wpnPigShot(a, _w2.set(a.pos.x - c.x, 0.3, a.pos.z - c.z).normalize(), 5, _w3.copy(a.pos)); }
+    }
+  } finally { TOX.quiet = false; }
+}
+function toxStep(dt) {
+  if (TOX.expT > 0) TOX.expT -= dt; if (TOX.vig) TOX.vig.style.opacity = TOX.expT > 0 ? '1' : '0';
+  if (!TOX.clouds.length) return;
+  for (const c of TOX.clouds.slice()) {
+    c.t += dt; const k = c.t / c.life; if (k >= 1) { toxEnd(c); TOX.clouds.splice(TOX.clouds.indexOf(c), 1); continue; }
+    const fade = k < 0.1 ? k / 0.1 : k > 0.7 ? (1 - k) / 0.3 : 1, grow = 1 + Math.min(0.5, c.t * 0.06);
+    c.sp.forEach((s, i) => { const o = s.userData.o, ph = o[2] += dt * (0.8 + i * 0.3); s.position.set(c.x + o[0] * grow, c.gy + 0.9 + Math.sin(ph) * 0.25, c.z + o[1] * grow);
+      const sc = c.r * 1.7 * grow; s.scale.set(sc, sc * 0.55, 1); s.material.opacity = 0.42 * fade; });
+    c.tick -= dt; if (c.tick <= 0) { c.tick = 0.3; toxArea(c, 0.3); }
+  }
+}
+function toxReset() { for (const c of TOX.clouds) toxEnd(c); TOX.clouds = []; TOX.expT = 0; TOX.told = false; for (const n of ['spray']) if (VEH[n] && VEH[n].st) VEH[n].st.toxic = false; }
 
 /* ---------- crop duster: simple ag-plane flying ---------- */
 function planeStep(ac, dt, controlled) {
@@ -4995,7 +5061,7 @@ function updateActions() {
     else if (!v.st.crashed) {
       const A = v.st;
       items.push(A.landed ? { id: 'to', label: 'Take off' } : { id: 'land', label: A.autoLand ? 'Landing…' : 'Land', cls: 'warn' });
-      if (v.name === 'spray') { items.push({ id: 'spray', label: A.spraying ? 'Spraying' : 'Spray', cls: 'ghost', pressed: A.spraying }); items.push({ id: 'out', label: 'Stop flying', cls: 'dark' }); }
+      if (v.name === 'spray') { items.push({ id: 'spray', label: A.spraying ? 'Spraying' : 'Spray', cls: 'ghost', pressed: A.spraying }); items.push({ id: 'tox', label: A.toxic ? 'Toxic \u2620' : 'Toxic', cls: A.toxic ? 'warn' : 'ghost', pressed: !!A.toxic }); items.push({ id: 'out', label: 'Stop flying', cls: 'dark' }); }
       else if (v.name === 'drone') { items.push({ id: 'sport', label: 'Sport mode', cls: 'ghost', pressed: A.sport }); items.push({ id: 'out', label: 'Stop flying', cls: 'dark' }); }
       else if (v.name === 'racer') { if (!A.landed) items.push({ id: 'flip', label: 'Flip', cls: 'ghost' }); items.push({ id: 'out', label: 'Stop flying', cls: 'dark' }); }
       else items.push(A.landed ? { id: 'out', label: 'Get out', cls: 'dark' } : { id: 'out', label: 'Bail out!', cls: 'neg' });
@@ -5047,6 +5113,7 @@ function doAction(id) {
   else if (id === 'fold' && v && v.name === 'tractor' && IMPL.hooked) { const I = IMPL.hooked; if (Math.abs(S.v) > 0.4) toast('Stop to fold or unfold', 1.4); else { I.lowered = false; I.foldT = I.foldT > 0.5 ? 0 : 1; } }
   else if (id === 'jake' && v && v.name === 'truck' && AU.eng.truck) { AU.eng.truck.jakeOn = AU.eng.truck.jakeOn === false; toast(AU.eng.truck.jakeOn ? 'Jake brake on' : 'Jake brake off (the neighbours thank you)', 1.6); }
   else if (id === 'spray' && v && (v.name === 'spray' || v.name === 'duster')) { const A = v.st; A.spraying = !A.spraying && A.tank > 0; if (!A.tank) toast(v.P.plane ? 'Hopper empty. Land at the strip to load up' : 'Tank empty. Land at home to refill', 2.4); $('sprayBig').classList.toggle('on', A.spraying); }
+  else if (id === 'tox' && v && v.name === 'spray') { const A = v.st; A.toxic = !A.toxic; toast(A.toxic ? 'Toxic chemical loaded. Anyone under the spray gets hurt' : 'Back to crop spray', 2); }
   else if (id === 'hold' && v && v.P.plane) { const A = v.st; A.hold = !A.hold; A.holdAlt = Math.max(3, A.pos.y - groundAt(A.pos.x, A.pos.z, A.pos.y + 2, A.pos.y - 5)); toast(A.hold ? 'Holding ' + Math.round(A.holdAlt) + ' m' : 'Height hold off', 1.4); }
   actKey = '';
 }
@@ -5321,7 +5388,7 @@ function updateFlightCard() {
   const key = v.name + Math.round(shown) + '|' + Math.round(Math.hypot(A.vel.x, A.vel.z) * 3.6) + '|' + A.vel.y.toFixed(1) + '|' + A.sport + '|' + A.crashed + '|' + Math.round(A.tank) + '|' + A.spraying + '|' + A.hold + '|' + coverPct().toFixed(2);
   if (key === lastFlight) return; lastFlight = key;
   $('fname').textContent = { drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster', gyro: 'Gyro', racer: 'Racing drone' }[v.name];
-  $('fmode').textContent = v.name === 'racer' ? 'Angle' : v.name === 'drone' ? (A.sport ? 'Sport' : 'Normal') : A.spraying ? 'Spraying' : v.P.plane ? (A.hold ? 'Hold ' + Math.round(A.holdAlt) + ' m' : 'Manual') : 'Auto hover';
+  $('fmode').textContent = v.name === 'racer' ? 'Angle' : v.name === 'drone' ? (A.sport ? 'Sport' : 'Normal') : A.spraying ? (A.toxic ? 'Toxic' : 'Spraying') : v.P.plane ? (A.hold ? 'Hold ' + Math.round(A.holdAlt) + ' m' : 'Manual') : 'Auto hover';
   $('fmode').className = A.sport || A.spraying ? 'sport' : '';
   $('falt').textContent = Math.round(shown); $('fspd').textContent = Math.round(Math.hypot(A.vel.x, A.vel.z) * 3.6);
   $('fvs').textContent = (A.vel.y >= 0 ? '+' : '') + A.vel.y.toFixed(1) + ' m/s';
@@ -9130,6 +9197,7 @@ function mpRecv(m) {
   if (m.k === 'bye') { const p = MP.peers.get(m.f); if (p) { toast(p.name + ' left', 1.8); mpDrop(p); MP.peers.delete(m.f); } if (MP.host) { MP.roster = MP.roster.filter(r => r.id !== m.f); mpSend({ k: 'ros', f: MP.me, roster: MP.roster }); } mpSheet(); return; }
   if (m.k === 's') { const p = mpPeer(m.f); if (m.lk && m.lk !== p.lk) mpPeerLook(p, m.lk); const now = MP.clock; p.buf.push({ ...m, at: now }); if (p.buf.length > 40) p.buf.shift(); p.last = now;
     const off = now - m.t; p.offs.push(off); if (p.offs.length > 30) p.offs.shift(); p.off = Math.min(...p.offs); return; }
+  if (m.k === 'tox') { toxNet(m); return; }
   if (m.k === 'sh' || m.k === 'dmg' || m.k === 'boom' || m.k === 'fire' || m.k === 'vdmg' || m.k === 'fl') { if (typeof wpnNet === 'function') wpnNet(m); return; }
   if (m.k === 'jack') { mpGotJacked(m); return; }
   if (m.k === 'jkd') { mpJackDone(m); return; }
@@ -9580,6 +9648,7 @@ function siloStep(dt) {
 /* ---------- state, reset ---------- */
 function wpnBuild() { wpnMats(); WPN.ready = true; WPN.cache = {}; F.hp = 100; F.dead = 0; }
 function wpnReset() {
+  if (typeof toxReset === 'function') toxReset();
   if (!WPN.ready) return;
   for (const d of WPN.decals) d.m.parent && d.m.parent.remove(d.m); WPN.decals = [];
   for (const p of WPN.proj) scene.remove(p.m); WPN.proj = []; WPN.sticks = [];
@@ -9848,6 +9917,7 @@ function dmgResetAll() { for (const n of Object.keys(DMG.v)) dmgReset(n); dentRe
 
 /* ---------- people and pigs ---------- */
 function wpnBloodSpray(p, dir, n, gy) {
+  if (TOX.quiet) return;            // gas doesn't draw blood
   for (let k = 0; k < n; k++) wpnPart(WPN.blood, p, 1.6 + Math.random(), _w1.copy(dir).multiplyScalar(1 + Math.random() * 3).add(_w2.set((Math.random() - 0.5) * 2.4, Math.random() * 2.2, (Math.random() - 0.5) * 2.4)));
 }
 function wpnSplat(x, y, z, s) { wpnDecal(WMAT.blood, _w3.set(x, y + 0.02, z), _w4.set(0, 1, 0), s || 0.25 + Math.random() * 0.35, scene); }
@@ -10032,6 +10102,7 @@ function wpnStartFire(p, r, life, net) {
 }
 function wpnFireEnd(f) { for (const s of f.sp) scene.remove(s); f.sp = []; }
 function wpnFireStep(dt) {
+  toxStep(dt);
   for (const f of WPN.fires.slice()) {
     f.t += dt; const k = f.t / f.life;
     if (k >= 1) { wpnFireEnd(f); WPN.fires.splice(WPN.fires.indexOf(f), 1); continue; }
@@ -15016,9 +15087,9 @@ function sndPick(name) {
 const MM_LOOK = { name: 'Madman', h: 0.62, w: 1, m: 0.3, skin: 2, hair: 'crop', hc: 1, hat: 'cap', hatc: 1, shirt: 'singlet', sc: 7, legs: 'stubbies', lc: 0, shoes: 'thongs', shc: 1, gl: 'sunnies', fh: 3 };
 const MM_DOGS = [{ name: 'Tank', coat: 'brindle', vest: 0xd8561f }, { name: 'Dusty', coat: 'red', vest: 0x2f3a2a }];
 const MM_L = {
-  idle: ["Strewth, she’s a warm one today.", "Could murder a pie right now.", "Saw a boar down the channel last night. Size of a Corolla, fair dinkum.", "Beer o’clock somewhere, mate.", "Bloody flies. Every year.", "Strewth, I’m dry as a dead dingo’s donger."],
+  idle: ["Nothing worse than a wet channel bank.", "Strewth, she’s a warm one today.", "Could murder a pie right now.", "Saw a boar down the channel last night. Size of a Corolla, fair dinkum.", "Beer o’clock somewhere, mate.", "Bloody flies. Every year.", "Strewth, I’m dry as a dead dingo’s donger."],
   greet: ["G’day mate!", "Oi oi! How ya goin’?", "Ow ya goin’, ya mad bastard?"],
-  talk: ["Pigs got into the sorghum again. Rooted half the headland. Little bastards.", "Fuck me dead, mate, the price of diesel. Daylight robbery.", "Don’t touch the ute. That’s rule one. There is no rule two.", "Yeah nah, I don’t do the city. Too many people, not enough pigs.", "Had a sow charge the ute last week. Dented the bullbar. Dented the sow more."],
+  talk: ["Nothing worse than a wet channel bank. Fair dinkum.", "Pigs got into the sorghum again. Rooted half the headland. Little bastards.", "Fuck me dead, mate, the price of diesel. Daylight robbery.", "Don’t touch the ute. That’s rule one. There is no rule two.", "Yeah nah, I don’t do the city. Too many people, not enough pigs.", "Had a sow charge the ute last week. Dented the bullbar. Dented the sow more."],
   dogs: ["Settle down, ya mongrels!", "Tank! Sit! ...Tank!", "Shut ya traps, the pair of ya!"],
   pigs: ["Look at that! Bloody pigs, bold as brass.", "Fuck me dead, they’re right on the doorstep!", "Cheeky buggers, aren’t they?"],
   touch: ["Oi! Mitts off the ute!", "Get off the bloody ute!", "You scratch her, you’re payin’."],
