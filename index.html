@@ -1447,9 +1447,10 @@ function extractTree(t) {
   if (t.ext) return; t.ext = true;
   const piv = new THREE.Group(); piv.position.copy(t.base); scene.add(piv); t.pivot = piv;
   const byMat = new Map();
-  for (const [arr, at] of t.recs) {
+  for (const [arr, at, copy] of t.recs) {
     const tile = TILE_OF.get(arr); if (!tile) continue;
     const ix = tile.geometry.index.array, pos = tile.geometry.attributes.position, uv = tile.geometry.attributes.uv;
+    if (copy) { ix[at + 1] = ix[at]; ix[at + 2] = ix[at]; tile.geometry.index.needsUpdate = true; continue; }      // the same triangle in a far-off version of the tile: just gone
     let e = byMat.get(tile.material); if (!e) byMat.set(tile.material, e = { p: [], u: [] });
     for (let k = 0; k < 3; k++) { const vi = ix[at + k]; e.p.push(pos.getX(vi) - t.base.x, pos.getY(vi) - t.base.y, pos.getZ(vi) - t.base.z); if (uv) e.u.push(uv.getX(vi), uv.getY(vi)); }
     ix[at + 1] = ix[at]; ix[at + 2] = ix[at];          // gone from the scan
@@ -2239,7 +2240,8 @@ function setupWorld(root, parser) {
       const t = mat.map; t.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
     }
     const pos = g.attributes.position, idx = g.index.array;
-    const buckets = new Map(), kept = [];
+    const buckets = new Map(), kept = [], treeAt = new Map();
+    const si = SLOD.src.length; SLOD.src.push({ pos, uv: g.attributes.uv || null });      // (for the lighter far-off versions: see SLOD)
     for (let t = 0; t < idx.length; t += 3) {
       v0.fromBufferAttribute(pos, idx[t]); v1.fromBufferAttribute(pos, idx[t + 1]); v2.fromBufferAttribute(pos, idx[t + 2]);
       const cxT = (v0.x + v1.x + v2.x) / 3, cyT = Math.max(v0.y, v1.y, v2.y), czT = (v0.z + v1.z + v2.z) / 3;
@@ -2249,7 +2251,7 @@ function setupWorld(root, parser) {
       if (cut === 2) continue;                                       // shed floors: collide, but the gravel is what you see
       const k = Math.floor(cxT / TILE) + ',' + Math.floor(czT / TILE);
       let arr = buckets.get(k); if (!arr) buckets.set(k, arr = []);
-      if (tk >= 0) TREES[tk].recs.push([arr, arr.length]);
+      if (tk >= 0) { TREES[tk].recs.push([arr, arr.length]); let L = treeAt.get(arr); if (!L) treeAt.set(arr, L = []); L.push(arr.length, tk); }
       arr.push(idx[t], idx[t + 1], idx[t + 2]);
     }
     for (const arr of buckets.values()) {
@@ -2260,7 +2262,7 @@ function setupWorld(root, parser) {
       for (let i = 0; i < arr.length; i++) { v0.fromBufferAttribute(pos, arr[i]); bb.expandByPoint(v0); }
       tg.boundingBox = bb; tg.boundingSphere = bb.getBoundingSphere(new THREE.Sphere());
       const tile = new THREE.Mesh(tg, mat); tile.frustumCulled = true; tile.matrixAutoUpdate = false; TILE_OF.set(arr, tile);
-      world.add(tile);
+      world.add(tile); SLOD.tiles.push({ mesh: tile, s: si, arr, trees: treeAt.get(arr) || [], lods: null, pick: -1 });
     }
     const cg = new THREE.BufferGeometry(); cg.setAttribute('position', pos); cg.setIndex(new THREE.Uint32BufferAttribute(kept, 1));
     colliderParts.push(cg);
@@ -2294,6 +2296,7 @@ function setupWorld(root, parser) {
   window.__game.ready = true;
   if (creatorWanted()) creatorOpen();
   window.__game.info = { tilt, upAxis: 'xyz'[axis] + (up.getComponent(axis) > 0 ? '+' : '-'), tiles: world.children.length, tris: merged.index.count / 3 };
+  slodStart();
 }
 
 /* ================================================================
@@ -7691,7 +7694,7 @@ function frame() {
   } else if (!collider) {
     camera.position.set(0, 60, 120); camera.lookAt(0, 0, 0);
   }
-  if (collider) dtlStep(raw);
+  if (collider) { slodStep(); dtlStep(raw); }
   renderer.render(scene, camera); bubDom();
   // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down
   ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05;
@@ -7734,6 +7737,112 @@ function dtlStep(dt) {
     const e = L[DTL.i = (DTL.i + 1) % n]; _dtlV.copy(e.c).applyMatrix4(e.m.matrixWorld); const d = _dtlV.distanceTo(_dtlC);
     const hide = d > e.r * f * (e.hid ? 0.85 : 1) || (e.fog && d - e.r > far);
     if (hide !== e.hid) { e.hid = hide; e.m.layers.mask = hide ? 2 : 1; }
+  }
+}
+
+/* ---------- the scan, lighter far off ----------
+   The drone scan is about a million triangles, and from across the paddock most of them come out far smaller than a pixel. Once the
+   game's running, a background worker (meshoptimizer) works out simpler versions of each 90 m tile, each with how far it can stray
+   from the real shape, in metres. A tile only swaps to one when that comes out under half a pixel from where you're looking, so it
+   looks the same, only cheaper to draw. Tile edges stay put (no cracks), texture seams stay, the simpler versions share the tile's
+   vertices (no more memory than their triangle lists), collisions still use the full scan, and scanned trees that get knocked over
+   leave every version. If the worker can't start (an old browser, no signal for the library), nothing changes. */
+const SLOD = { src: [], tiles: [], PX: 0.5, LEVELS: [0.015, 0.045, 0.14, 0.4], any: false, done: false, failed: '', ms: 0,
+  lib: 'https://cdn.jsdelivr.net/npm/meshoptimizer@1.2.0/meshopt_simplifier.js' };
+const SLOD_WORKER = (lib) => `import { MeshoptSimplifier as S } from '${lib}';
+const FL = ['LockBorder', 'Sparse', 'ErrorAbsolute', 'Prune'];
+onmessage = async ({ data }) => {
+  try { await S.ready; } catch (e) { postMessage({ fail: String(e && e.message || e) }); return; }
+  const { src, tiles, levels } = data, t0 = performance.now();
+  for (const t of tiles) {
+    const P = src[t.s], I = t.idx, out = [];
+    let w = 0;
+    if (P.uv) {            // how many metres of ground one unit of texture space covers here: texture slips are weighed in metres too
+      let aw = 0, au = 0; const p = P.pos, u = P.uv;
+      for (let i = 0; i < I.length; i += 3) { const a = I[i], b = I[i + 1], c = I[i + 2];
+        const ux = p[b * 3] - p[a * 3], uy = p[b * 3 + 1] - p[a * 3 + 1], uz = p[b * 3 + 2] - p[a * 3 + 2], vx = p[c * 3] - p[a * 3], vy = p[c * 3 + 1] - p[a * 3 + 1], vz = p[c * 3 + 2] - p[a * 3 + 2];
+        const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx; aw += Math.sqrt(cx * cx + cy * cy + cz * cz);
+        au += Math.abs((u[b * 2] - u[a * 2]) * (u[c * 2 + 1] - u[a * 2 + 1]) - (u[c * 2] - u[a * 2]) * (u[b * 2 + 1] - u[a * 2 + 1])); }
+      w = au > 0 ? Math.sqrt(aw / au) : 0;
+    }
+    let prev = I.length;
+    if (I.length >= 600) for (const E of levels) {
+      const [ix, err] = w > 0 ? S.simplifyWithAttributes(I, P.pos, 3, P.uv, 2, [w, w], null, 0, E, FL) : S.simplify(I, P.pos, 3, 0, E, FL);
+      if (ix.length > prev * 0.7) continue;          // not enough saved to be worth another version
+      out.push({ idx: ix, err: Math.max(err, 1e-4) }); prev = ix.length;
+    }
+    postMessage({ id: t.id, out }, out.map(o => o.idx.buffer));
+  }
+  postMessage({ done: true, ms: performance.now() - t0 });
+};`;
+function slodStart() {
+  if (SLOD.started) return; SLOD.started = true;
+  try {
+    if (typeof Worker === 'undefined' || !SLOD.tiles.length) throw new Error('no workers');
+    const src = SLOD.src.map(s => {
+      const okA = a => a && !a.isInterleavedBufferAttribute && !a.normalized && a.array instanceof Float32Array;
+      return okA(s.pos) && s.pos.itemSize === 3 ? { pos: s.pos.array, uv: okA(s.uv) && s.uv.itemSize === 2 ? s.uv.array : null } : null; });
+    const tiles = [];
+    SLOD.tiles.forEach((T, id) => { if (!src[T.s]) return; const skip = new Set(); for (let k = 0; k < T.trees.length; k += 2) skip.add(T.trees[k]);
+      const idx = new Uint32Array(T.arr.length - skip.size * 3); let n = 0; for (let i = 0; i < T.arr.length; i += 3) if (!skip.has(i)) { idx[n++] = T.arr[i]; idx[n++] = T.arr[i + 1]; idx[n++] = T.arr[i + 2]; }
+      tiles.push({ id, s: T.s, idx }); });
+    tiles.sort((a, b) => b.idx.length - a.idx.length);           // the heaviest tiles first: they save the most
+    const url = URL.createObjectURL(new Blob([SLOD_WORKER(SLOD.lib)], { type: 'text/javascript' }));
+    const w = new Worker(url, { type: 'module' }); URL.revokeObjectURL(url); SLOD.worker = w;
+    const stop = why => { if (why) SLOD.failed = why; try { w.terminate(); } catch (_) {} SLOD.worker = null; };
+    w.onmessage = ({ data }) => {
+      if (data.fail) return stop(data.fail);
+      if (data.done) { SLOD.done = true; SLOD.ms = data.ms; return stop(); }
+      try { slodAdd(SLOD.tiles[data.id], data.out); } catch (e) { stop(String(e && e.message || e)); }
+    };
+    w.onerror = e => { e.preventDefault && e.preventDefault(); stop((e && e.message) || 'worker error'); };
+    w.postMessage({ src: src.map(s => s || { pos: new Float32Array(0), uv: null }), tiles, levels: SLOD.LEVELS }, tiles.map(t => t.idx.buffer));
+  } catch (e) { SLOD.failed = String(e && e.message || e); }
+}
+// the simpler versions of one tile: share its vertices and material, keep its scanned-tree triangles as they are (and tied to the tree)
+function slodAdd(T, out) {
+  if (!T || !out || !out.length) return;
+  const g0 = T.mesh.geometry, A = g0.index.array.constructor, nT = T.trees.length / 2;
+  T.lods = out.map(o => {
+    const ix = new A(o.idx.length + nT * 3); ix.set(o.idx);
+    for (let k = 0, p = o.idx.length; k < T.trees.length; k += 2, p += 3) { const at = T.trees[k]; ix[p] = T.arr[at]; ix[p + 1] = T.arr[at + 1]; ix[p + 2] = T.arr[at + 2]; }
+    const geo = new THREE.BufferGeometry(); for (const nm in g0.attributes) geo.setAttribute(nm, g0.attributes[nm]);
+    geo.setIndex(new THREE.BufferAttribute(ix, 1)); geo.boundingBox = g0.boundingBox; geo.boundingSphere = g0.boundingSphere;
+    const m = new THREE.Mesh(geo, T.mesh.material); m.matrixAutoUpdate = false; m.visible = false; m.raycast = () => {}; m.name = 'scanLod';
+    T.mesh.parent.add(m);
+    if (nT) { const orig = ix.slice(); TILE_OF.set(orig, m);
+      for (let k = 0, p = o.idx.length; k < T.trees.length; k += 2, p += 3) { const t = TREES[T.trees[k + 1]]; t.recs.push([orig, p, true]); if (t.ext) { ix[p + 1] = ix[p]; ix[p + 2] = ix[p]; } } }
+    return { m, err: o.err, tris: o.idx.length / 3 };
+  });
+  T.pick = -1; SLOD.any = true;
+}
+const _slC = new THREE.Vector3();
+const boxDist = (b, c) => { const dx = Math.max(b.min.x - c.x, 0, c.x - b.max.x), dy = Math.max(b.min.y - c.y, 0, c.y - b.max.y), dz = Math.max(b.min.z - c.z, 0, c.z - b.max.z); return Math.sqrt(dx * dx + dy * dy + dz * dz); };
+/* the same idea for things drawn as thousands of copies (the scrub): in patches of `cell` metres, each patch with every level of detail
+   as its own instanced mesh, `errs[k]` how far level k strays from level 0 at most. One level is drawn per patch, the cheapest whose
+   error comes out under half a pixel. `set(i, M)` moves (or flattens) copy i in every level. */
+const ILOD = [];
+function instLod(geos, errs, mat, items, cell) {
+  const by = new Map(), at = new Int32Array(items.length), loc = new Int32Array(items.length), V = new THREE.Vector3();
+  items.forEach((it, i) => { V.setFromMatrixPosition(it.M); const k = Math.floor(V.x / cell) + ',' + Math.floor(V.z / cell); let c = by.get(k); if (!c) by.set(k, c = []); c.push(i); });
+  const chunks = [];
+  for (const list of by.values()) {
+    const ci = chunks.length, ms = geos.map(g => new THREE.InstancedMesh(g, mat, list.length));
+    list.forEach((i, j) => { at[i] = ci; loc[i] = j; for (const m of ms) { m.setMatrixAt(j, items[i].M); if (items[i].C) m.setColorAt(j, items[i].C); } });
+    for (const m of ms) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; m.computeBoundingSphere(); m.computeBoundingBox(); m.frustumCulled = true; m.visible = false; scene.add(m); }
+    ms[0].visible = true; chunks.push({ ms, pick: 0, bb: ms[0].boundingBox.clone() });
+  }
+  const L = { chunks, errs, set(i, M) { const c = chunks[at[i]]; if (!c) return; for (const m of c.ms) { m.setMatrixAt(loc[i], M); m.instanceMatrix.needsUpdate = true; } } };
+  ILOD.push(L); return L;
+}
+function slodStep() {
+  const f = innerHeight * 0.5 / Math.tan(camera.fov * Math.PI / 360) / SLOD.PX; _slC.setFromMatrixPosition(camera.matrixWorld); const c = _slC;
+  for (const L of ILOD) for (const C of L.chunks) { const d = boxDist(C.bb, c); let pick = 0; for (let k = L.errs.length - 1; k > 0; k--) if (L.errs[k] * f < d) { pick = k; break; }
+    if (pick !== C.pick) { C.ms[C.pick].visible = false; C.ms[pick].visible = true; C.pick = pick; } }
+  if (!SLOD.any) return;
+  for (const T of SLOD.tiles) { const L = T.lods; if (!L) continue; const d = boxDist(T.mesh.geometry.boundingBox, c);
+    let pick = -1; for (let k = L.length - 1; k >= 0; k--) if (L[k].err * f < d) { pick = k; break; }
+    if (pick !== T.pick) { T.pick = pick; T.mesh.visible = pick < 0; for (let k = 0; k < L.length; k++) L[k].m.visible = k === pick; }
   }
 }
 
@@ -10591,30 +10700,29 @@ function hsTrees() {
 /* ---------- scrub: low saltbush and tussock everywhere it's not cleared ---------- */
 function hsShrubs() {
   const r = rng(5150), N = 1400, gp = [];
-  for (const [ox, oz, rs, hy] of [[0, 0, 0.55, 0.42], [0.36, 0.14, 0.4, 0.32], [-0.3, 0.2, 0.42, 0.34], [0.06, -0.34, 0.38, 0.3]]) { const q = new THREE.IcosahedronGeometry(rs, 1); q.scale(1, 1.15, 1); q.translate(ox, hy, oz); gp.push(q); }
-  const g = mergeGeometries(gp); g.computeVertexNormals();
-  const m = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ color: 0xffffff }), N);
-  const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V3 = new THREE.Vector3(), SC = new THREE.Vector3(), C = new THREE.Color();
+  const gl = [];      // and the same bush from 20-sided blobs instead of 80: what's drawn once it's too far off to tell (see instLod)
+  for (const [ox, oz, rs, hy] of [[0, 0, 0.55, 0.42], [0.36, 0.14, 0.4, 0.32], [-0.3, 0.2, 0.42, 0.34], [0.06, -0.34, 0.38, 0.3]]) { for (const [d, L] of [[1, gp], [0, gl]]) { const q = new THREE.IcosahedronGeometry(rs, d); q.scale(1, 1.15, 1); q.translate(ox, hy, oz); L.push(q); } }
+  const g = mergeGeometries(gp); g.computeVertexNormals(); const gLo = mergeGeometries(gl); gLo.computeVertexNormals();
+  const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V3 = new THREE.Vector3(), SC = new THREE.Vector3(), C = new THREE.Color(), items = [];
   let n = 0, tries = 0;
   while (n < N && tries++ < N * 30) {
     const x = -60 + r() * 250, z = -256 + r() * 190; if (!hsScrub(x, z) || hsTrackD(x, z) < 1.6) continue;
     const s = 0.55 + r() * 0.8, y = padHeight(x, z) + hsRel(x, z);
-    M4.compose(V3.set(x, y - 0.05, z), Q.setFromAxisAngle(UPV, r() * 6.28), SC.set(s * (0.85 + r() * 0.35), s * (0.8 + r() * 0.4), s * (0.85 + r() * 0.35))); m.setMatrixAt(n, M4);
-    C.setHSL(0.2 + r() * 0.1, 0.12 + r() * 0.1, 0.27 + r() * 0.1); m.setColorAt(n, C);
+    M4.compose(V3.set(x, y - 0.05, z), Q.setFromAxisAngle(UPV, r() * 6.28), SC.set(s * (0.85 + r() * 0.35), s * (0.8 + r() * 0.4), s * (0.85 + r() * 0.35)));
+    C.setHSL(0.2 + r() * 0.1, 0.12 + r() * 0.1, 0.27 + r() * 0.1); items.push({ M: M4.clone(), C: C.clone() });
     HS.shrubP.push({ x, z, s, M: M4.clone(), on: true }); const k = Math.floor(x / 4) * 4096 + Math.floor(z / 4); if (!HS.shrubGrid.has(k)) HS.shrubGrid.set(k, []); HS.shrubGrid.get(k).push(n); n++;
   }
-  m.count = n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
-  scene.add(m); HS.shrubs = m;
+  // (the coarse blob sits at most a fifth of its radius inside the fine one: 0.2 x 0.55 m x the biggest bush, 1.35 x 1.2 x 1.15)
+  HS.shrubs = instLod([g, gLo], [0, 0.2 * 0.55 * 1.35 * 1.2 * 1.15], new THREE.MeshLambertMaterial({ color: 0xffffff }), items, 60);
 }
 const _hsZ = new THREE.Matrix4().makeScale(0, 0, 0);
 function hsFlatten(x, z, R, test) {
   let any = false; const m = HS.shrubs; if (!m) return;
   for (let gx = Math.floor((x - R) / 4); gx <= Math.floor((x + R) / 4); gx++) for (let gz = Math.floor((z - R) / 4); gz <= Math.floor((z + R) / 4); gz++) {
     const L = HS.shrubGrid.get(gx * 4096 + gz); if (!L) continue;
-    for (const i of L) { const s = HS.shrubP[i]; if (!s.on) continue; if ((test && test(s)) || (!test && Math.hypot(s.x - x, s.z - z) < R)) { s.on = false; m.setMatrixAt(i, _hsZ); any = true; } } }
-  if (any) m.instanceMatrix.needsUpdate = true;
+    for (const i of L) { const s = HS.shrubP[i]; if (!s.on) continue; if ((test && test(s)) || (!test && Math.hypot(s.x - x, s.z - z) < R)) { s.on = false; m.set(i, _hsZ); any = true; } } }
 }
-function hsShrubsReset() { const m = HS.shrubs; if (!m) return; HS.shrubP.forEach((s, i) => { s.on = true; m.setMatrixAt(i, s.M); }); m.instanceMatrix.needsUpdate = true; }
+function hsShrubsReset() { const m = HS.shrubs; if (!m) return; HS.shrubP.forEach((s, i) => { s.on = true; m.set(i, s.M); }); }
 
 /* ---------- the ground: a painted skin for the block, and the dam water ---------- */
 function hsGround() {
@@ -16207,8 +16315,8 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
-  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
+Object.assign(window.__game, { ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>

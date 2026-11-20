@@ -26,3 +26,9 @@ They were trimmed, layered, compressed and level-matched, and converted to MP3 h
 
 Madman's, the backpackers' and Dima's voices were generated with [Kokoro-82M](https://github.com/hexgrad/kokoro)
 (Apache-2.0), using phonemes from espeak-ng. See `tools/voices/README.md` for how the voice pack is made.
+
+## Libraries
+
+Loaded from jsDelivr: [three.js](https://threejs.org) (MIT), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) (MIT),
+and [meshoptimizer](https://github.com/zeux/meshoptimizer) (MIT, by Arseny Kapoulkine), which works out the lighter far-off
+versions of the scan in the background once the game's running.
