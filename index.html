@@ -14355,7 +14355,7 @@ function mmDefend(n, dt) {
   const calm = MM.hostileT <= 0 && F.dead <= 0 && npcAlive(n) && !['tumble', 'down', 'ko', 'getup', 'stag', 'chase', 'fight'].includes(n.st);
   if (n.st !== 'defend') {
     if (!calm || !(['lean', 'home', 'toUte', 'wander', 'mmWatch', 'bbWatch'].includes(n.st) || DG_ST.includes(n.st))) return false;
-    const b = mmFightNear(n, 50); if (!b) return false;
+    const b = mmFightNear(n, 35); if (!b) return false;
     n.st = 'defend'; n.t = 0; n.def = b; n.defT = 0; n.atkPh = ''; n.atk = 0.3; SPK.allow = true; try { mmSay('defend', 2.4, true); } finally { SPK.allow = false; } return true;      // (heard even mid-quest: it's him coming to help)
   }
   const b = n.def; n.defT += dt;
