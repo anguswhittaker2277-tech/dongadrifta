@@ -41,6 +41,13 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
     - Ringing bell - happy (116779) by **domrodrig**;
   - microwave beep (242006) by **photogtony**;
   - hisses: Steam (398077) by **SukritSen** and air_brakes_loud_fade_out (504865) by **rabbydaw**.
+- Loops, also from Freesound:
+  - tyres rolling: Tires on Gravel Road 1 (251661) by **OBXJohn**;
+  - tyres sliding: Gravel.ogg (536760) by **egomassive** and SLIDING ON GRAVEL (630008) by **trexlasso**, cut into short grains;
+  - the rush behind the wind, turbo intake and fans: Waterfall 02 (loop) (215711) by **VKProduktion** and big_waterfall (44880) by **A.Deathy**;
+  - the engine brake: Truck Revving Idling Engine Sound (680686) by **wesleywestmusic**;
+  - the push bike's freewheel: bike-wheel-free-looped (274481) by **yurkobb**;
+  - the tractor tyre lugs: thumps from the two body-fall recordings above.
 
 They were trimmed, layered, compressed and level-matched, and converted to MP3 here.
 
