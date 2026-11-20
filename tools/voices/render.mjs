@@ -32,7 +32,7 @@ const dmPhon = async (text) => { let t = text.replace(/[’‘]/g, "'").replace(
   const parts = []; for (const seg of t.split(/(\bDo svidaniya\b|\bDima\b|\bvodka\b|\bPfft\b|\bda\b|\bLEILX\b)/i)) { if (!seg) continue; const w = RU_WORD[seg.toLowerCase()];
     parts.push(w || russki(await phonemize(seg, 'a'))); }
   return parts.join(' ').replace(/ +/g, ' ').replace(/ ([,.!?])/g, '$1').trim(); };
-const prep = (t) => t.replace(/[’‘]/g, "'").replace(/\bG'day\b/gi, 'Gidday').replace(/XXXX/g, 'four ex').replace(/'(em|ere)\b/g, '$1').replace(/\.\.\./g, ', ').replace(/\bfucken\b/gi, "fuckin'").replace(/\bCole's\b/g, 'Cokes').replace(/\bJD\b/g, 'Jay Dee')
+const prep = (t) => t.replace(/[’‘]/g, "'").replace(/\bG'day\b/gi, 'Gidday').replace(/XXXX/g, 'four ex').replace(/'(em|ere)\b/g, '$1').replace(/\.\.\./g, ', ').replace(/\bfucken\b/gi, "fuckin'").replace(/\bJD\b/g, 'Jay Dee')
   .replace(/(\w)in'(?=\W|$)/g, '$1ing').replace(/\b(?!JD\b)[A-Z]{2,}\b/g, (w) => w.toLowerCase());     // shouted words in capitals are words, not letters
 async function phon(text, lang) {
   if (lang === 'fr') return FRPH[text];          // French phonemes come from espeak-ng's own French (fr_ph.py)
