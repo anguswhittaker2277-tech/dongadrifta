@@ -58,6 +58,30 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
   - the trophy truck: Ford Mustang Engine (1985) (119449) by **lmbubec**;
   - the dirt bike and the buggy: Motocross bike starting and ticking over (175964) by **kristian321**;
   - the gyrocopter: Engine, motor (loopable) (398675) by **Dominik_W**.
+- The rest, also from Freesound:
+  - Madman's dogs: Agressive_Dog_Barks (332173) by **ivolipa** (Tank) and Small dog barking (635877) by **Wax_vibe** (Dusty);
+  - casings: Brass bullet shell casing drop onto concrete, multiple takes (210102) by **GrayJoy**;
+  - the rocket launcher: Rocket Launch (840511) by **qubodup**;
+  - molotovs: Breaking a glass bottle (212698) by **dasebr** and Bottle Smash (118198) by **MegaPenguin13**;
+  - crashes: Car Crash (237375) by **squareal**;
+  - the dozer's tracks: tracked vehicle (121531) by **cognito perceptu**;
+  - drones: UAS Drone Hover 01 (387985) by **DCPoke**;
+  - the spray drone: Propeller.wav (457013) by **DylanTheFish**;
+  - the crop duster and gyro prop: A small propeller plane (403316) by **straget**;
+  - the gyro's rotor: MILITARY ROTOR LOOP (172667) by **UnderlinedDesigns**;
+  - horns: car horn (182474) by **keweldog**, Industrial Air Horn (131930) by **mcpable** and 05 Horn (461679) by **15HPanska_Ruttner_Jan**;
+  - the telehandler's beeper: truck backup beeps (196567) by **tambascot**;
+  - the whines and whistles (turbo, hydraulics, motors, tyre hum): Wind Turbine Whine 2 (434101) by **DeVern** and
+    Toy Drone Engine Different Speeds (188243) by **qubodup**, pitched as needed;
+  - fires use the bunks' fire recording above.
+- Music (in `music/`, fetched when it's first played), also CC0 from Freesound, trimmed into seamless loops and loudness-matched:
+  - BMW radio, Techno: A Hectic Backpacker Trip (441150) by **dekstromoramid**;
+  - BMW radio, House: ElectroHouse Cheesy (51278) by **RutgerMuller**;
+  - The Robot: ElectroDub01 (505) by **geekhorde**;
+  - Sprinkler and Dad Point: Disco funk loops 001 remix 1 long loop 120 bpm (572781) by **josefpres**;
+  - Boot Scoot: Denver Belle (135128) by **ecfike**;
+  - Shearer's Shuffle: 60 Sec Commercial Music - Music for Pickup Trucks - Loopable (676484) by **NearTheAtmoshphere**;
+  - Air Guitar: Punk_Rock_Short31 (679186) by **bainmack**.
 
 They were trimmed, layered, compressed and level-matched, and converted to MP3 here.
 
