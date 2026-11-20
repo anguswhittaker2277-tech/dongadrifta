@@ -5246,7 +5246,7 @@ function pclVehStep(dt) { PCL.vT += dt; if (PCL.vT > 1.1 || !PCL.locked) { const
   const lockable = t => !!t && !(t.closest && t.closest('button, input, select, textarea, a, label, #act, #minimap, #topright, #speedo, #menuPanel, #mpSheet, #chalSheet, #wSheet, #wWheel, #nameAsk, #mapSheet, [role=dialog]'));
   addEventListener('mousedown', e => {
     if (PCL.locked || e.button !== 0 || !lockable(e.target) || pclMenus() || !window.__game || !window.__game.ready) return;
-    try { const p = cv.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => { try { cv.requestPointerLock(); } catch (_) {} }); } catch (_) { try { cv.requestPointerLock(); } catch (_) {} }
+    try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (_) {}          // (refused, e.g. too soon after Esc: the next click tries again)
   }, true);
   document.addEventListener('pointerlockchange', () => {
     PCL.locked = document.pointerLockElement === cv; document.body.classList.toggle('plock', PCL.locked);
@@ -11614,7 +11614,7 @@ function bubDom() {
    as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, url: 'voices-v1.bin?v=1e2ee34c', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
+const VOX = { on: true, url: 'voices-v1.bin?v=322d72fd', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
 const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
 // the same normalising the recording script used, so the game's text finds its clips
