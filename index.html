@@ -194,6 +194,8 @@ body.c-drone #fcard,body.c-flyer #fcard{display:flex}
 #act button{height:44px;padding:0 18px;border-radius:999px;border:0;background:var(--accent);color:#fff;font:700 14px var(--font);
   box-shadow:var(--shadow);cursor:pointer;touch-action:manipulation;white-space:nowrap;display:flex;align-items:center;gap:8px}
 #act button.dark{background:var(--ink)}
+#act button kbd.akey{display:inline-block;min-width:18px;height:18px;margin:0 8px 0 -8px;border-radius:5px;background:rgba(255,255,255,.25);font:800 11px/18px var(--font);text-align:center;vertical-align:1px}
+body.plock{cursor:none}
 #act button.warn{background:var(--warn)}
 #act button.neg{background:var(--neg)}
 #act button.ghost{background:var(--card);color:var(--ink)}
@@ -5142,6 +5144,7 @@ function updateActions() {
     const b = document.createElement('button'); b.type = 'button'; b.className = it.cls || ''; b.dataset.id = it.id; b.textContent = it.label;
     if (it.sub) { const sm = document.createElement('small'); sm.textContent = it.sub; b.appendChild(sm); }
     if ('pressed' in it) b.setAttribute('aria-pressed', String(!!it.pressed));
+    if (PCL && PCL.on && box.children.length < 9 && it.id !== 'horn') { const kb = document.createElement('kbd'); kb.className = 'akey'; kb.textContent = String(box.children.length + 1); b.prepend(kb); }   // (its key, on a PC)
     box.appendChild(b);
   }
 }
@@ -5219,6 +5222,60 @@ lookZ.addEventListener('pointermove', e => {
 });
 const endLook = e => { if (e.pointerId === lookId) lookId = null; };
 lookZ.addEventListener('pointerup', endLook); lookZ.addEventListener('pointercancel', endLook);
+
+/* ---------- PC: click into the game and the mouse is yours (pointer lock) ----------
+   On a computer (a mouse or trackpad: a fine pointer that hovers), clicking the game captures the mouse. Move it to look around (on
+   foot; driving, it swings the camera round the machine and lets it settle back behind), left button fires, or punches with empty
+   hands, right button aims a scoped gun while held, or kicks, the wheel swaps weapons, and 1-9 press the buttons down the right.
+   Esc lets the mouse go (so does opening any menu); click the game again to pick it back up. Phones and tablets are untouched. */
+var PCL = { on: matchMedia('(hover: hover) and (pointer: fine)').matches, locked: false, vyaw: 0, vpitch: 0, vT: 9, told: false, wheelT: 0 };
+const pclMenus = () => ['menuPanel', 'mpSheet', 'chalSheet', 'wSheet', 'wWheel', 'nameAsk', 'mapSheet'].some(id => { const el = $(id); return el && (el.classList.contains('show') || el.classList.contains('open')); })
+  || [MM.sheet, MT.sheet, SA.sheet].some(el => el && el.classList.contains('show')) || (typeof EM !== 'undefined' && EM.open);
+function pclLook(dx, dy) {
+  if (Math.abs(dx) > 300 || Math.abs(dy) > 300) return;            // (a browser's first event after locking can jump)
+  lookIdleT = 0; PCL.vT = 0;
+  if (MH.pax) { const q = MH.aimQ || (MH.aimQ = [0, 0]), s2 = WPN.scope ? 0.0009 : 0.0028; q[0] += dx * s2; q[1] += dy * s2 * 0.7; return; }
+  if (activeName === 'foot') { const ls = WPN.cur ? (WPN.scope ? 0.0009 : 0.0026) : 0.0032; camYawF -= dx * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + dy * ls * 0.68, camPitchLo(), 1.15); return; }
+  const v = activeVeh(); if (v && v.kind === 'ground') { PCL.vyaw -= dx * 0.004; PCL.vyaw = Math.atan2(Math.sin(PCL.vyaw), Math.cos(PCL.vyaw)); PCL.vpitch = THREE.MathUtils.clamp(PCL.vpitch + dy * 0.003, -0.3, 0.6); }
+}
+// driving: the look-round settles back behind the machine a second after the mouse stops
+function pclVehStep(dt) { PCL.vT += dt; if (PCL.vT > 1.1 || !PCL.locked) { const k = 1 - Math.exp(-3 * dt); PCL.vyaw -= PCL.vyaw * k; PCL.vpitch -= PCL.vpitch * k; } }
+(() => {
+  if (!PCL.on) return;
+  const cv = renderer.domElement; if (!cv.requestPointerLock) return;
+  const lockable = t => !!t && !(t.closest && t.closest('button, input, select, textarea, a, label, #act, #minimap, #topright, #speedo, #menuPanel, #mpSheet, #chalSheet, #wSheet, #wWheel, #nameAsk, #mapSheet, [role=dialog]'));
+  addEventListener('mousedown', e => {
+    if (PCL.locked || e.button !== 0 || !lockable(e.target) || pclMenus() || !window.__game || !window.__game.ready) return;
+    try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (_) {}          // (refused, e.g. too soon after Esc: the next click tries again)
+  }, true);
+  document.addEventListener('pointerlockchange', () => {
+    PCL.locked = document.pointerLockElement === cv; document.body.classList.toggle('plock', PCL.locked);
+    if (PCL.locked && !PCL.told) { PCL.told = true; toast('Mouse captured: move to look · click to fire or punch · right button to aim or kick · Esc to let go', 4); }
+    if (!PCL.locked) { WPN.fire = false; if (PCL.scope) { WPN.scope = false; PCL.scope = false; } }
+  });
+  document.addEventListener('mousemove', e => { if (PCL.locked) pclLook(e.movementX || 0, e.movementY || 0); });
+  // buttons, while captured (the first click only captures)
+  document.addEventListener('mousedown', e => {
+    if (!PCL.locked) return; e.preventDefault(); audioInit();
+    const foot = activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air' || F.mode === 'emote') && !MH.pax, armed = typeof wpnArmed === 'function' && wpnArmed();
+    if (e.button === 0) { if (armed || MH.pax) WPN.fire = true; else if (foot) melStart('punch'); }
+    else if (e.button === 2) { const W = armed ? WEAPONS[WPN.cur] : null; if (W && W.scope) { WPN.scope = true; PCL.scope = true; } else if (foot && !armed) melStart('kick'); }
+  });
+  document.addEventListener('mouseup', e => { if (!PCL.locked) return; if (e.button === 0) WPN.fire = false; else if (e.button === 2 && PCL.scope) { WPN.scope = false; PCL.scope = false; } });
+  document.addEventListener('contextmenu', e => { if (PCL.locked) e.preventDefault(); });
+  addEventListener('wheel', e => {                     // swap weapons (the ones you've got, then empty hands)
+    if (!PCL.locked || activeName !== 'foot' || typeof WPN_ORDER === 'undefined') return; const now = performance.now(); if (now - PCL.wheelT < 160) return; PCL.wheelT = now;
+    const own = [null, ...WPN_ORDER.filter(i => WPN.owned[i])]; if (own.length < 2) return; const i = Math.max(0, own.indexOf(WPN.cur || null)), j = (i + (e.deltaY > 0 ? 1 : -1) + own.length) % own.length; wpnSelect(own[j]);
+  }, { passive: true });
+  // 1-9: the buttons down the right (not while a trick's on offer in the air: those keys are the tricks then)
+  addEventListener('keydown', e => {
+    if (e.repeat || !/^[1-9]$/.test(e.key) || (document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) return;
+    const ft = $('fmxTaps'); if (ft && ft.offsetParent !== null && getComputedStyle(ft).display !== 'none') return;
+    const b = $('act').querySelectorAll('button')[+e.key - 1]; if (b && b.dataset.id !== 'horn') b.click();
+  });
+  // a menu opening gives the mouse back
+  setInterval(() => { if (PCL.locked && pclMenus()) document.exitPointerLock(); }, 200);
+})();
 const jumpBtn = $('jump');
 jumpBtn.addEventListener('pointerdown', e => { e.preventDefault(); input.jump = true; jumpBtn.classList.add('on'); try { jumpBtn.setPointerCapture(e.pointerId); } catch (_) {} dismissHint(); });
 const jumpOff = () => { input.jump = false; jumpBtn.classList.remove('on'); };
@@ -5248,7 +5305,7 @@ const HINTS = {
   racer:   ['Angle mode, high rates: <b>right stick</b> tilts it, <b>left stick</b> up/down for height and sideways to yaw. <b>Flip</b> for a roll. Starts in the FPV camera: tap the camera to watch from behind.', '<b>W/S</b> up/down &middot; <b>A/D</b> yaw &middot; <b>&uarr;&darr;&larr;&rarr;</b> tilt &middot; <b>B</b> flip &middot; <b>Q</b> camera'],
   dozer:   ['<b>Left stick</b> drives; push it sideways to spin on the tracks. <b>Right stick</b> up/down raises and drops the blade. Drop it and push: dirt, trees, sheds&hellip;', '<b>W/S</b> drive &middot; <b>A/D</b> spin on the tracks &middot; <b>&uarr;&darr;</b> blade &middot; <b>Q</b> camera &middot; <b>H</b> horn'],
   foot:    ['<b>The stick bottom left</b> walks: push it all the way to jog, keep holding to sprint. <b>Punch, Kick, Headbutt</b> sort out the pigs. <b>Drag anywhere else</b> to look. Walk up to a vehicle and tap <b>Get in</b>.',
-            '<b>W A S D</b> walk &middot; <b>Shift</b> run &middot; <b>Space</b> jump &middot; <b>Arrows</b> look &middot; <b>E</b> get in &middot; <b>R</b> reset'],
+            '<b>Click</b> to capture the mouse, then move it to look &middot; <b>W A S D</b> walk &middot; <b>Shift</b> run &middot; <b>Space</b> jump &middot; <b>Click</b> punch or fire &middot; <b>E</b> get in &middot; <b>1-9</b> the buttons &middot; <b>Esc</b> free the mouse'],
   tractor: ['<b>Left thumb</b> to drive. The <b>speed tiller</b> and <b>offset disc</b> are in the machinery lot east of the road: back the drawbar up to one, tap <b>Hook up</b>, then <b>Lower</b> and drive.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>Q</b> camera (try Looking back) &middot; <b>E</b> get out'],
   suv:     ['<b>Hold GAS</b>, steer into a corner and <b>tap Handbrake</b>. <b>Brake</b> reverses when stopped.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake &middot; <b>E</b> get out'],
   drone:   ['<b>Left stick</b>: up, down and turn. <b>Right stick</b>: fly. Let go to hover. Tap <b>Take off</b> to start.', '<b>W/S</b> up/down &middot; <b>A/D</b> turn &middot; <b>Arrows</b> fly &middot; <b>T</b> take off/land &middot; <b>G</b> sport &middot; <b>E</b> stop'],
@@ -7815,7 +7872,8 @@ function updateCamera(dt) {
   let dy = targetYaw - camYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
   camYaw += dy * (1 - Math.exp(-(drift.on ? 3.4 : 2.6) * dt));   // gentle lag on turns
   const pivot = tmp.set(S.pos.x, S.pos.y + V.camPivot, S.pos.z);
-  const desired = tmp2.set(S.pos.x - Math.sin(camYaw) * V.camBack, S.pos.y + V.camUp, S.pos.z - Math.cos(camYaw) * V.camBack);
+  const pc = PCL || { vyaw: 0, vpitch: 0 }; if (PCL) pclVehStep(dt); const cy = camYaw + pc.vyaw, up = V.camUp + pc.vpitch * V.camBack;          // (on a PC, the mouse swings it round the machine)
+  const desired = tmp2.set(S.pos.x - Math.sin(cy) * V.camBack, S.pos.y + up, S.pos.z - Math.cos(cy) * V.camBack);
   // pull in if a shed or tree is between the tractor and the camera
   const dir = desired.clone().sub(pivot); const full = dir.length(); dir.normalize();
   const hit = castHit(pivot, dir, full + 0.6);
@@ -7827,7 +7885,7 @@ function updateCamera(dt) {
     const k = 1 - Math.exp(-(hit ? 14 : 5) * dt);
     camPos.lerp(desired, k);
   }
-  lookTarget.set(S.pos.x + Math.sin(S.yaw) * V.look, S.pos.y + V.lookH, S.pos.z + Math.cos(S.yaw) * V.look);
+  lookTarget.set(S.pos.x + Math.sin(S.yaw + pc.vyaw) * V.look, S.pos.y + V.lookH, S.pos.z + Math.cos(S.yaw + pc.vyaw) * V.look);
   lookAt.lerp(lookTarget, 1 - Math.exp(-8 * dt));
   if (lookAt.lengthSq() === 0) lookAt.copy(lookTarget);
   camera.position.copy(camPos);
@@ -9186,8 +9244,11 @@ $('wxbtn').addEventListener('click', e => { e.preventDefault(); wxCycle(); });
    directly (WebRTC data channels via PeerJS; the host relays between joiners). ?mp=local uses
    a BroadcastChannel instead, for two tabs on one device and for testing.
    Each player simulates their own farmer and whatever they're driving, and sends ~15 updates a
-   second: the farmer's whole pose (so walking, emotes, tumbles and seated poses all just mirror)
-   plus the machine's placement. Everyone else's copy of that machine is driven by those updates.
+   second while anything changes (3 standing still): the farmer's whole pose (so walking, emotes, tumbles
+   and seated poses all just mirror) plus the machine's placement. Everyone else's copy of that machine
+   is driven by those updates. The frequent updates go on a second, lossy channel (no resends, no queueing
+   behind a lost packet); actions, hits, quests and chat on the reliable one. Messages for one player are
+   relayed to that player only. Idle for 10 minutes and you're taken out of the game (see AFK).
    Phase 2 (further down, "ONE SHARED WORLD") shares the people, the dogs, the pigs, the sauna and the quests.
    Not shared yet: wrecked sheds, the tank, trees, piles, the wallabies and birds, cultivated ground, weather.
    ================================================================ */
@@ -9197,7 +9258,7 @@ try { MP.name = STORE.get('wfy.mpname', '') || 'Player'; } catch (_) {}
 const MP_COL = [0x2f6db5, 0x2f6db5, 0xc8402e, 0x2e9a4f, 0x8a4fc2];   // shirts by slot (1 = host)
 const MP_CSS = ['#2f6db5', '#2f6db5', '#c8402e', '#2e9a4f', '#8a4fc2'];
 const _mpP = new THREE.Vector3(), _mpQ = new THREE.Quaternion(), _mpQ2 = new THREE.Quaternion();
-const mpR = v => Math.round(v * 1000) / 1000;
+const mpR = v => Math.round(v * 1000) / 1000, mpC = v => Math.round(v * 100) / 100, mpJ = v => Math.round(v * 100) / 100;   // angles to 0.001, places to the cm, joints to 0.01
 
 /* ---------- transports ---------- */
 function mpLoadPeer() {
@@ -9208,24 +9269,47 @@ function mpLoadPeer() {
 function mpTxLocal(code, isHost, onMsg) {
   const bc = new BroadcastChannel('wfy-mp-' + code);
   bc.onmessage = e => onMsg(e.data);
-  return Promise.resolve({ send: o => bc.postMessage(o), close: () => bc.close() });
+  return Promise.resolve({ send: o => bc.postMessage(o), close: () => bc.close(), kick() {} });
 }
+// The frequent updates (where everyone is, the world, the pigs) go on a second, lossy channel: no resends, no waiting in line
+// behind a lost packet, since the next update replaces it anyway. Everything else (actions, hits, quests, chat) stays reliable.
+// PeerJS only offers "unordered", so the fast channel is set up here, by its label, as unordered with no retransmits.
+(() => {
+  const RPC = window.RTCPeerConnection; if (!RPC || !RPC.prototype.createDataChannel || RPC.prototype.createDataChannel.wfy) return;
+  const orig = RPC.prototype.createDataChannel;
+  RPC.prototype.createDataChannel = function (label, init) { if (String(label).startsWith('wfyfast')) init = { ordered: false, maxRetransmits: 0 }; return orig.call(this, label, init); };
+  RPC.prototype.createDataChannel.wfy = 1;
+})();
 async function mpTxPeer(code, isHost, onMsg, onDrop) {
   const Peer = await mpLoadPeer();
   const id = 'wfy-mx-' + code.toLowerCase();
   return new Promise((res, rej) => {
     const opts = { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] } };
+    const ph = location.search.match(/[?&]peerhost=([\w.-]+):(\d+)/); if (ph) Object.assign(opts, { host: ph[1], port: +ph[2], path: '/', secure: false });   // (a local matchmaking server, for testing)
     const peer = isHost ? new Peer(id, opts) : new Peer(opts);
-    const conns = new Set(); let done = false;
-    const tx = { peer, conns, send: o => { for (const c of conns) if (c.open) try { c.send(o); } catch (_) {} }, close: () => { try { peer.destroy(); } catch (_) {} } };
+    const conns = new Set(), fast = new Map(); let done = false;          // fast: the lossy channel to each phone, by its peer id
+    const put = (c, o) => { if (c && c.open) try { c.send(o); return true; } catch (_) {} return false; };
+    // to everyone (or just to o.to, if it's addressed): the frequent updates on each phone's fast channel when it's open
+    const out = (o, quick, skip) => { for (const c of conns) { if (c === skip || (o.to && c.who && c.who !== o.to)) continue; if (!(quick && put(fast.get(c.peer), o))) put(c, o); } };
+    const tx = { peer, conns, fast, send: (o, quick) => out(o, quick), close: () => { try { peer.destroy(); } catch (_) {} },
+      kick(id) { for (const c of conns) if (c.who === id) setTimeout(() => { try { c.close(); } catch (_) {} }, 1200); } };
     const wire = c => {
-      c.on('open', () => { conns.add(c); if (!isHost && !done) { done = true; res(tx); } });
-      c.on('data', d => { if (isHost) { c.who = d.f; for (const o of conns) if (o !== c && o.open) try { o.send(d); } catch (_) {} } onMsg(d); });
-      c.on('close', () => { conns.delete(c); if (isHost && c.who) { const bye = { k: 'bye', f: c.who }; tx.send(bye); onMsg(bye); } else if (!isHost) onDrop('The host left'); });
+      c.on('open', () => { conns.add(c); if (!isHost && !done) { done = true; res(tx); wireFast(peer.connect(id, { label: 'wfyfast', reliable: false, serialization: 'json' })); } });
+      c.on('data', d => { if (isHost) { c.who = d.f; out(d, false, c); } onMsg(d); });
+      c.on('close', () => { conns.delete(c); const f = fast.get(c.peer); if (f) { fast.delete(c.peer); try { f.close(); } catch (_) {} }
+        if (isHost && c.who) { const bye = { k: 'bye', f: c.who }; tx.send(bye); onMsg(bye); } else if (!isHost) onDrop('The host left'); });
       c.on('error', () => {});
     };
+    // the fast channel: the guest opens it once the reliable one is up; the host passes what comes in on it along on the others' fast channels
+    const wireFast = c => {
+      c.on('open', () => { fast.set(c.peer, c); });
+      c.on('data', d => { if (isHost) { let from = null; for (const r of conns) if (r.peer === c.peer) from = r; if (from && !from.who) from.who = d.f; out(d, true, from); } onMsg(d); });
+      c.on('close', () => { if (fast.get(c.peer) === c) fast.delete(c.peer); });
+      c.on('error', () => {});
+    };
+    if (!isHost) tx.send = (o, quick) => { for (const c of conns) { if (!(quick && put(fast.get(c.peer), o))) put(c, o); } };
     peer.on('open', () => { if (isHost) { done = true; res(tx); } else wire(peer.connect(id, { reliable: true, serialization: 'json' })); });
-    peer.on('connection', c => { if (isHost) wire(c); });
+    peer.on('connection', c => { if (isHost) (c.label === 'wfyfast' ? wireFast : wire)(c); });
     peer.on('error', e => { const why = { 'unavailable-id': 'That code is taken, try again', 'peer-unavailable': 'No game with that code (check it, or ask them to host again)', network: 'Can’t reach the matchmaking server', 'server-error': 'Matchmaking server error', 'browser-incompatible': 'This browser can’t do peer-to-peer' }[e.type] || ('Connection problem: ' + e.type);
       if (!done) { done = true; rej(new Error(why)); } else onDrop(why); });
     setTimeout(() => { if (!done) { done = true; try { peer.destroy(); } catch (_) {} rej(new Error('Timed out. Both on the same Wi-Fi usually fixes it')); } }, 15000);
@@ -9243,7 +9327,7 @@ async function mpStart(isHost, code, fixed, pub) {
   try {
     MP.tx = await (MP.local ? mpTxLocal : mpTxPeer)(code, isHost, mpRecv, why => { toast(why, 2.6); mpLeave(true); });
   } catch (e) { MP.pub = false; mpStatus(pub ? '' : (e.message || 'Couldn’t connect')); return false; }
-  MP.on = true; MP.clock = 0;
+  MP.on = true; MP.clock = 0; MP.hostSeen = 0; MP.sig = ''; MP.lkSent = ''; AFK.warned = false;
   if (!isHost) MP.tx.send({ k: 'hi', f: MP.me, name: MP.name });
   mpStatus(pub ? (isHost ? 'You opened the yard. Anyone who opens the link joins you' : 'In the public yard') : isHost ? 'Hosting. Tell your mate the code' : 'Connected'); mpSheet(); return true;
 }
@@ -9314,11 +9398,39 @@ function chatLog() { const L = CHAT.logEl; if (!L) return; L.textContent = ''; f
   setInterval(() => { if (CHAT.open) CHAT.box.classList.toggle('mp', !!MP.on); }, 500);
 })();
 
+/* AFK: no input for 10 minutes in a multiplayer game and you're taken out of it, with a warning a minute before. A guest just leaves
+   (and the host closes their connection if their game doesn't); the host is only taken out in the public yard, where somebody else
+   opens it again, since in a private game the host leaving would end it for everyone. Touch anything and you're back. */
+const AFK = { last: performance.now(), warned: false, out: false };
+const afkIdle = () => (performance.now() - AFK.last) / 1000;
+function afkPoke() {
+  AFK.last = performance.now(); AFK.warned = false;
+  if (AFK.out) { AFK.out = false; if (typeof PUB !== 'undefined' && PUB.afk) { PUB.afk = false; PUB.wanted = true; PUB.retryT = 1; } }
+}
+['keydown', 'pointerdown', 'pointermove', 'touchstart', 'touchmove', 'wheel'].forEach(ev => addEventListener(ev, afkPoke, { passive: true, capture: true }));
+function afkOut(msg) {
+  if (!MP.on) return; AFK.out = true; if (MP.pub && typeof PUB !== 'undefined') { PUB.afk = true; PUB.wanted = false; }
+  mpLeave(true); toast(msg, 5);
+}
+setInterval(() => {
+  if (!MP.on) return; const s = afkIdle(), out = !MP.host || MP.pub;
+  if (out && s > 540 && !AFK.warned) { AFK.warned = true; toast('Still there? You’ll be taken out of the game in a minute unless you move', 5); }
+  if (out && s > 600) afkOut('You were idle for 10 minutes, so you’ve left the game');
+}, 1000);
+// hosting the public yard and gone to another app for half a minute: hand the yard over (somebody else opens it) rather than freeze it
+let afkHidT = 0;
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(afkHidT);
+  if (document.hidden) afkHidT = setTimeout(() => { if (document.hidden && MP.on && MP.host && MP.pub) afkOut('You were away, so the yard went to someone else'); }, 30000);
+  else afkPoke();
+});
 function mpStatus(s) { MP.status = s; const el = $('mpNote'); if (el) el.textContent = s; }
-function mpSend(o) { if (MP.on && MP.tx) MP.tx.send(o); }
+function mpSend(o, quick) { if (MP.on && MP.tx) MP.tx.send(o, quick); }      // quick: the frequent, replaceable updates (lossy channel)
 function mpRecv(m) {
-  if (!m || m.f === MP.me) return;
+  if (!m || m.f === MP.me || !MP.on) return;            // (nothing once you've left: late messages would bring people back)
   if (m.to && m.to !== MP.me) return;
+  if (!MP.host) { const h = MP.roster.find(r => r.slot === 1); if (!h || h.id === m.f) MP.hostSeen = MP.clock; }
+  if (m.k === 'kick') { afkOut('The host took you out of the game for being idle'); return; }
   if (m.k === 'chat') { chatIn(m); return; }
   if (typeof mpwRecv === 'function' && mpwRecv(m)) return;
   if (m.k === 'hi' && MP.host) {
@@ -9328,7 +9440,9 @@ function mpRecv(m) {
   }
   if (m.k === 'ros') { MP.roster = m.roster; const me = m.roster.find(r => r.id === MP.me); if (me) MP.slot = me.slot; for (const r of m.roster) { const p = MP.peers.get(r.id); if (p) { p.slot = r.slot; p.name = r.name; mpTint(p); } } mpSheet(); return; }
   if (m.k === 'bye') { const p = MP.peers.get(m.f); if (p) { toast(p.name + ' left', 1.8); mpDrop(p); MP.peers.delete(m.f); } if (MP.host) { MP.roster = MP.roster.filter(r => r.id !== m.f); mpSend({ k: 'ros', f: MP.me, roster: MP.roster }); } mpSheet(); return; }
-  if (m.k === 's') { const p = mpPeer(m.f); if (m.lk && m.lk !== p.lk) mpPeerLook(p, m.lk); const now = MP.clock; p.buf.push({ ...m, at: now }); if (p.buf.length > 40) p.buf.shift(); p.last = now;
+  if (m.k === 's') { const p = mpPeer(m.f); if (m.lk && m.lk !== p.lk) mpPeerLook(p, m.lk); const now = MP.clock; p.last = now;
+    if (p.buf.length && m.t <= p.buf[p.buf.length - 1].t) return;           // an older update arriving late (the lossy channel isn't in order)
+    p.buf.push({ ...m, at: now }); if (p.buf.length > 40) p.buf.shift();
     const off = now - m.t; p.offs.push(off); if (p.offs.length > 30) p.offs.shift(); p.off = Math.min(...p.offs); return; }
   if (m.k === 'tox') { toxNet(m); return; }
   if (m.k === 'sh' || m.k === 'dmg' || m.k === 'boom' || m.k === 'fire' || m.k === 'vdmg' || m.k === 'fl') { if (typeof wpnNet === 'function') wpnNet(m); return; }
@@ -9351,7 +9465,7 @@ function mpTint(p) {
   if (p.tag) { p.av.root.remove(p.tag); p.tag.material.map.dispose(); }
   const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d');
   x.fillStyle = MP_CSS[p.slot] || MP_CSS[2]; x.beginPath(); x.roundRect ? x.roundRect(4, 8, 248, 48, 24) : x.rect(4, 8, 248, 48); x.fill();
-  x.fillStyle = '#fff'; x.font = '800 30px system-ui,sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(p.name.slice(0, 12), 128, 33);
+  x.fillStyle = '#fff'; x.font = '800 30px system-ui,sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(p.name.slice(0, 12) + (p.afk ? ' · AFK' : ''), 128, 33);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   p.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true, sizeAttenuation: false }));
   p.tag.scale.set(0.12, 0.03, 1); p.tag.position.set(0, 2.35, 0); p.tag.renderOrder = 10; p.av.root.add(p.tag);
@@ -9372,12 +9486,14 @@ const MP_JOINTS = P => [P.hipL.rotation.x, P.hipR.rotation.x, P.kneeL.rotation.x
   P.torso.rotation.x, P.torso.rotation.y, P.body.rotation.z, P.head.rotation.x, P.head.rotation.y, P.body.position.y, P.belly.scale.y];
 function mpState() {
   const R = DAZZA.root; R.updateWorldMatrix(true, false); R.getWorldPosition(_mpP); R.getWorldQuaternion(_mpQ);
-  const o = { k: 's', lk: LOOKC, f: MP.me, t: MP.clock, a: activeName, m: F.mode, c: DAZZA.can.visible ? 1 : 0, rm: DAZZA.remote.visible ? 1 : 0,
-              r: [_mpP.x, _mpP.y, _mpP.z, _mpQ.x, _mpQ.y, _mpQ.z, _mpQ.w].map(mpR), j: MP_JOINTS(DAZZA).map(mpR) };
+  const o = { k: 's', f: MP.me, t: mpR(MP.clock), a: activeName, m: F.mode, c: DAZZA.can.visible ? 1 : 0, rm: DAZZA.remote.visible ? 1 : 0,
+              r: [mpC(_mpP.x), mpC(_mpP.y), mpC(_mpP.z), mpR(_mpQ.x), mpR(_mpQ.y), mpR(_mpQ.z), mpR(_mpQ.w)], j: MP_JOINTS(DAZZA).map(mpJ) };
   const v = activeVeh();
-  if (v && v.kind === 'ground') { const T = v.model; o.g = [S.pos.x, S.pos.y, S.pos.z, S.yaw, S.pitch, S.roll, T.body.rotation.x, T.body.rotation.z, T.body.position.y, S.steer || 0, S.v].map(mpR); }
+  if (v && v.kind === 'ground') { const T = v.model; o.g = [mpC(S.pos.x), mpC(S.pos.y), mpC(S.pos.z), mpR(S.yaw), mpR(S.pitch), mpR(S.roll), mpR(T.body.rotation.x), mpR(T.body.rotation.z), mpC(T.body.position.y), mpJ(S.steer || 0), mpJ(S.v)]; }
   if (typeof WPN !== 'undefined' && wpnArmed()) o.w = WPN.cur;
-  else if (v && v.kind === 'air') { const A = v.st; o.ai = [A.pos.x, A.pos.y, A.pos.z, A.yaw, A.pitch, A.roll, A.motor || 0, A.landed ? 1 : 0].map(mpR); }
+  else if (v && v.kind === 'air') { const A = v.st; o.ai = [mpC(A.pos.x), mpC(A.pos.y), mpC(A.pos.z), mpR(A.yaw), mpR(A.pitch), mpR(A.roll), mpJ(A.motor || 0), A.landed ? 1 : 0]; }
+  const idl = afkIdle(); if (idl >= 60) o.id = Math.floor(idl / 30) * 30;          // idle a minute or more: everyone sees "AFK"
+  if (LOOKC !== MP.lkSent || MP.clock - (MP.lkT || -9) > 2) { o.lk = LOOKC; MP.lkSent = LOOKC; MP.lkT = MP.clock; }   // your look: when it changes, and every 2 s for anyone new
   return o;
 }
 const mpLerpA = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
@@ -9392,9 +9508,16 @@ function mpSample(p) {
 function mpStep(dt) {
   if (!MP.on) return;
   MP.clock += dt; MP.sendT -= dt; MP.hitCD -= dt;
-  if (MP.sendT <= 0) { MP.sendT = 1 / 15; mpSend(mpState()); }
+  // 15 updates a second while anything about you changes; standing still, three (so they know you're still there)
+  if (MP.sendT <= 0) { MP.sendT = 1 / 15; const o = mpState(), sig = JSON.stringify([o.a, o.m, o.c, o.rm, o.r, o.j, o.g, o.ai, o.w, o.id]);
+    if (sig !== MP.sig || MP.clock - (MP.sentT || 0) > 0.33) { MP.sig = sig; MP.sentT = MP.clock; mpSend(o, true); } }
+  // a guest whose host has gone silent (phone locked, app switched away, signal gone) stops waiting after half a minute
+  if (!MP.host && MP.clock - (MP.hostSeen || 0) > 30) { toast('Lost touch with the host', 2.6); mpLeave(true); return; }
   for (const p of [...MP.peers.values()]) {
     if (MP.clock - p.last > 8) { toast(p.name + ' dropped out', 2); mpDrop(p); MP.peers.delete(p.id); mpSheet(); continue; }
+    const idl = (p.buf.length && p.buf[p.buf.length - 1].id) || 0;
+    if ((idl >= 60) !== !!p.afk) { p.afk = idl >= 60; mpTint(p); }
+    if (MP.host && idl >= 630 && !p.kicked) { p.kicked = true; mpSend({ k: 'kick', f: MP.me, to: p.id, why: 'afk' }); if (MP.tx.kick) MP.tx.kick(p.id); toast(p.name + ' was idle too long and left', 2.4); }
     const s = mpSample(p); if (!s) continue;
     const A = s.a, Bb = s.b, k = s.k, cur = Bb && k > 0.5 ? Bb : A;
     // the farmer
@@ -10318,7 +10441,27 @@ function wpnBoomStep(dt) {
 
 /* ---------- input, aiming camera, HUD ---------- */
 function wpnArmed() { return !!WPN.cur && activeName === 'foot' && F.dead <= 0; }
+// jobs that need your hands: a gun gets put away while you're on one (and comes back after), and can't be drawn mid-job. The welding,
+// the bench, nailing up the bunks (the PUNCH button is the hammer, and it's not there with a gun out), sitting in the sauna, and the
+// sauna challenge, where the axe is the one tool you can have
+function wpnJob() {
+  try {
+    if (activeName !== 'foot' || F.dead > 0) return null;
+    if (MT.w) return { why: 'the welding', ok: null };
+    if (bpMine() || bpLying() || bpSpotting()) return { why: 'the bench', ok: null };
+    if (BB.st === 'build' && BB.help && BB.help[MP.me]) return { why: 'the rebuild', ok: null };
+    if (saSitting()) return { why: 'the sauna', ok: null };
+    if (SA.q && SA.q.who === MP.me) return { why: 'the sauna challenge', ok: 'axe' };
+  } catch (_) {}
+  return null;
+}
+function wpnJobStep() {
+  const J = wpnJob();
+  if (J && WPN.cur && WPN.cur !== J.ok) { const W = WEAPONS[WPN.cur]; if (!WPN.stowed) WPN.stowed = WPN.cur; wpnSelect(null); toast((W ? W.label : 'Gun') + ' away for ' + J.why, 1.8); }
+  else if (!J && WPN.stowed) { const id = WPN.stowed; WPN.stowed = null; if (!WPN.cur && WPN.owned[id] && activeName === 'foot' && F.dead <= 0 && !MH.pax) wpnSelect(id); }      // the job's done: back in your hands
+}
 function wpnSelect(id) {
+  if (id) { const J = wpnJob(); if (J && id !== J.ok) { toast('Not now, you need your hands for ' + J.why, 1.6); return; } }
   if (MH.pax && (!id || WEAPONS[id].kind !== 'gun')) { toast(id ? 'Guns only out the window' : 'Keep it out, mate. We\u2019re huntin\u2019', 1.6); return; }
   if (id && !WPN.owned[id]) return; if (id) WPN.last = id; WPN.cur = id; WPN.reloadT = 0; WPN.spin = 0; WPN.scope = false; WPN.fire = false;
   if (id && WEAPONS[id].kind === 'gun' && WPN.mag[id] == null) WPN.mag[id] = 0;
@@ -10347,7 +10490,7 @@ function wpnSheet() {
 function wpnHud(force) {
   const armed = wpnArmed(), id = WPN.cur, W = id && WEAPONS[id];
   document.body.classList.toggle('armed', armed); document.body.classList.toggle('scoped', armed && WPN.scope);
-  const draw = !armed && activeName === 'foot' && F.dead <= 0 && WPN_ORDER.some(i => WPN.owned[i]); document.body.classList.toggle('candraw', draw);
+  const draw = !armed && activeName === 'foot' && F.dead <= 0 && WPN_ORDER.some(i => WPN.owned[i]) && !wpnJob(); document.body.classList.toggle('candraw', draw);
   if (draw) { const d = WPN.last && WPN.owned[WPN.last] ? WPN.last : WPN_ORDER.find(i => WPN.owned[i]); if (d !== WPN.drawKey) { WPN.drawKey = d; $('wDrawN').textContent = WEAPONS[d].label; } }
   if (!armed && !force) return;
   if (W) { const a = WPN.ammo[id] || 0, am = W.kind === 'gun' ? (W.reload ? (WPN.mag[id] || 0) + ' / ' + a : String(a)) : W.kind === 'flame' ? Math.ceil(a) + ' s' : W.kind === 'melee' ? '' : String(a);
@@ -10404,7 +10547,7 @@ function wpnStep(dt) {
   if (F.dead > 0) { F.dead -= dt; if (F.mode === 'getup' || F.mode === 'walk') { F.mode = 'down'; F.downT = 0; }
     if (F.dead <= 0) { $('wasted').classList.remove('show'); const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); F.hp = 100; camInit = false; toast('Back on your feet', 1.4); } }
   // firing
-  const armed = wpnArmed(); wpnHud(false);
+  wpnJobStep(); const armed = wpnArmed(); wpnHud(false);
   if (!armed) { WPN.fire = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); wpnViewModel(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
   if (WPN.cache.id !== WPN.cur) wpnHold(DAZZA, WPN.cur, WPN.cache);
   wpnCam(dt); WPN.camDone = true;          // the aiming camera before the shot: the shot goes out along what's drawn (the on-foot camera from earlier in the frame can look elsewhere)
@@ -11456,10 +11599,11 @@ function bubDom() {
   for (const n of NPC.list) { const B = n.bub; if (!B || !B.el) continue;
     const sp = B.sp; let show = sp.visible && B.time > 0 && sp.material.opacity > 0.01;
     if (show) { _bubV.set(sp.position.x, sp.position.y - sp.scale.y / 2 + 0.02 * sp.scale.y, sp.position.z);           // the tip of the tail
-      _bubC.copy(_bubV).applyMatrix4(camera.matrixWorldInverse); const depth = -_bubC.z; if (depth < 0.15) show = false;
+      _bubC.copy(_bubV).applyMatrix4(camera.matrixWorldInverse); const depth = -_bubC.z, far = _bubV.distanceTo(camera.position);
+      if (depth < 0.15 || far > 38) show = false;               // further off than you'd hear them (a mate chatting to Matt across the farm): no bubble
       else { _bubV.project(camera); const x = (_bubV.x + 1) / 2 * W, y = (1 - _bubV.y) / 2 * H, k = THREE.MathUtils.clamp(H / (2 * depth * tf) * sp.scale.x * 0.98 / 300, 0.56 - 0.14 * THREE.MathUtils.clamp((depth - 15) / 25, 0, 1), 1.5);      // (never too small to read when they're about)
         if (x < -200 || x > W + 200 || y < -40 || y > H + 300) show = false;
-        else { B.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%) scale(${k.toFixed(3)})`; B.el.style.opacity = Math.min(1, sp.material.opacity).toFixed(2); } } }
+        else { B.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%) scale(${k.toFixed(3)})`; B.el.style.opacity = (Math.min(1, sp.material.opacity) * THREE.MathUtils.clamp((38 - far) / 8, 0, 1)).toFixed(2); } } }
     if (show !== B.shown) { B.shown = show; B.el.style.display = show ? 'block' : 'none'; } }
 }
 /* ================================================================
@@ -11470,7 +11614,7 @@ function bubDom() {
    as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, url: 'voices-v1.bin?v=1e2ee34c', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
+const VOX = { on: true, url: 'voices-v1.bin?v=322d72fd', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
 const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
 // the same normalising the recording script used, so the game's text finds its clips
@@ -14124,40 +14268,40 @@ const MATT_LOOK = { name: 'Matt', h: 0.72, w: 0.15, m: 0, skin: 1, hair: 'curls'
 const MATT_L = {
   idle: ["Mind the swarf, it's sharp.", 'Engineering is just maths with a hammer, really.', "I've run the numbers three times. It'll fly.", "If it's not on the whiteboard, it doesn't exist.",
     'Measure twice, cut once. Then measure again, because you probably got it wrong.', 'Point one of a mil tolerance. In a shed. On a farm.', 'Half the farm runs on fencing wire and my good intentions.',
-    "Don't touch the lathe. Seriously. It eats sleeves.", "That header's held together with zip ties. I'm not proud of it."],
-  greet: ["G'day! Come to see the rocket?", "Oh, g'day. Don't mind the mess, it's organised chaos.", "G'day mate! Watch your feet, there's bits everywhere."],
+    "Don't touch the lathe. Seriously. It eats sleeves.", "That header's held together with zip ties. I'm not proud of it.", "Torque spec says forty Newton metres. I've given it forty-two for luck.", "Who keeps nicking my ten mil socket? Every time.", "Tolerances are more of a guideline out here.", "Note to self: don't weld in thongs again."],
+  greet: ["G'day! Come to see the rocket?", "Oh, g'day. Don't mind the mess, it's organised chaos.", "G'day mate! Watch your feet, there's bits everywhere.", "Oh, hey! You're just in time. I've got something to show you.", "G'day! Don't touch anything that's humming."],
   talk: ["It's a rocket. Well, it will be. A hundred and fifty metres, if my sums are right.", 'I did mechatronics at uni. Now I fix headers and build rockets in a shed. Living the dream.',
     "Madman reckons it's a waste of time. Madman also reckons a ute counts as a personality.", "Dima asked if it can lift him. I said no. He's been sulking all week.",
-    "The French lot keep asking if it's a weapon. It's a scientific instrument. That happens to be pointy."],
+    "The French lot keep asking if it's a weapon. It's a scientific instrument. That happens to be pointy.", "Madman asked me to fix his ute's aircon. I said it's not rocket science. Then I remembered, I do rocket science.", "Dima wants me to build him a squat rack out of an old header. Honestly? Not the worst idea.", "The Frenchies asked if the rocket could carry a baguette. I said I'd run the numbers.", "Every good engineer has a drawer full of bits from the last project. Mine's a whole shed."],
   partsStart: ["Righto! I need three bits: the fuel pump off the old header, an oxygen bottle from the machinery shed, and a nose cone. There's one behind the little shed at the house. Don't ask.",
     "Three parts, mate. I've marked them on your map. They're the glowy ones."],
   partsBack: ['Got the lot? Bring them back to the shed!', "That's all three! Get them back here, I'm itching."],
-  partsDone: ["Ripper! That's everything. Now we're cooking.", 'Beauty! The nose cone even fits. Mostly.'],
+  partsDone: ["Ripper! That's everything. Now we're cooking.", 'Beauty! The nose cone even fits. Mostly.', "Fuel pump, oxygen, nose cone. Three for three, mate!"],
   weldStart: ['Helmet down. Hold the trigger to strike an arc and keep the puddle in the green. Too hot and you blow straight through.', 'Fins next. Hold weld, keep it in the green, nice and steady.'],
-  weldGood: ['Nice bead!', 'Beautiful. Stack of dimes, that.', 'Steady hands, mate.'],
-  weldHot: ['Too hot! Ease off!', "You're cooking it!"],
-  weldCold: ["Strike it! You're too cold!", "That's not a weld, that's bird poo."],
+  weldGood: ['Nice bead!', 'Beautiful. Stack of dimes, that.', 'Steady hands, mate.', "Smooth as. You've done this before."],
+  weldHot: ['Too hot! Ease off!', "You're cooking it!", "Easy! That's glowing like a barbie!"],
+  weldCold: ["Strike it! You're too cold!", "That's not a weld, that's bird poo.", "Get closer! You're welding the air!"],
   weldHole: ["Ah, you've blown a hole. Keep going, I'll grind it later.", 'Swiss cheese, mate. Ease off a bit.'],
   seam1: ["That's one fin on."], seam2: ['Two down!'], seam3: ['Three! One to go.'],
-  weldWin: ["Mate, that's better than mine. Don't tell anyone.", "Four fins, all on. She's ready to fly."],
+  weldWin: ["Mate, that's better than mine. Don't tell anyone.", "Four fins, all on. She's ready to fly.", "Textbook welds. I'd frame them if I could."],
   weldFail: ["Righto, she's Swiss cheese. We'll grind it back and have another go."],
   launchStart: ["Launch day! I'll wheel her out to the pad.", 'Right, out she goes. Mind your toes.'],
   padReady: ["She's on the rail. Go to the control box and hit the big red button when you're ready."],
   c5: ['Five!'], c4: ['Four!'], c3: ['Three!'], c2: ['Two!'], c1: ['One!'], ign: ['Ignition!'],
-  liftoff: ['Look at her go!', 'Go on, go on!'],
+  liftoff: ['Look at her go!', 'Go on, go on!', "She's away! She's actually away!"],
   chute: ['Chute! Textbook! Absolutely textbook!'],
-  landed: ["I'm putting that on the whiteboard.", 'Did you see that? Did you see that!'],
-  crash: ["Oh no. That's a rapid unscheduled disassembly.", "Well, that's data. Expensive data."],
+  landed: ["I'm putting that on the whiteboard.", 'Did you see that? Did you see that!', "Recovered and reusable. Take that, rocket companies."],
+  crash: ["Oh no. That's a rapid unscheduled disassembly.", "Well, that's data. Expensive data.", "Right. Back to the drawing board. Literally, it's over there."],
   spare: ['Good thing I printed spares.'],
-  busy: ["Bit busy, mate. I'm with your mate."],
-  fixDone: ["She's sweet as now. Try not to roll it again.", 'Leave it with me. Done. Next!'],
+  busy: ["Bit busy, mate. I'm with your mate.", "Hang on, mate. One job at a time."],
+  fixDone: ["She's sweet as now. Try not to roll it again.", 'Leave it with me. Done. Next!', "Fixed. Bit of wire, bit of tape, bit of genius."],
   fixNone: ["Can't fix what's not here. Bring it to the shed."],
   fixUte: ["That's Madman's ute. I'm not touching it. I like my fingers."],
-  hurt: ['Ow! Not the glasses!', 'Oi! I bruise like a peach!'],
-  angry: ["Right, that's it. I'm calculating your trajectory!", "You'll keep!"],
-  ko: ['I think I saw the square root of minus one.'],
+  hurt: ['Ow! Not the glasses!', 'Oi! I bruise like a peach!', "Careful! I need these hands for soldering!"],
+  angry: ["Right, that's it. I'm calculating your trajectory!", "You'll keep!", "You've done it now. I know where you park."],
+  ko: ['I think I saw the square root of minus one.', "Ugh... I can hear colours..."],
   win2: ['Ha! Physics, mate.'],
-  bye: ['Catch ya!', 'Hooroo! Mind the swarf.'],
+  bye: ['Catch ya!', 'Hooroo! Mind the swarf.', "See ya! Come back when you've got something broken."],
 };
 // the shed's own frame: u along the ridge, v across (the back wall is v = -16.2; the lean-to and the open side are past v = 2.4)
 const mtD = () => STRUCT_DEFS[0];
@@ -17160,59 +17304,69 @@ const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100;
 const npcByName = (nm) => NPC.list.find(n => n.name === nm) || null;
 function mpwSendAct(a, x) { mpSend({ k: 'act', f: MP.me, a, x }); }
 // a ground machine's placement, the same shape the players send for theirs
-function mpwG(v) { const st = v.state, T = v.model; return [st.pos.x, st.pos.y, st.pos.z, st.yaw || 0, st.pitch || 0, st.roll || 0, T.body.rotation.x, T.body.rotation.z, T.body.position.y, st.steer || 0, st.v || 0].map(mpR); }
+function mpwG(v) { const st = v.state, T = v.model; return [mpC(st.pos.x), mpC(st.pos.y), mpC(st.pos.z), mpR(st.yaw || 0), mpR(st.pitch || 0), mpR(st.roll || 0), mpR(T.body.rotation.x), mpR(T.body.rotation.z), mpC(T.body.position.y), mpJ(st.steer || 0), mpJ(st.v || 0)]; }
 
 /* ---------- host: what everyone else needs to see ---------- */
 function mpwNpcSnap(n) {
   const R = n.root, inV = R.parent && R.parent !== scene && n.veh ? n.veh.name : '';
-  return [n.name, inV, mpR(R.position.x), mpR(R.position.y), mpR(R.position.z), mpR(R.quaternion.x), mpR(R.quaternion.y), mpR(R.quaternion.z), mpR(R.quaternion.w), mpR(R.scale.x),
-    MP_JOINTS(n.P).map(mpR), n.st, (n.angry ? 1 : 0) | (n.ko ? 2 : 0) | (R.visible ? 4 : 0) | (n.pack && n.pack.visible ? 8 : 0), Math.round(n.hp || 0), mpR(n.pos.x), mpR(n.pos.y), mpR(n.pos.z)];
+  return [n.name, inV, mpC(R.position.x), mpC(R.position.y), mpC(R.position.z), mpR(R.quaternion.x), mpR(R.quaternion.y), mpR(R.quaternion.z), mpR(R.quaternion.w), mpJ(R.scale.x),
+    MP_JOINTS(n.P).map(mpJ), n.st, (n.angry ? 1 : 0) | (n.ko ? 2 : 0) | (R.visible ? 4 : 0) | (n.pack && n.pack.visible ? 8 : 0), Math.round(n.hp || 0)].concat(
+    !inV && R.parent === scene && Math.abs(n.pos.x - R.position.x) + Math.abs(n.pos.y - R.position.y) + Math.abs(n.pos.z - R.position.z) < 0.02 ? [] : [mpC(n.pos.x), mpC(n.pos.y), mpC(n.pos.z)]);      // (where they stand, only when it isn't where the body is)
 }
-function mpwDogSnap(d) { const M = d.M, R = M.root; if (d.mode === 'tray' || R.parent !== scene) return [0]; return [1, mpR(R.position.x), mpR(R.position.y), mpR(R.position.z), mpR(R.rotation.y), d.st, mpR(d.spd || 0), mpR(M.body.position.y), d.barkPh > 0 ? 1 : 0]; }
+function mpwDogSnap(d) { const M = d.M, R = M.root; if (d.mode === 'tray' || R.parent !== scene) return [0]; return [1, mpC(R.position.x), mpC(R.position.y), mpC(R.position.z), mpR(R.rotation.y), d.st, mpJ(d.spd || 0), mpC(M.body.position.y), d.barkPh > 0 ? 1 : 0]; }
 function mpwHostSend(dt) {
   if (!MP.on || !MP.host || !NPC.ready) return;
   MPW.sendT -= dt;
-  if (MPW.sendT <= 0) { MPW.sendT = 0.1;
-    const o = { k: 'w', f: MP.me, t: MP.clock, n: NPC.list.map(mpwNpcSnap), d: MM.ready ? MM.dogs.map(mpwDogSnap) : [], v: {} };
+  // how far the nearest guest is from a spot (NPCs and pigs nobody's near get sent less, or not at all)
+  const near = (x, z) => { let d = 1e9; for (const p of MP.peers.values()) d = Math.min(d, Math.hypot(p.av.root.position.x - x, p.av.root.position.z - z)); return d; };
+  if (MPW.sendT <= 0) { MPW.sendT = 0.1; MPW.wN = (MPW.wN || 0) + 1;
+    // the people, ten times a second; past 160 m from every guest (where they're not drawn) twice a second, and past 50 m without
+    // their joints (too far to see the limbs; the guest keeps the last pose)
+    const N = []; for (const n of NPC.list) { const d = near(n.pos.x, n.pos.z); if (d > 160 && MPW.wN % 5) continue; const e = mpwNpcSnap(n); if (d > 50) e[10] = 0; N.push(e); }
+    const o = { k: 'w', f: MP.me, t: mpR(MP.clock), n: N, d: MM.ready ? MM.dogs.map(mpwDogSnap) : [], v: {} };
     for (const v of Object.values(VEH)) if (v.kind === 'ground' && v.npc && v.state) o.v[v.name] = mpwG(v);
-    o.sa = [SA.lit ? 1 : 0, r1(SA.temp), r2(SA.steam)];
-    if (SA.q) { const q = SA.q, T = WL.trees[q.tree]; o.sq = { who: q.who, step: q.step, left: r1(q.left), sweat: r1(q.sweat || 0), plunge: r1(q.plunge || 0), hits: q.hits, asks: q.asks, ask: r1(q.ask || 0),
+    // the sauna, the quests, the hunt, Madman's mood, the bunks, the bench, Matt: only when they change, and every second anyway
+    // (this goes on the lossy channel, so a lost change is never more than a second stale)
+    let sq = null; if (SA.q) { const q = SA.q, T = WL.trees[q.tree]; sq = { who: q.who, step: q.step, left: r1(q.left), sweat: r1(q.sweat || 0), plunge: r1(q.plunge || 0), hits: q.hits, asks: q.asks, ask: r1(q.ask || 0),
       tree: q.tree, qid: q.qid, ts: T ? T.st : 'stand', td: T ? r2(T.dir) : 0, th: T ? Math.round(T.hp) : 0, lg: q.log ? q.log.map(r2) : null, dr: q.drag ? 1 : 0, ca: q.carry ? 1 : 0, sp: q.split || 0, rh: q.roundHp }; }
-    o.mh = [MH.mode, MH.ph, MH.kills, MH.goal, r1(MH.left), MH.paxId || '', r1(MH.cdG), r1(MH.cdS)];
-    o.mm = [r1(MM.anger), r1(MM.refuseT), r1(MM.hostileT), VEH.ute && VEH.ute.wrecked ? 1 : 0];
-    o.bb = bbNetOut(); o.bp = bpNetOut(); o.mt = mtNetOut();
-    mpSend(o); }
-  // the pigs (the ones anybody's near), a bit less often
+    const sec = { sa: [SA.lit ? 1 : 0, r1(SA.temp), r2(SA.steam)], sq, mh: [MH.mode, MH.ph, MH.kills, MH.goal, r1(MH.left), MH.paxId || '', r1(MH.cdG), r1(MH.cdS)],
+      mm: [r1(MM.anger), r1(MM.refuseT), r1(MM.hostileT), VEH.ute && VEH.ute.wrecked ? 1 : 0], bb: bbNetOut(), bp: bpNetOut(), mt: mtNetOut() };
+    const full = MP.clock - (MPW.secT == null ? -9 : MPW.secT) > 1; if (full) MPW.secT = MP.clock; const was = MPW.sec || (MPW.sec = {});
+    for (const k in sec) { const v = sec[k] === undefined ? null : sec[k], j = JSON.stringify(v); if (full || j !== was[k]) { o[k] = v; was[k] = j; } }
+    mpSend(o, true); }
+  // the pigs anybody's near, five times a second: only the ones that moved or changed, and all of them every second
   MPW.pigT -= dt;
-  if (MPW.pigT <= 0) { MPW.pigT = 0.2; const P = [];
-    for (const a of FA.pigs) { let near = false; for (const p of MP.peers.values()) if (Math.hypot(p.av.root.position.x - a.pos.x, p.av.root.position.z - a.pos.z) < 170) { near = true; break; } if (!near) continue;
-      const id = a.nid || (a.nid = ++MPW.pigId), R = a.M.root, e = [id, a.kind, r2(a.s || 1), mpR(R.position.x), mpR(R.position.y), mpR(R.position.z), mpR(a.yaw || 0), a.st, r2(a.sp || 0)];
+  if (MPW.pigT <= 0) { MPW.pigT = 0.2; const P = [], full = MP.clock - (MPW.pgFull == null ? -9 : MPW.pgFull) > 1, was = MPW.pgWas || (MPW.pgWas = new Map()); if (full) MPW.pgFull = MP.clock;
+    for (const a of FA.pigs) { if (near(a.pos.x, a.pos.z) >= 170) continue;
+      const id = a.nid || (a.nid = ++MPW.pigId), R = a.M.root, e = [id, a.kind, r2(a.s || 1), mpC(R.position.x), mpC(R.position.y), mpC(R.position.z), mpR(a.yaw || 0), a.st, r2(a.sp || 0)];
       if (a.st === 'tumble' || a.st === 'down') e.push(mpR(R.quaternion.x), mpR(R.quaternion.y), mpR(R.quaternion.z), mpR(R.quaternion.w));
-      P.push(e); }
-    mpSend({ k: 'pg', f: MP.me, t: MP.clock, p: P }); }
-  // where every parked machine is (they get shoved about, and NPCs park them)
+      const sig = e.slice(2).join(','); if (!full && was.get(id) === sig) continue; was.set(id, sig); P.push(e); }
+    if (P.length || full) mpSend({ k: 'pg', f: MP.me, t: mpR(MP.clock), p: P, all: full ? 1 : 0 }, true); }
+  // where the parked machines are (they get shoved about, and NPCs park them): the ones that moved, and all of them every 5 s
   MPW.parkT -= dt;
-  if (MPW.parkT <= 0) { MPW.parkT = 1; const o = {};
-    for (const v of Object.values(VEH)) if (v.kind === 'ground' && v.state && v.state.pos && !v.npc && !v.mp && v.name !== activeName && !v.coast) o[v.name] = mpwG(v);
-    mpSend({ k: 'pv', f: MP.me, v: o }); }
+  if (MPW.parkT <= 0) { MPW.parkT = 1; const o = {}, full = MP.clock - (MPW.pvFull == null ? -99 : MPW.pvFull) > 5, was = MPW.pvWas || (MPW.pvWas = {}); if (full) MPW.pvFull = MP.clock;
+    for (const v of Object.values(VEH)) if (v.kind === 'ground' && v.state && v.state.pos && !v.npc && !v.mp && v.name !== activeName && !v.coast) { const g = mpwG(v), j = g.join(','); if (!full && was[v.name] === j) continue; was[v.name] = j; o[v.name] = g; }
+    for (const k in o) { mpSend({ k: 'pv', f: MP.me, t: mpR(MP.clock), v: o }, true); break; } }
 }
 
 /* ---------- guest: taking it in ---------- */
 function mpwRecv(m) {
-  if (m.k === 'w') { MPW.lastW = MP.clock; MPW.hostId = m.f; const hp = MP.peers.get(m.f);
+  if (m.k === 'w') { if (MPW.hostId !== m.f) MPW.wt = -1e9; if (m.t <= MPW.wt) return true; MPW.wt = m.t;        // (late, out-of-order updates are dropped)
+    MPW.lastW = MP.clock; MPW.hostId = m.f; const hp = MP.peers.get(m.f);
     for (const e of m.n) { let B = MPW.buf.get(e[0]); if (!B) MPW.buf.set(e[0], B = []); B.push({ t: m.t, e }); if (B.length > 12) B.shift(); }
     MPW.dbuf.push({ t: m.t, d: m.d }); if (MPW.dbuf.length > 12) MPW.dbuf.shift();
     const seen = new Set(Object.keys(m.v));
     for (const nm of seen) { let B = MPW.vbuf.get(nm); if (!B) MPW.vbuf.set(nm, B = []); B.push({ t: m.t, g: m.v[nm] }); if (B.length > 12) B.shift(); }
     for (const nm of [...MPW.vbuf.keys()]) if (!seen.has(nm)) { MPW.vbuf.delete(nm); const v = VEH[nm]; if (v && v.mp === '#npc') { v.mp = null; v.npc = null; if (v.state) { v.state.v = v.state.vx = v.state.vz = 0; } } }
-    SA.lit = !!m.sa[0]; SA.temp = m.sa[1]; if (m.sa[2] > SA.steam + 0.4) for (let k = 0; k < 6; k++) saPuff(true); SA.steam = m.sa[2];
-    mpwCliQuestIn(m.sq || null);
-    const h = m.mh; Object.assign(MH, { mode: h[0], ph: h[1], kills: h[2], goal: h[3], left: h[4], paxId: h[5] || null, cdG: h[6], cdS: h[7] });
-    MM.anger = m.mm[0]; MM.refuseT = m.mm[1]; MM.hostileT = m.mm[2]; if (VEH.ute) mpwUteWreckIn(!!m.mm[3]);
-    bbNetIn(m.bb); bpNetIn(m.bp); mtNetIn(m.mt);
+    // the rest only comes when it's changed (or the once-a-second refresh)
+    if (m.sa) { SA.lit = !!m.sa[0]; SA.temp = m.sa[1]; if (m.sa[2] > SA.steam + 0.4) for (let k = 0; k < 6; k++) saPuff(true); SA.steam = m.sa[2]; }
+    if ('sq' in m) mpwCliQuestIn(m.sq || null);
+    const h = m.mh; if (h) Object.assign(MH, { mode: h[0], ph: h[1], kills: h[2], goal: h[3], left: h[4], paxId: h[5] || null, cdG: h[6], cdS: h[7] });
+    if (m.mm) { MM.anger = m.mm[0]; MM.refuseT = m.mm[1]; MM.hostileT = m.mm[2]; if (VEH.ute) mpwUteWreckIn(!!m.mm[3]); }
+    if ('bb' in m) bbNetIn(m.bb); if ('bp' in m) bpNetIn(m.bp); if ('mt' in m) mtNetIn(m.mt);
     void hp; return true; }
-  if (m.k === 'pg') { mpwPigsIn(m); return true; }
-  if (m.k === 'pv') { for (const nm in m.v) { const v = VEH[nm], g = m.v[nm]; if (!v || !v.state || v.npc || v.mp || nm === activeName || SEQ.veh === v || v.coast) continue;
+  if (m.k === 'pg') { if (m.t <= (MPW.pgt == null ? -1e9 : MPW.pgt) && MPW.pgHost === m.f) return true; MPW.pgt = m.t; MPW.pgHost = m.f; mpwPigsIn(m); return true; }
+  if (m.k === 'pv') { if (m.t != null && MPW.pvHost === m.f && m.t <= MPW.pvt) return true; MPW.pvt = m.t; MPW.pvHost = m.f; for (const nm in m.v) { const v = VEH[nm], g = m.v[nm]; if (!v || !v.state || v.npc || v.mp || nm === activeName || SEQ.veh === v || v.coast) continue;
       const st = v.state; if (Math.hypot(st.pos.x - g[0], st.pos.z - g[2]) > 0.3 || Math.abs(faAng((st.yaw || 0) - g[3])) > 0.06 || Math.abs(st.pos.y - g[1]) > 0.3) { mpDriveCopy(null, v, { g }, null, 0, 0); st.pitch = g[4]; st.roll = g[5]; } }
     return true; }
   if (m.k === 'say') { const n = npcByName(m.i); if (n) { SPK.net = true; SPK.allow = !!m.al; const keep = SPK.to; SPK.to = m.ad || null; try { spkLine(n, m.kd, m.ln, m.dur); } finally { SPK.net = false; SPK.allow = false; SPK.to = keep; } } return true; }
@@ -17316,13 +17470,15 @@ function mpwApplyNpc(n, a, b, k) {
   const R = n.root; if (R.parent !== par) par.add(R);
   const L = (i) => b ? a[i] + (b[i] - a[i]) * k : a[i];
   R.position.set(L(2), L(3), L(4)); _mpwQ.set(a[5], a[6], a[7], a[8]); if (b) { _mpwQ2.set(b[5], b[6], b[7], b[8]); R.quaternion.slerpQuaternions(_mpwQ, _mpwQ2, k); } else R.quaternion.copy(_mpwQ); R.scale.setScalar(L(9));
-  const ja = a[10], jb = b ? b[10] : ja, P = n.P, J = [P.hipL.rotation, 'x', P.hipR.rotation, 'x', P.kneeL.rotation, 'x', P.kneeR.rotation, 'x', P.shL.rotation, 'x', P.shL.rotation, 'z', P.shR.rotation, 'x', P.shR.rotation, 'z', P.elL.rotation, 'x', P.elR.rotation, 'x',
-    P.torso.rotation, 'x', P.torso.rotation, 'y', P.body.rotation, 'z', P.head.rotation, 'x', P.head.rotation, 'y', P.body.position, 'y', P.belly.scale, 'y'];
-  for (let q = 0; q < 17; q++) J[q * 2][J[q * 2 + 1]] = ja[q] + (jb[q] - ja[q]) * k;
+  const ja = a[10], jb = b && Array.isArray(b[10]) ? b[10] : ja, P = n.P;
+  if (Array.isArray(ja)) {                     // (far from you the host leaves the joints out: the last pose stays)
+    const J = [P.hipL.rotation, 'x', P.hipR.rotation, 'x', P.kneeL.rotation, 'x', P.kneeR.rotation, 'x', P.shL.rotation, 'x', P.shL.rotation, 'z', P.shR.rotation, 'x', P.shR.rotation, 'z', P.elL.rotation, 'x', P.elR.rotation, 'x',
+      P.torso.rotation, 'x', P.torso.rotation, 'y', P.body.rotation, 'z', P.head.rotation, 'x', P.head.rotation, 'y', P.body.position, 'y', P.belly.scale, 'y'];
+    for (let q = 0; q < 17; q++) J[q * 2][J[q * 2 + 1]] = ja[q] + (jb[q] - ja[q]) * k; }
   if (P.vest) P.vest.scale.y = P.belly.scale.y;
   const cur = b && k > 0.5 ? b : a, fl = cur[12];
   n.st = cur[11]; n.angry = !!(fl & 1); n.ko = !!(fl & 2); R.visible = !!(fl & 4); if (n.pack) n.pack.visible = !!(fl & 8); n.hp = cur[13];
-  n.pos.set(L(14), L(15), L(16));
+  if (a.length > 14) { if (b && b.length > 14) n.pos.set(L(14), L(15), L(16)); else n.pos.set(a[14], a[15], a[16]); } else n.pos.copy(R.position);
   if ((n.veh && n.veh !== v) || (!v && n.veh)) { if (n.veh.npc === n) n.veh.npc = null; n.veh = null; }
   if (v) { n.veh = v; v.npc = n; }
 }
@@ -17353,7 +17509,7 @@ function mpwPigsIn(m) {
       a.G.pigs.push(a); MPW.pigs.set(id, a); FA.pigs.push(a); }
     a.tgt.set(e[3], e[4], e[5]); a.tyaw = e[6]; if (a.st !== e[7]) a.t = 0; a.st = e[7]; a.tsp = e[8]; if (Math.abs(a.s - e[2]) > 0.01) { a.s = e[2]; a.M.root.scale.setScalar(a.s); }
     if (e.length > 9) a.tq.set(e[9], e[10], e[11], e[12]); a.miss = 0; }
-  for (const [id, a] of MPW.pigs) if (!seen.has(id) && ++a.miss > 3) { MPW.pigs.delete(id); if (FA.pigs.includes(a)) removePig(a); }
+  if (m.all) for (const [id, a] of MPW.pigs) if (!seen.has(id) && ++a.miss > 1) { MPW.pigs.delete(id); if (FA.pigs.includes(a)) removePig(a); }     // (only the full, once-a-second lists say a pig's gone)
 }
 function mpwPigStep(a, dt) {
   const k = 1 - Math.exp(-10 * dt); a.pos.lerp(a.tgt, k); a.yaw += faAng(a.tyaw - a.yaw) * k; a.sp += ((a.tsp || 0) - a.sp) * k; a.gy = a.pos.y; a.t += dt;
@@ -17397,6 +17553,7 @@ function mpwCliBegin() {
   if (MH.mode && !MH.pax) mhEnd();
   SPK.q.length = 0; BP.q = null;
   if (MT.w) mtWeldExit(true); MT.q = null;
+  MPW.wt = MPW.pgt = MPW.pvt = -1e9;
 }
 function mpwCliEnd() {
   // back on our own: the mirrors become ordinary again
@@ -17458,7 +17615,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
