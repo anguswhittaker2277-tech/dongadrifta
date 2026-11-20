@@ -711,6 +711,48 @@ function Batch() {
     }
   };
 }
+/* ---------- fewer draw calls: weld the boxes that never move ----------
+   The hand-built yard is hundreds of small boxes, each its own draw call, and a phone pays for every one of them every frame.
+   Under one parent, the meshes that share a material and that nothing ever moves, hides or repaints get welded into one.
+   Anything the game keeps a handle on (doors, bulbs, the gas bottle, the bench bar...) is left as it is. */
+function objRefs(states) {          // every Object3D held (a few levels down) in these plain state objects and arrays
+  const out = new Set(), seen = new Set();
+  const walk = (v, d) => {
+    if (!v || typeof v !== 'object' || seen.has(v)) return; seen.add(v);
+    if (v.isObject3D) { out.add(v); return; }
+    if (d > 4) return;
+    if (Array.isArray(v)) { for (const x of v) walk(x, d + 1); return; }
+    if (v instanceof Map || v instanceof Set) { for (const x of v.values()) walk(x, d + 1); return; }
+    const pr = Object.getPrototypeOf(v); if (pr !== Object.prototype && pr !== null) return;
+    for (const k in v) walk(v[k], d + 1);
+  };
+  for (const s of states) walk(s, 0);
+  return out;
+}
+const weldable = (o, refs) => o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.visible && !o.children.length && !refs.has(o) && o.material && !Array.isArray(o.material)
+  && o.geometry && o.geometry.attributes.position && !Object.keys(o.geometry.morphAttributes).length && !Object.keys(o.userData).length && o.matrixAutoUpdate
+  && !o.renderOrder && o.layers.mask === 1 && o.frustumCulled && o.onBeforeRender === THREE.Object3D.prototype.onBeforeRender;
+// weld root's own mesh children; `split` keeps the first `split` children apart from the rest (a burnt donga keeps those), returns the new split
+function weldKids(root, refs, split) {
+  const kids = root.children.slice(), cut = split == null ? kids.length : Math.min(split, kids.length);
+  const run = (from, to) => { const out = [], by = new Map();
+    for (let i = from; i < to; i++) { const o = kids[i]; o.updateMatrix();
+      if (!weldable(o, refs) || o.matrix.determinant() <= 0) { out.push(o); continue; }
+      const g = o.geometry, key = o.material.uuid + '|' + Object.keys(g.attributes).sort().join() + '|' + (g.index ? 1 : 0) + '|' + (o.castShadow ? 1 : 0) + (o.receiveShadow ? 1 : 0);
+      let B = by.get(key); if (!B) { by.set(key, B = []); out.push(B); } B.push(o); }
+    return out.flatMap(e => !Array.isArray(e) ? [e] : e.length === 1 ? e : weldMeshes(e)); };
+  const A = run(0, cut), B = run(cut, kids.length);
+  for (const o of kids) o.parent = null; root.children.length = 0;
+  for (const o of A.concat(B)) { o.parent = root; root.children.push(o); }
+  return A.length;
+}
+function weldMeshes(list) {
+  const gs = list.map(o => { const g = o.geometry.clone(); g.applyMatrix4(o.matrix); return g; });
+  const g = mergeGeometries(gs, false); for (const q of gs) q.dispose();
+  if (!g) return list;
+  g.computeBoundingSphere(); const m = new THREE.Mesh(g, list[0].material); m.castShadow = list[0].castShadow; m.receiveShadow = list[0].receiveShadow; m.name = 'welded';
+  return [m];
+}
 const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 const cyl = (rt, rb, h, s = 16) => new THREE.CylinderGeometry(rt, rb, h, s);
 
@@ -3845,6 +3887,10 @@ function flightStep(ac, dt, controlled) {
   // rotor animation
   for (const r of M.rotors) { r.blades.rotation.y += r.dir * A.motor * P.spin * dt; r.disc.material.opacity = A.motor * 0.22; r.blades.children[0].visible = A.motor < 0.92; }
   if (M.leds.length) { const on = (A.bob % 1) < 0.5; M.leds[0].visible = on; M.leds[1].visible = !on; }
+  // parked with nobody aboard and nothing moving: a look every half second is plenty (finding the ground under it is the dear bit)
+  if (!controlled && A.landed && !A.autoTO && A.motor <= 0.001 && !(A.ng > 0.001) && Math.abs(A.pitch) + Math.abs(A.roll) < 1e-3 && (!A.vel || A.vel.lengthSq() < 1e-6) && ac.name !== 'spray') {
+    A.idleT = (A.idleT || 0) - dt; if (A.idleT > 0) return; A.idleT = 0.5;
+  } else A.idleT = 0;
   if (P.racer) return racerStep(ac, dt, controlled);
   if (P.plane) return planeStep(ac, dt, controlled);
   if (M.sprinklers) for (const sp of M.sprinklers) sp.rotation.y += (A.spraying ? 60 : 0) * dt;
@@ -5090,7 +5136,7 @@ function buildMinimapBase() {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const [x, z] of boundary) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, half = Math.max(x1 - x0, z1 - z0) / 2 + 14, N = 1024;
-  const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 1200);
+  const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 1200); cam.layers.enable(1);      // (and whatever's too small or hazy for the main camera)
   cam.position.set(cx, 500, cz); cam.up.set(0, 0, -1); cam.lookAt(cx, 0, cz); cam.updateMatrixWorld(); cam.updateProjectionMatrix();
   const hidden = [];
   scene.traverse(o => { if (o === scene) return; if ((o.isSprite || o.isPoints || (o.isMesh && o.material && o.material.side === THREE.BackSide)) && o.visible) { hidden.push(o); o.visible = false; } });
@@ -7645,6 +7691,7 @@ function frame() {
   } else if (!collider) {
     camera.position.set(0, 60, 120); camera.lookAt(0, 0, 0);
   }
+  if (collider) dtlStep(raw);
   renderer.render(scene, camera); bubDom();
   // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down
   ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05;
@@ -7653,6 +7700,42 @@ function frame() {
   window.__game.fps = 1000 / ftAvg;
 }
 renderer.setAnimationLoop(frame);
+
+/* ---------- skip what can't be seen: specks, and things lost in the haze ----------
+   A phone pays for every draw call, and plenty of them are bolts, lights, eyes, ears and cans a long way off that come out smaller
+   than a pixel, or whole things out past the end of the fog. Those go on a layer the camera doesn't draw until they'd show again
+   (a few hundred checked a frame, so it costs next to nothing). Raycasts still see everything. */
+const DTL = { map: new Map(), list: [], i: 0, scanT: 0, PX: 1.0, fov: 0 };
+const _dtlV = new THREE.Vector3(), _dtlC = new THREE.Vector3();
+for (const k of ['intersectObject', 'intersectObjects']) { const f = THREE.Raycaster.prototype[k]; THREE.Raycaster.prototype[k] = function (...a) { this.layers.enable(1); return f.apply(this, a); }; }
+function dtlScan() {
+  const seen = new Set();
+  const walk = o => {
+    if (o === camera) return;
+    if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.frustumCulled && o.geometry && o.geometry.attributes.position && o.material && !Array.isArray(o.material)) {
+      seen.add(o); let e = DTL.map.get(o);
+      if (!e && o.layers.mask === 1) { const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere();
+        if (Number.isFinite(g.boundingSphere.radius)) { e = { m: o, c: g.boundingSphere.center, r: g.boundingSphere.radius * Math.max(1e-3, o.matrixWorld.getMaxScaleOnAxis()), fog: o.material.fog === true, hid: false }; DTL.map.set(o, e); } }
+      else if (e && e.m.geometry.boundingSphere) { e.c = e.m.geometry.boundingSphere.center; e.r = e.m.geometry.boundingSphere.radius * Math.max(1e-3, o.matrixWorld.getMaxScaleOnAxis()); }   // (dents and repaints swap the geometry)
+    }
+    for (const c of o.children) walk(c);
+  };
+  walk(scene);
+  for (const [o, e] of DTL.map) if (!seen.has(o)) { if (e.hid) o.layers.mask = 1; DTL.map.delete(o); }
+  DTL.list = [...DTL.map.values()];
+}
+function dtlStep(dt) {
+  DTL.scanT -= dt; if (DTL.scanT <= 0) { DTL.scanT = 2; dtlScan(); }
+  const L = DTL.list, n = L.length; if (!n) return;
+  const f = innerHeight * 0.5 / Math.tan(camera.fov * Math.PI / 360) / DTL.PX, far = scene.fog ? scene.fog.far : Infinity;
+  const all = Math.abs(camera.fov - DTL.fov) > DTL.fov * 0.15; if (all) DTL.fov = camera.fov;      // zoomed in or out: check them all now
+  _dtlC.setFromMatrixPosition(camera.matrixWorld);
+  for (let k = 0, N = all ? n : Math.min(n, 400); k < N; k++) {
+    const e = L[DTL.i = (DTL.i + 1) % n]; _dtlV.copy(e.c).applyMatrix4(e.m.matrixWorld); const d = _dtlV.distanceTo(_dtlC);
+    const hide = d > e.r * f * (e.hid ? 0.85 : 1) || (e.fog && d - e.r > far);
+    if (hide !== e.hid) { e.hid = hide; e.m.layers.mask = hide ? 2 : 1; }
+  }
+}
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -12397,6 +12480,15 @@ function dgBuild() {
     pad.matrixAutoUpdate = false; pad.matrix.makeBasis(e1, e2, e3).setPosition(ctr); pad.receiveShadow = true; scene.add(pad); DG.pad = pad;
     const g2 = { id: 'dongaPad', root: pad, parts: [], ctr: new THREE.Vector3(px, py, pz), rad: 9, gy: py, fixed: true, keep: true }; STRUCTS.groups.push(g2);
     const pp = addPart(g2, { kind: 'donga', obj: pad, fixed: true }); boxPart(pp, ctr, e1, e2, e3, w / 2, 0.45, d / 2); }
+  dgWeld();
+}
+// the yard's boxes welded (see weldKids): a draw call per material per building instead of one per box
+function dgWeld() {
+  const refs = objRefs([DG_UNITS, DG, BB, SA, DN, WL, BP, MM, DM, STRUCTS.parts, STRUCTS.groups]);
+  for (const U of DG_UNITS) if (U.root) U.keepN = weldKids(U.root, refs, U.keepN);
+  const units = new Set(DG_UNITS.map(U => U.root));
+  for (const G of STRUCTS.groups) if (G.keep && G.root && G.root !== scene && !units.has(G.root) && G.root.children.length) weldKids(G.root, refs);
+  if (DG.yard) weldKids(DG.yard, refs);
 }
 // one donga: the shell, a door on a hinge, a strip of deck out the front and whatever's inside
 function dgUnit(U, gy, group) {
@@ -16115,8 +16207,8 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
-  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
+Object.assign(window.__game, { DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
