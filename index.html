@@ -194,6 +194,8 @@ body.c-drone #fcard,body.c-flyer #fcard{display:flex}
 #act button{height:44px;padding:0 18px;border-radius:999px;border:0;background:var(--accent);color:#fff;font:700 14px var(--font);
   box-shadow:var(--shadow);cursor:pointer;touch-action:manipulation;white-space:nowrap;display:flex;align-items:center;gap:8px}
 #act button.dark{background:var(--ink)}
+#act button kbd.akey{display:inline-block;min-width:18px;height:18px;margin:0 8px 0 -8px;border-radius:5px;background:rgba(255,255,255,.25);font:800 11px/18px var(--font);text-align:center;vertical-align:1px}
+body.plock{cursor:none}
 #act button.warn{background:var(--warn)}
 #act button.neg{background:var(--neg)}
 #act button.ghost{background:var(--card);color:var(--ink)}
@@ -5142,6 +5144,7 @@ function updateActions() {
     const b = document.createElement('button'); b.type = 'button'; b.className = it.cls || ''; b.dataset.id = it.id; b.textContent = it.label;
     if (it.sub) { const sm = document.createElement('small'); sm.textContent = it.sub; b.appendChild(sm); }
     if ('pressed' in it) b.setAttribute('aria-pressed', String(!!it.pressed));
+    if (PCL && PCL.on && box.children.length < 9 && it.id !== 'horn') { const kb = document.createElement('kbd'); kb.className = 'akey'; kb.textContent = String(box.children.length + 1); b.prepend(kb); }   // (its key, on a PC)
     box.appendChild(b);
   }
 }
@@ -5219,6 +5222,60 @@ lookZ.addEventListener('pointermove', e => {
 });
 const endLook = e => { if (e.pointerId === lookId) lookId = null; };
 lookZ.addEventListener('pointerup', endLook); lookZ.addEventListener('pointercancel', endLook);
+
+/* ---------- PC: click into the game and the mouse is yours (pointer lock) ----------
+   On a computer (a mouse or trackpad: a fine pointer that hovers), clicking the game captures the mouse. Move it to look around (on
+   foot; driving, it swings the camera round the machine and lets it settle back behind), left button fires, or punches with empty
+   hands, right button aims a scoped gun while held, or kicks, the wheel swaps weapons, and 1-9 press the buttons down the right.
+   Esc lets the mouse go (so does opening any menu); click the game again to pick it back up. Phones and tablets are untouched. */
+var PCL = { on: matchMedia('(hover: hover) and (pointer: fine)').matches, locked: false, vyaw: 0, vpitch: 0, vT: 9, told: false, wheelT: 0 };
+const pclMenus = () => ['menuPanel', 'mpSheet', 'chalSheet', 'wSheet', 'wWheel', 'nameAsk', 'mapSheet'].some(id => { const el = $(id); return el && (el.classList.contains('show') || el.classList.contains('open')); })
+  || [MM.sheet, MT.sheet, SA.sheet].some(el => el && el.classList.contains('show')) || (typeof EM !== 'undefined' && EM.open);
+function pclLook(dx, dy) {
+  if (Math.abs(dx) > 300 || Math.abs(dy) > 300) return;            // (a browser's first event after locking can jump)
+  lookIdleT = 0; PCL.vT = 0;
+  if (MH.pax) { const q = MH.aimQ || (MH.aimQ = [0, 0]), s2 = WPN.scope ? 0.0009 : 0.0028; q[0] += dx * s2; q[1] += dy * s2 * 0.7; return; }
+  if (activeName === 'foot') { const ls = WPN.cur ? (WPN.scope ? 0.0009 : 0.0026) : 0.0032; camYawF -= dx * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + dy * ls * 0.68, camPitchLo(), 1.15); return; }
+  const v = activeVeh(); if (v && v.kind === 'ground') { PCL.vyaw -= dx * 0.004; PCL.vyaw = Math.atan2(Math.sin(PCL.vyaw), Math.cos(PCL.vyaw)); PCL.vpitch = THREE.MathUtils.clamp(PCL.vpitch + dy * 0.003, -0.3, 0.6); }
+}
+// driving: the look-round settles back behind the machine a second after the mouse stops
+function pclVehStep(dt) { PCL.vT += dt; if (PCL.vT > 1.1 || !PCL.locked) { const k = 1 - Math.exp(-3 * dt); PCL.vyaw -= PCL.vyaw * k; PCL.vpitch -= PCL.vpitch * k; } }
+(() => {
+  if (!PCL.on) return;
+  const cv = renderer.domElement; if (!cv.requestPointerLock) return;
+  const lockable = t => !!t && !(t.closest && t.closest('button, input, select, textarea, a, label, #act, #minimap, #topright, #speedo, #menuPanel, #mpSheet, #chalSheet, #wSheet, #wWheel, #nameAsk, #mapSheet, [role=dialog]'));
+  addEventListener('mousedown', e => {
+    if (PCL.locked || e.button !== 0 || !lockable(e.target) || pclMenus() || !window.__game || !window.__game.ready) return;
+    try { const p = cv.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => { try { cv.requestPointerLock(); } catch (_) {} }); } catch (_) { try { cv.requestPointerLock(); } catch (_) {} }
+  }, true);
+  document.addEventListener('pointerlockchange', () => {
+    PCL.locked = document.pointerLockElement === cv; document.body.classList.toggle('plock', PCL.locked);
+    if (PCL.locked && !PCL.told) { PCL.told = true; toast('Mouse captured: move to look · click to fire or punch · right button to aim or kick · Esc to let go', 4); }
+    if (!PCL.locked) { WPN.fire = false; if (PCL.scope) { WPN.scope = false; PCL.scope = false; } }
+  });
+  document.addEventListener('mousemove', e => { if (PCL.locked) pclLook(e.movementX || 0, e.movementY || 0); });
+  // buttons, while captured (the first click only captures)
+  document.addEventListener('mousedown', e => {
+    if (!PCL.locked) return; e.preventDefault(); audioInit();
+    const foot = activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air' || F.mode === 'emote') && !MH.pax, armed = typeof wpnArmed === 'function' && wpnArmed();
+    if (e.button === 0) { if (armed || MH.pax) WPN.fire = true; else if (foot) melStart('punch'); }
+    else if (e.button === 2) { const W = armed ? WEAPONS[WPN.cur] : null; if (W && W.scope) { WPN.scope = true; PCL.scope = true; } else if (foot && !armed) melStart('kick'); }
+  });
+  document.addEventListener('mouseup', e => { if (!PCL.locked) return; if (e.button === 0) WPN.fire = false; else if (e.button === 2 && PCL.scope) { WPN.scope = false; PCL.scope = false; } });
+  document.addEventListener('contextmenu', e => { if (PCL.locked) e.preventDefault(); });
+  addEventListener('wheel', e => {                     // swap weapons (the ones you've got, then empty hands)
+    if (!PCL.locked || activeName !== 'foot' || typeof WPN_ORDER === 'undefined') return; const now = performance.now(); if (now - PCL.wheelT < 160) return; PCL.wheelT = now;
+    const own = [null, ...WPN_ORDER.filter(i => WPN.owned[i])]; if (own.length < 2) return; const i = Math.max(0, own.indexOf(WPN.cur || null)), j = (i + (e.deltaY > 0 ? 1 : -1) + own.length) % own.length; wpnSelect(own[j]);
+  }, { passive: true });
+  // 1-9: the buttons down the right (not while a trick's on offer in the air: those keys are the tricks then)
+  addEventListener('keydown', e => {
+    if (e.repeat || !/^[1-9]$/.test(e.key) || (document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) return;
+    const ft = $('fmxTaps'); if (ft && ft.offsetParent !== null && getComputedStyle(ft).display !== 'none') return;
+    const b = $('act').querySelectorAll('button')[+e.key - 1]; if (b && b.dataset.id !== 'horn') b.click();
+  });
+  // a menu opening gives the mouse back
+  setInterval(() => { if (PCL.locked && pclMenus()) document.exitPointerLock(); }, 200);
+})();
 const jumpBtn = $('jump');
 jumpBtn.addEventListener('pointerdown', e => { e.preventDefault(); input.jump = true; jumpBtn.classList.add('on'); try { jumpBtn.setPointerCapture(e.pointerId); } catch (_) {} dismissHint(); });
 const jumpOff = () => { input.jump = false; jumpBtn.classList.remove('on'); };
@@ -5248,7 +5305,7 @@ const HINTS = {
   racer:   ['Angle mode, high rates: <b>right stick</b> tilts it, <b>left stick</b> up/down for height and sideways to yaw. <b>Flip</b> for a roll. Starts in the FPV camera: tap the camera to watch from behind.', '<b>W/S</b> up/down &middot; <b>A/D</b> yaw &middot; <b>&uarr;&darr;&larr;&rarr;</b> tilt &middot; <b>B</b> flip &middot; <b>Q</b> camera'],
   dozer:   ['<b>Left stick</b> drives; push it sideways to spin on the tracks. <b>Right stick</b> up/down raises and drops the blade. Drop it and push: dirt, trees, sheds&hellip;', '<b>W/S</b> drive &middot; <b>A/D</b> spin on the tracks &middot; <b>&uarr;&darr;</b> blade &middot; <b>Q</b> camera &middot; <b>H</b> horn'],
   foot:    ['<b>The stick bottom left</b> walks: push it all the way to jog, keep holding to sprint. <b>Punch, Kick, Headbutt</b> sort out the pigs. <b>Drag anywhere else</b> to look. Walk up to a vehicle and tap <b>Get in</b>.',
-            '<b>W A S D</b> walk &middot; <b>Shift</b> run &middot; <b>Space</b> jump &middot; <b>Arrows</b> look &middot; <b>E</b> get in &middot; <b>R</b> reset'],
+            '<b>Click</b> to capture the mouse, then move it to look &middot; <b>W A S D</b> walk &middot; <b>Shift</b> run &middot; <b>Space</b> jump &middot; <b>Click</b> punch or fire &middot; <b>E</b> get in &middot; <b>1-9</b> the buttons &middot; <b>Esc</b> free the mouse'],
   tractor: ['<b>Left thumb</b> to drive. The <b>speed tiller</b> and <b>offset disc</b> are in the machinery lot east of the road: back the drawbar up to one, tap <b>Hook up</b>, then <b>Lower</b> and drive.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>Q</b> camera (try Looking back) &middot; <b>E</b> get out'],
   suv:     ['<b>Hold GAS</b>, steer into a corner and <b>tap Handbrake</b>. <b>Brake</b> reverses when stopped.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake &middot; <b>E</b> get out'],
   drone:   ['<b>Left stick</b>: up, down and turn. <b>Right stick</b>: fly. Let go to hover. Tap <b>Take off</b> to start.', '<b>W/S</b> up/down &middot; <b>A/D</b> turn &middot; <b>Arrows</b> fly &middot; <b>T</b> take off/land &middot; <b>G</b> sport &middot; <b>E</b> stop'],
@@ -7815,7 +7872,8 @@ function updateCamera(dt) {
   let dy = targetYaw - camYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
   camYaw += dy * (1 - Math.exp(-(drift.on ? 3.4 : 2.6) * dt));   // gentle lag on turns
   const pivot = tmp.set(S.pos.x, S.pos.y + V.camPivot, S.pos.z);
-  const desired = tmp2.set(S.pos.x - Math.sin(camYaw) * V.camBack, S.pos.y + V.camUp, S.pos.z - Math.cos(camYaw) * V.camBack);
+  const pc = PCL || { vyaw: 0, vpitch: 0 }; if (PCL) pclVehStep(dt); const cy = camYaw + pc.vyaw, up = V.camUp + pc.vpitch * V.camBack;          // (on a PC, the mouse swings it round the machine)
+  const desired = tmp2.set(S.pos.x - Math.sin(cy) * V.camBack, S.pos.y + up, S.pos.z - Math.cos(cy) * V.camBack);
   // pull in if a shed or tree is between the tractor and the camera
   const dir = desired.clone().sub(pivot); const full = dir.length(); dir.normalize();
   const hit = castHit(pivot, dir, full + 0.6);
@@ -7827,7 +7885,7 @@ function updateCamera(dt) {
     const k = 1 - Math.exp(-(hit ? 14 : 5) * dt);
     camPos.lerp(desired, k);
   }
-  lookTarget.set(S.pos.x + Math.sin(S.yaw) * V.look, S.pos.y + V.lookH, S.pos.z + Math.cos(S.yaw) * V.look);
+  lookTarget.set(S.pos.x + Math.sin(S.yaw + pc.vyaw) * V.look, S.pos.y + V.lookH, S.pos.z + Math.cos(S.yaw + pc.vyaw) * V.look);
   lookAt.lerp(lookTarget, 1 - Math.exp(-8 * dt));
   if (lookAt.lengthSq() === 0) lookAt.copy(lookTarget);
   camera.position.copy(camPos);
@@ -11521,10 +11579,11 @@ function bubDom() {
   for (const n of NPC.list) { const B = n.bub; if (!B || !B.el) continue;
     const sp = B.sp; let show = sp.visible && B.time > 0 && sp.material.opacity > 0.01;
     if (show) { _bubV.set(sp.position.x, sp.position.y - sp.scale.y / 2 + 0.02 * sp.scale.y, sp.position.z);           // the tip of the tail
-      _bubC.copy(_bubV).applyMatrix4(camera.matrixWorldInverse); const depth = -_bubC.z; if (depth < 0.15) show = false;
+      _bubC.copy(_bubV).applyMatrix4(camera.matrixWorldInverse); const depth = -_bubC.z, far = _bubV.distanceTo(camera.position);
+      if (depth < 0.15 || far > 38) show = false;               // further off than you'd hear them (a mate chatting to Matt across the farm): no bubble
       else { _bubV.project(camera); const x = (_bubV.x + 1) / 2 * W, y = (1 - _bubV.y) / 2 * H, k = THREE.MathUtils.clamp(H / (2 * depth * tf) * sp.scale.x * 0.98 / 300, 0.56 - 0.14 * THREE.MathUtils.clamp((depth - 15) / 25, 0, 1), 1.5);      // (never too small to read when they're about)
         if (x < -200 || x > W + 200 || y < -40 || y > H + 300) show = false;
-        else { B.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%) scale(${k.toFixed(3)})`; B.el.style.opacity = Math.min(1, sp.material.opacity).toFixed(2); } } }
+        else { B.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%) scale(${k.toFixed(3)})`; B.el.style.opacity = (Math.min(1, sp.material.opacity) * THREE.MathUtils.clamp((38 - far) / 8, 0, 1)).toFixed(2); } } }
     if (show !== B.shown) { B.shown = show; B.el.style.display = show ? 'block' : 'none'; } }
 }
 /* ================================================================
@@ -17536,7 +17595,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
