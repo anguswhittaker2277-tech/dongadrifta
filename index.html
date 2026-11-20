@@ -5741,7 +5741,8 @@ function hornStop() {
   AU.horn = null; AU.hornOn = false;
 }
 function playAt(buf, pos, vol = 1, rate = 1, ref = 8) {
-  if (!AU.ctx || !AU.on || !buf || AU.ctx.state !== 'running') return;
+  if (Array.isArray(buf)) buf = buf[Math.floor(Math.random() * buf.length)];          // (a set of takes: any one)
+  if (!AU.ctx || !AU.on || !buf || !(buf instanceof AudioBuffer) || AU.ctx.state !== 'running') return;
   const s = src(buf), g = gn(vol); s.playbackRate.value = rate; s.connect(g);
   if (pos) { const sp = spatial(); g.connect(sp.in); sp.place(pos, ref, 1); sp.in.gain.cancelScheduledValues(0); sp.in.gain.value = Math.min(1, ref / Math.max(ref, pos.distanceTo(camera.position))); }
   else g.connect(AU.master);
@@ -14057,7 +14058,7 @@ function mtFly(dt) {
     if (R.ph === 'boost' && R.t > 2.6) R.ph = 'coast';
   } else if (R.ph === 'coast') {
     R.vel.y -= g * dt; R.vel.multiplyScalar(Math.exp(-0.02 * dt)); if (R.vel.lengthSq() > 1) { _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 2)); }
-    if (R.vel.y <= 0) { R.ph = 'chute'; R.t = 0; R.apo = R.pos.y - R.alt0; mtSay('chute', 3); sfx('crack', R.pos, 0.5, 1.6, 120); }
+    if (R.vel.y <= 0) { R.ph = 'chute'; R.t = 0; R.apo = R.pos.y - R.alt0; mtSay('chute', 3); sfx('g_pistol', R.pos, 0.35, 1.25, 120); }
   } else if (R.ph === 'chute') {
     R.vel.x += (R.wind[0] - R.vel.x) * Math.min(1, dt * 0.8); R.vel.z += (R.wind[1] - R.vel.z) * Math.min(1, dt * 0.8); R.vel.y += (-7 - R.vel.y) * Math.min(1, dt * 1.5);
     _mtQ.setFromEuler(new THREE.Euler(0.15 * Math.sin(R.t * 1.3), 0, 0.15 * Math.cos(R.t * 1.1))); R.q.slerp(_mtQ, Math.min(1, dt * 1.5));
@@ -14087,7 +14088,7 @@ function mtRocketVis(dt) {
   for (const p of K.smoke) { if (p.life <= 0) continue; p.life -= dt; const k = 1 - p.life / p.max; p.s.position.addScaledVector(p.vel, dt); p.vel.multiplyScalar(Math.exp(-0.8 * dt)); p.vel.y += 0.25 * dt;
     const sc = p.size * (1 + k * 3.5); p.s.scale.set(sc, sc, 1); p.s.material.opacity = 0.55 * (1 - k); p.s.visible = p.life > 0; }
   // the roar
-  if (typeof AU !== 'undefined' && AU.ctx && AU.buf && AU.buf.fire_big) { if (!K.roar) { const s = src(AU.buf.fire_big, true), gg = gn(0), sp = spatial(); s.connect(gg); gg.connect(sp.in); s.playbackRate.value = 1.6; s.start(); K.roar = { gg, sp }; }
+  if (typeof AU !== 'undefined' && AU.ctx && AU.buf && AU.buf.fire_big instanceof AudioBuffer) { if (!K.roar) { const s = src(AU.buf.fire_big, true), gg = gn(0), sp = spatial(); s.connect(gg); gg.connect(sp.in); s.playbackRate.value = 1.6; s.start(); K.roar = { gg, sp }; }
     ramp(K.roar.gg.gain, burn ? 1.4 : 0, burn ? 0.05 : 0.6); if (burn) K.roar.sp.place(R.pos, 60, 1); }
 }
 function mtPuff(P, size) {
@@ -14244,7 +14245,7 @@ function mtFixLocal() {
   const n = MT.n; if (!n) return null; let best = null, bd = 18;
   for (const v of Object.values(VEH)) { if (v.kind !== 'ground' || v.npc || (v.mp && v.mp !== MP.me)) continue; const p = v.state && v.state.pos; if (!p) continue; const d = Math.hypot(p.x - n.pos.x, p.z - n.pos.z); if (d < bd) { bd = d; best = v; } }
   if (!best) return null; if (best.name === 'ute') return 'ute';
-  wpnUnwreck(best.name); delete WPN.VD[best.name]; WPN.hops = WPN.hops.filter(h => h.v !== best); dmgReset(best.name); toast((best.label || 'Your machine') + ': fixed up by Matt', 2.2); sfx('m_punch', best.state.pos, 0.4, 1.6, 8); return best.name;
+  wpnUnwreck(best.name); delete WPN.VD[best.name]; WPN.hops = WPN.hops.filter(h => h.v !== best); dmgReset(best.name); toast((best.label || 'Your machine') + ': fixed up by Matt', 2.2); sfx('g_reload', best.state.pos, 0.6, 0.85, 8); return best.name;
 }
 function mtStepText(q) {
   if (q.kind === 'parts') { const got = q.got.filter(Boolean).length; return got < 3 ? got + ' of 3 parts found' : 'bring them back'; }
@@ -14288,7 +14289,7 @@ function mtHost(dt) {
   if (n && (n.angry || !npcAlive(n)) && q.kind !== 'launch') { mtEnd(false, 'angry'); return; }
   if (q.kind === 'parts') {
     MT_PARTS.forEach((P, i) => { if (q.got[i]) return; const g = MT.partG[i]; for (const p of plList()) { if (p.dead) continue; const d = Math.hypot(p.pos.x - g.x, p.pos.z - g.z), r = p.veh ? 3.6 : 2.0;
-      if (d < r && Math.abs(p.pos.y - g.y) < 3) { q.got[i] = p.id; const got = q.got.filter(Boolean).length; plWith(p, () => toast('Got ' + P.name + ' (' + got + ' of 3)' + (got === 3 ? '. Back to Matt’s shed!' : ''), 2.6)); sfx('ping', _mtV.set(g.x, g.y + 0.5, g.z), 0.6, 1.2, 12); if (got === 3) { q.ph = 'back'; } break; } } });
+      if (d < r && Math.abs(p.pos.y - g.y) < 3) { q.got[i] = p.id; const got = q.got.filter(Boolean).length; plWith(p, () => toast('Got ' + P.name + ' (' + got + ' of 3)' + (got === 3 ? '. Back to Matt’s shed!' : ''), 2.6)); sfx('tin', _mtV.set(g.x, g.y + 0.5, g.z), 0.75, 1.15, 12); if (got === 3) { q.ph = 'back'; } break; } } });
     if (q.ph === 'back' && n) { for (const p of plList()) { if (!q.got.includes(p.id) && p.id !== q.who) continue; if (Math.hypot(p.pos.x - n.pos.x, p.pos.z - n.pos.z) < 5 && !p.veh) { mtEnd(true); return; } }
       if (q.t > (q.backT || 0)) { q.backT = q.t + 70; } }
   }
@@ -14297,7 +14298,7 @@ function mtHost(dt) {
     if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, groundAt(tx, tz, MT.padY + 3, MT.padY - 3), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
     if (q.ph === 'count') { q.cd += dt; const keys = ['c5', 'c4', 'c3', 'c2', 'c1', 'ign']; while (q.said < keys.length && q.cd >= q.said * 1.0) { SPK.allow = true; try { mtSay(keys[q.said], 0.95); } finally { SPK.allow = false; } q.said++; }
       if (q.cd >= 5.3) { q.ph = 'fly'; R.ph = 'boost'; R.t = 0; R.alt0 = R.pos.y; R.vel.set(0, 0, 0); R.q.identity(); const a = Math.random() * 6.283; R.wind = [Math.cos(a) * 2.8, Math.sin(a) * 2.8];
-        R.fail = Math.random() < THREE.MathUtils.clamp(0.88 - MT.weldQ, 0.04, 0.55); sfx('boom', R.pos, 0.7, 0.7, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
+        R.fail = Math.random() < THREE.MathUtils.clamp(0.88 - MT.weldQ, 0.04, 0.55); sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
     if (q.ph === 'fly' || q.ph === 'done') mtFly(dt);
     if (q.lines) q.lines = q.lines.filter(([at, k]) => { if (q.t < at) return true; if (k !== 'liftoff' || R.ph === 'boost') mtSay(k, 3); return false; });          // (lines due at a game time)
     if (q.ph === 'done' && q.t >= q.endAt) { mtEnd(true); return; }
@@ -14319,7 +14320,7 @@ function mtAct(id) {
   if (id === 'mt:talk') { mtMenuOpen(); return; }
   if (id === 'mt:weld') { mtWeldEnter(); return; }
   if (id === 'mt:wstop') { mtWeldExit(); return; }
-  if (id === 'mt:launch') { if (MT.btn) { MT.btn.position.y -= 0.02; setTimeout(() => { if (MT.btn) MT.btn.position.y += 0.02; }, 300); } sfx('thud', F.pos, 0.4, 1.8, 6); mtSend('mt:launch'); }
+  if (id === 'mt:launch') { if (MT.btn) { MT.btn.position.y -= 0.02; setTimeout(() => { if (MT.btn) MT.btn.position.y += 0.02; }, 300); } sfx('g_reload', F.pos, 0.5, 1.5, 6); mtSend('mt:launch'); }
 }
 function mtWeldEnter() {
   const q = MT.q; if (!q || q.kind !== 'weld') return; if (typeof wpnHolster === 'function' && WPN.cur) wpnHolster();
@@ -14347,8 +14348,8 @@ function mtWeldStep(dt) {
   const inBand = held && W.h >= lo && W.h <= hi;
   if (inBand) { W.prog += dt / 4.2; const mid = (lo + hi) / 2, half = (hi - lo) / 2; W.qs += (1 - Math.abs(W.h - mid) / half * 0.6) * dt; W.qn += dt; W.outT = 0; }
   else if (held || W.prog > 0) { W.outT += dt; const k = W.h > hi ? 'hot' : 'cold'; if (W.outT > 1.6 && W.outK !== k + Math.floor(W.outT / 5)) { W.outK = k + Math.floor(W.outT / 5); mtSend('mt:whint', k); } }
-  if (held && W.h > 0.9) { W.holeT += dt; if (W.holeT > 0.4) { W.holeT = 0; W.holes++; W.h = 0.5; W.prog = Math.max(0, W.prog - 0.15); sfx('crack', F.pos, 0.35, 2.2, 6); mtSend('mt:hole'); if (W.holes >= 4) { mtWeldExit(true); return; } } } else W.holeT = Math.max(0, W.holeT - dt);
-  if (W.prog >= 1) { const qv = W.qn > 0 ? W.qs / W.qn : 0.7; W.qs = 0; W.qn = 0; W.prog = 0; W.seam++; mtSend('mt:seam', +qv.toFixed(2)); sfx('ping', F.pos, 0.35, 1.6, 6); if (W.seam >= 4) { mtWeldExit(true); return; } }
+  if (held && W.h > 0.9) { W.holeT += dt; if (W.holeT > 0.4) { W.holeT = 0; W.holes++; W.h = 0.5; W.prog = Math.max(0, W.prog - 0.15); sfx('fire_pop', F.pos, 0.7, 1.5, 6); mtSend('mt:hole'); if (W.holes >= 4) { mtWeldExit(true); return; } } } else W.holeT = Math.max(0, W.holeT - dt);
+  if (W.prog >= 1) { const qv = W.qn > 0 ? W.qs / W.qn : 0.7; W.qs = 0; W.qn = 0; W.prog = 0; W.seam++; mtSend('mt:seam', +qv.toFixed(2)); sfx('tin2', F.pos, 0.55, 1.25, 6); if (W.seam >= 4) { mtWeldExit(true); return; } }
   // the arc: a blue-white glare at the seam, sparks flying, the bead glowing behind it; the helmet darkens while it's lit
   const P = mtSeamAt(W.seam, W.prog * 0.45 + 0.005, _mtV);
   if (!W.arc) { W.arc = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([210, 230, 255], true), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); scene.add(W.arc); }
@@ -14358,7 +14359,7 @@ function mtWeldStep(dt) {
     if (s) { s.life = 0.35 + Math.random() * 0.4; s.s.position.copy(P); s.v.set((Math.random() - 0.5) * 3, Math.random() * 2.2, (Math.random() - 0.5) * 3); s.s.scale.set(0.05, 0.05, 1); s.s.visible = true; } }
   for (const s of W.sparks) { if (s.life <= 0) continue; s.life -= dt; s.v.y -= 9.8 * dt; s.s.position.addScaledVector(s.v, dt); s.s.visible = s.life > 0; }
   if (MT.helm) MT.helm.style.opacity = held ? '0.9' : '0.35';
-  if (typeof AU !== 'undefined' && AU.ctx && AU.buf && AU.buf.fire) { if (!MT.arcV) { const s = src(AU.buf.fire, true), g = gn(0), sp = spatial(); s.playbackRate.value = 2.6; s.connect(g); g.connect(sp.in); s.start(); MT.arcV = { g, sp }; }
+  if (typeof AU !== 'undefined' && AU.ctx && AU.buf && AU.buf.fire_big instanceof AudioBuffer) { if (!MT.arcV) { const s = src(AU.buf.fire_big, true), g = gn(0), sp = spatial(); s.playbackRate.value = 2.4; s.connect(g); g.connect(sp.in); s.start(); MT.arcV = { g, sp }; }
     ramp(MT.arcV.g.gain, held ? 0.9 : 0, 0.03); MT.arcV.sp.place(P, 10, 1); }
   // the heat gauge
   if (MT.heat) { const Z = MT.heat.querySelector('.zone'), H = MT.heat.querySelector('.hot'), N = MT.heat.querySelector('.needle'); Z.style.bottom = (lo * 100) + '%'; Z.style.height = ((hi - lo) * 100) + '%'; H.style.height = '10%'; N.style.bottom = 'calc(' + (W.h * 100).toFixed(1) + '% - 2px)'; }
