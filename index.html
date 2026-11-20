@@ -1487,7 +1487,7 @@ function treePush(t, dir, speed, mass) {
     if (!t.cracked) { t.cracked = true; if (activeName !== 'foot') toast('Trunk cracked', 1.4); }
   }
   t.lean += E / (30 * sizeK * sizeK) * 0.05 + (mass / 18000) * 0.5 * (1 / 60) / sizeK;
-  if (!t.pushT || performance.now() - t.pushT > 1500) { creakSound(t.base); }
+  if (!t.pushT || performance.now() - t.pushT > 1500) { creakSound(t.base); if (AU.buf.tin) sfx('creak', t.base, 0.5, 1.6, 15); }
   t.pushT = performance.now();
   if (t.lean > 0.3 || t.dmg > 55 * sizeK * sizeK) { t.falling = true; t.lean = Math.max(t.lean, 0.08); t.w = 0.25; say('tree', true); }
   treeSync(t);
@@ -7065,7 +7065,7 @@ function clearBlast() {
    roar falling from 2 kHz to 60 Hz, a sub-bass thump and a crackling tail. Fire: brown-noise roar
    with crackles. All synthesised, like the engines. */
 function metalSound(p, k, rate) { if (!AU.buf.tin) return; sfx(Math.random() < 0.5 ? 'tin' : 'tin2', p, 0.35 + 0.65 * k, (rate || 1) * (0.85 + Math.random() * 0.3), 14); }
-function creakSound(p) { if (AU.buf.tree_creak) sfx('tree_creak', p, 0.9, 0.9 + Math.random() * 0.2, 25); }
+function creakSound(p) { if (AU.buf.creak) sfx('creak', p, 0.9, 0.9 + Math.random() * 0.2, 25); }
 function synthTin(seed) {
   const sr = AU.sr, n = Math.round(sr * 1.6), d = new Float32Array(n), r = rng(seed);
   const modes = [[170, 0.55], [393, 0.45], [741, 0.36], [1230, 0.26], [1904, 0.2], [2760, 0.13], [3810, 0.08]].map(([f, a]) => [f * (0.94 + r() * 0.12), a, 0.25 + r() * 0.5, r() * 6.28]);
@@ -10008,9 +10008,9 @@ function wpnHurt(dmg, vel, how) {
 // a pig's health: two pistol rounds drop a sow, three a boar (a piglet less, a big one a touch more)
 const pigHp = a => Math.round((a.boar ? 42 : 28) * Math.min(1.15, Math.max(0.5, a.s || 1)));
 function wpnPigShot(a, dir, dmg, point) {
-  const hp0 = a.hp == null ? pigHp(a) : a.hp; a.hp = hp0 - dmg;
+  a.hp = (a.hp == null ? pigHp(a) : a.hp) - dmg;
   wpnBloodSpray(point, dir, Math.min(26, 4 + dmg * 0.5));
-  const hpNow = a.hp; if (hp0 > 0 && !(a.sqT > FA.t)) { a.sqT = FA.t + 0.55; faSay(a.pos, hpNow <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.25, (0.92 + Math.random() * 0.16) / (a.s || 1), 25); }
+  const hpNow = a.hp; if (!(a.sqT > FA.t)) { a.sqT = FA.t + 0.55; faSay(a.pos, hpNow <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.25, (0.92 + Math.random() * 0.16) / (a.s || 1), 25); }
   if (a.st !== 'down' && a.st !== 'tumble' && a.hp <= 0) {
     a.st = 'tumble'; a.t = 0; a.vel.set(dir.x * (2 + dmg * 0.05), 1.6 + dmg * 0.03, dir.z * (2 + dmg * 0.05)); a.spin.set((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 8);
     _fe.set(0, a.yaw, 0, 'YXZ'); a.q.setFromEuler(_fe); a.pos.y += 0.1; FA.pigsDown++; toast(FA.pigsDown === 1 ? 'Feral pig down' : 'Feral pigs down: ' + FA.pigsDown, 1.6); a.bleed = 6;
@@ -10609,11 +10609,11 @@ function melHitWal(w) {
 }
 function melHitPig(a, kind, M) {
   const dx = a.pos.x - F.pos.x, dz = a.pos.z - F.pos.z, d = Math.hypot(dx, dz) || 1, nx = dx / d, nz = dz / d;
-  const hp0 = a.hp == null ? pigHp(a) : a.hp; a.hp = hp0 - M.dmg;
+  a.hp = (a.hp == null ? pigHp(a) : a.hp) - M.dmg;
   const P = new THREE.Vector3(a.pos.x - nx * 0.25 * a.s, a.pos.y + 0.55 * a.s, a.pos.z - nz * 0.25 * a.s);
   sfx('m_punch', P, M.big ? 1 : 0.75, 0.85 + Math.random() * 0.25, 9); camShake = Math.max(camShake, M.big ? 0.35 : 0.16);
   if (typeof wpnBloodSpray === 'function') wpnBloodSpray(P, new THREE.Vector3(nx, 0.4, nz), M.big ? 7 : 3);
-  if (hp0 > 0 && !(a.sqT > FA.t)) { a.sqT = FA.t + 0.45; faSay(a.pos, a.hp <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.2, (0.95 + Math.random() * 0.15) / (a.s || 1), 25); }
+  if (!(a.sqT > FA.t)) { a.sqT = FA.t + 0.45; faSay(a.pos, a.hp <= 0 ? 'fa_scream' : Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.2, (0.95 + Math.random() * 0.15) / (a.s || 1), 25); }
   a.atk = null; a.fight = 16;
   if (a.hp <= 0 || kind === 'head' || kind === 'upper' || (kind === 'kick' && Math.random() < 0.75)) {        // knocked off its feet (the uppercut pops it up)
     a.st = 'tumble'; a.t = 0; a.knock = a.hp > 0;
@@ -11839,7 +11839,7 @@ function npcStep(dt) {
   if (mpwCli()) { mpwCliNpc(dt); return; }
   spkStep();
   for (const n of NPC.list) { plBegin(MP.on ? plFocus(n) : plList()[0]);
-    try { if (n.mm) mmThink(n, dt); else if (n.matt) { mtThink(n, dt); mtSolid(n); } else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.lineT = (n.lineT || 0) - dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
+    try { if (n.mm) mmThink(n, dt); else if (n.matt) mtThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.lineT = (n.lineT || 0) - dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
     npcPose(n, dt); }
   shedFauna(dt);
 }
@@ -14099,7 +14099,6 @@ function mtW(u, v) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.cos(t)
 function mtUV(x, z) { return shedLocal(mtD(), x, z); }
 function mtYaw(du, dv) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.cos(t), s = Math.sin(t); return Math.atan2(c * du - s * dv, s * du + c * dv); }
 function mtFloor(x, z) { const f = shedFloorAt(x, z); return f !== null ? f : groundAt(x, z, 30, 0); }
-function mtGround(x, z) { const sk = STRUCTS.skip; STRUCTS.skip = MT.rk ? MT.rk.gr : sk; try { return mtFloor(x, z); } finally { STRUCTS.skip = sk; } }      // (under the rocket: not its own box)
 // where Matt works ([u, v, facing du, dv]), the welding spot, the trolley's way out to the pad and the control box
 const MT_SPOT = { bench: [-5, -14.35, 0, -1], board: [14.3, -10, 1, 0], lathe: [4.8, -14.3, 0, -1], rocket: [1.25, -8, -1, 0], watch: [9.9, -12.5, -0.5, 1], box: [6.4, 18.8, -0.8, 0.6], trolley: [0, -9.2, 0, 1] };
 const MT_AISLE = -12.9, MT_WELD = [8, -12.15], MT_TABLE = [8, -11], MT_ROCK = [0, -8], MT_PAD = [0, 30], MT_BOX = [5, 18];
@@ -14304,7 +14303,7 @@ function mtRocketBuild() {
 }
 const _mtV = new THREE.Vector3(), _mtV2 = new THREE.Vector3(), _mtQ = new THREE.Quaternion(), _mtQ2 = new THREE.Quaternion();
 function mtRocketHome() {
-  const R = MT.R; if (!R) return; const [x, z] = mtW(MT_ROCK[0], MT_ROCK[1]), y = mtGround(x, z);
+  const R = MT.R; if (!R) return; const [x, z] = mtW(MT_ROCK[0], MT_ROCK[1]), y = mtFloor(x, z);
   R.ph = 'shed'; R.t = 0; R.s = 0; R.tr.set(x, y, z); R.pos.set(x, y + 0.56, z); R.vel.set(0, 0, 0); R.q.identity(); R.fail = false; R.apo = 0; R.spin.set(0, 0, 0);
 }
 // the rocket's place on the trolley's way out (s metres along MT_ROLL)
@@ -14315,10 +14314,9 @@ function mtFly(dt) {
   const R = MT.R; if (R.ph === 'landed' || R.ph === 'crash') return; R.t += dt; const g = 9.8;
   if (R.ph === 'boost' || R.ph === 'tumble') {
     const ax = _mtV.set(0, 1, 0).applyQuaternion(R.q);
-    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crash', 3.2); mtAim(R); }
-    if (R.t < 2.6 && !R.target) R.vel.addScaledVector(ax, 26 * dt);
-    R.vel.y -= g * dt; if (!R.target) { R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt; }
-    if (R.target && R.pos.distanceTo(R.target.p) < 2.6) { mtStrike(R); return; }
+    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crash', 3.2); }
+    if (R.t < 2.6) R.vel.addScaledVector(ax, 26 * dt);
+    R.vel.y -= g * dt; R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt;
     if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
     else if (R.vel.lengthSq() > 4) { _mtV2.copy(R.vel).normalize(); _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
     if (R.ph === 'boost' && R.t > 2.6) R.ph = 'coast';
@@ -14334,22 +14332,6 @@ function mtFly(dt) {
     if (gy > -1e8 && R.pos.y <= gy && (R.ph !== 'boost' || R.t > 0.5)) { R.pos.y = gy; R.vel.set(0, 0, 0);
       if (R.ph === 'chute') { R.ph = 'landed'; R.t = 0; _mtQ.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2 - 0.2)); R.q.copy(_mtQ); mtFlightDone(true); }
       else { R.ph = 'crash'; R.t = 0; wpnBoom(R.pos.clone().setY(gy + 0.5), 4, 0.6, false); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false); } } }
-}
-// a fin's gone: she corkscrews off and comes down on whichever's about, the fuel tank or Madman's ute (aimed on a plain throw, no thrust)
-function mtAim(R) {
-  const opts = [], T = STRUCTS.boxes && STRUCTS.boxes.tank, u = VEH.ute;
-  if (T && T.rb && !STRUCTS.blown) opts.push({ kind: 'tank', p: T.rb.pos.clone().setY(T.rb.pos.y + 0.6) });
-  if (u && u.state && u.state.pos && !u.wrecked && !(WPN.VD.ute && WPN.VD.ute.wrecked) && !u.mp && activeName !== 'ute') opts.push({ kind: 'ute', p: u.state.pos.clone().setY(u.state.pos.y + 0.9) });
-  if (!opts.length) return;
-  const tg = opts[Math.floor(Math.random() * opts.length)], d = Math.hypot(tg.p.x - R.pos.x, tg.p.z - R.pos.z), t = THREE.MathUtils.clamp(d / 32, 2.2, 7); R.target = tg;
-  R.vel.set((tg.p.x - R.pos.x) / t, (tg.p.y - R.pos.y) / t + 0.5 * 9.8 * t, (tg.p.z - R.pos.z) / t);
-}
-function mtStrike(R) {
-  const tg = R.target, dir = _mtV2.copy(R.vel).normalize(); R.ph = 'crash'; R.t = 0; R.hit = tg.kind; R.vel.set(0, 0, 0); R.target = null;
-  if (tg.kind === 'tank' && STRUCTS.boxes.tank && !STRUCTS.blown) explodeTank(STRUCTS.boxes.tank, dir.clone(), R.pos.clone());
-  else if (tg.kind === 'ute' && VEH.ute) { wpnVehDamage(VEH.ute, 9999, dir.clone(), 'blast', true); wpnBoom(R.pos.clone(), 4, 0.7, false); }
-  else wpnBoom(R.pos.clone(), 4, 0.6, false);
-  R.pos.y = groundAt(R.pos.x, R.pos.z, R.pos.y + 2, R.pos.y - 6); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false);
 }
 // the model: where MT.R says, the flame and smoke while it burns, the chute once it's out
 function mtRocketVis(dt) {
@@ -14409,52 +14391,23 @@ function mtPlace() {
 }
 function mtSay(k, dur) { const n = MT.n, L = MATT_L[k]; if (!n || !L || !n.bub || !npcAlive(n)) return; const line = pickFresh(L); dur = dur || Math.max(2.4, Math.min(6, line.length * 0.065)); mmSayBub(n, line, dur); n.lineT = dur; MT.talkT = Math.max(MT.talkT, dur + 8); }
 function mtSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) mtSay(m, 2.6); return; } }
-// he can't walk through the shed's walls or his own benches, whatever he's doing (fights included): out of any solid box he's got into,
-// sideways, along whichever of its level sides is nearest
-function mtSolid(n) {
-  const P = n.pos;
-  for (const G of STRUCTS.groups) {
-    if (!G.parts.length || Math.hypot(G.ctr.x - P.x, G.ctr.z - P.z) > G.rad + 2) continue;
-    for (const p of G.parts) {
-      if (!p.alive || !p.inv || !p.h || !p.m || p.kind === 'tree' || p.kind === 'floor') continue;
-      const e = p.m.elements, h = p.h, cy = e[13], ey = Math.abs(e[1]) * h[0] + Math.abs(e[5]) * h[1] + Math.abs(e[9]) * h[2];
-      if (cy + ey < P.y + 0.4 || cy - ey > P.y + 1.8) continue;                 // under his knees or over his head
-      _mtV.set(P.x, P.y + 0.9, P.z).applyMatrix4(p.inv); let best = 0, ax = -1;
-      for (let k = 0; k < 3; k++) { if (Math.abs(e[k * 4 + 1]) > 0.7) continue; const o = h[k] + 0.3 - Math.abs(_mtV.getComponent(k)); if (o <= 0) { ax = -2; break; } if (ax < 0 || o < best) { best = o; ax = k; } }
-      if (ax < 0) continue;
-      _mtV.setComponent(ax, _mtV.getComponent(ax) + Math.sign(_mtV.getComponent(ax) || 1) * best); _mtV.applyMatrix4(p.m); P.x = _mtV.x; P.z = _mtV.z;
-    }
-  }
-}
 // a walk round the shed: out to the aisle, along it, in to the spot (or out through the lean-to to the pad and back)
 function mtPathTo(u1, v1) {
   const [u0, v0] = mtUV(MT.n.pos.x, MT.n.pos.z), P = [], door = 1.5;
-  if (v0 < 2.4 && (Math.abs(u0) > 15.4 || v0 < -16)) {       // outside the walls (chased you out, or knocked out there): round to the open side, not through them
-    const su = u0 >= 0 ? 1 : -1; P.push([su * 17.6, Math.max(v0, -18.2)], [su * 17.6, 17.5], [door, 12]); if (v1 > -1) { P.push([u1, v1]); return P; } P.push([door, MT_AISLE], [u1, MT_AISLE], [u1, v1]); return P; }
   if (v0 > -1) { if (v1 > -1) { P.push([u1, v1]); return P; } P.push([door, Math.min(v0, 12)], [door, MT_AISLE]); }
   else if (v1 > -1) { P.push([u0, MT_AISLE], [door, MT_AISLE], [door, 12], [u1, v1]); return P; }
   else P.push([u0, MT_AISLE]);
   P.push([u1, MT_AISLE], [u1, v1]); return P;
 }
-function mtGo(spot) { MT.spot = spot; const S0 = MT_SPOT[spot]; MT.path = mtPathTo(S0[0], S0[1]); MT.n.st = 'mtWalk'; MT.n.t = 0; MT.walkT = 0; MT.walkBest = 1e9; }
+function mtGo(spot) { MT.spot = spot; const S0 = MT_SPOT[spot]; MT.path = mtPathTo(S0[0], S0[1]); MT.n.st = 'mtWalk'; MT.n.t = 0; }
 function mtWalk(n, dt) {        // true while still walking
   if (!MT.path || !MT.path.length) return false; const [u, v] = MT.path[0], [x, z] = mtW(u, v);
-  const dW = Math.hypot(x - n.pos.x, z - n.pos.z); MT.walkT = (MT.walkT || 0) + dt; if (dW < (MT.walkBest || 1e9) - 0.2) { MT.walkBest = dW; MT.walkT = 0; }
-  if (MT.walkT > 3) { MT.walkT = 0; MT.walkBest = 1e9;               // blocked: skip this corner, or (out of anyone's sight) just be there
-    if (faCamD(n.pos) > 30 && faCamD(_mtV.set(x, n.pos.y, z)) > 30) { n.pos.x = x; n.pos.z = z; n.gy = n.pos.y = mtFloor(x, z); } else MT.path.shift(); if (!MT.path.length) { n.st = 'home'; n.t = 0; return false; } return true; }
-  if (dgMove(n, x, z, 1.5, dt)) { MT.path.shift(); MT.walkT = 0; MT.walkBest = 1e9; if (!MT.path.length) { const S0 = MT_SPOT[MT.spot]; n.st = 'home'; n.t = 0; return false; } }
+  if (dgMove(n, x, z, 1.5, dt)) { MT.path.shift(); if (!MT.path.length) { const S0 = MT_SPOT[MT.spot]; n.st = 'home'; n.t = 0; return false; } }
   n.gT -= dt; if (n.gT <= 0) { n.gT = 0.12; n.gy = mtFloor(n.pos.x, n.pos.z); } return true;
-}
-function mtCalm(n) {
-  if (n.veh) { if (n.st === 'drive' || n.veh.npc === n) npcEject(n, 'kick'); if (n.veh && n.veh.npc === n) n.veh.npc = null; n.veh = null; }
-  n.st = 'home'; n.t = 0; n.angry = false; n.vehT = 1e9; n.route = null; n.bbPh = null; MT.path = null; mtGo(MT.spot && MT_SPOT[MT.spot] && MT.spot !== 'box' && MT.spot !== 'trolley' ? MT.spot : 'bench');
 }
 function mtThink(n, dt) {
   n.t += dt; n.lineT = (n.lineT || 0) - dt;
-  // calmed down (or never meant to be in the backpackers' other routines: off to nick a car, watching the bunks burn, building): straight back to the shed.
-  // Handled here, before the shared code gets a look at 'wander', or he'd go and steal your car and never be talkable again
-  if (['wander', 'toVeh', 'drive', 'bbWatch'].includes(n.st) || n.st.startsWith('bb')) { mtCalm(n); return; }
-  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee'].includes(n.st)) { npcThink(n, dt); n.vehT = 1e9; if (['wander', 'toVeh', 'drive', 'bbWatch'].includes(n.st) || n.st.startsWith('bb')) mtCalm(n); return; }
+  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) { npcThink(n, dt); if (n.st === 'wander') { n.st = 'home'; n.t = 0; n.angry = false; MT.path = null; mtGo('bench'); } return; }
   const veh = faNearT('veh', n.pos);
   if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
     if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
@@ -14464,8 +14417,7 @@ function mtThink(n, dt) {
     if (q.ph === 'fetch') { if (n.st !== 'mtWalk' || MT.spot !== 'trolley') { MT.spot = 'trolley'; MT.path = mtPathTo(MT_SPOT.trolley[0], MT_SPOT.trolley[1]); n.st = 'mtWalk'; }
       if (!mtWalk(n, dt)) { q.ph = 'roll'; R.ph = 'roll'; R.s = 0; } return; }
     if (q.ph === 'roll') { R.s = Math.min(MT_ROLL_L, R.s + 1.6 * dt); const a = mtRollAt(R.s, _mtV), b = mtRollAt(R.s - 1.15, _mtV2), [tx, tz] = mtW(a.x, a.z), [mx, mz] = mtW(b.x, b.z);
-      const gy = mtGround(tx, tz); R.tr.set(tx, R.s < 0.05 ? gy : R.tr.y + (gy - R.tr.y) * Math.min(1, dt * 6), tz); R.pos.set(tx, R.tr.y + 0.56, tz);      // (eased over steps, like the lip of the shed floor)
-      n.yaw += faAng(Math.atan2(tx - mx, tz - mz) - n.yaw) * Math.min(1, dt * 6); n.pos.x = mx; n.pos.z = mz; n.sp = 1.6; n.st = 'mtPush';
+      R.tr.set(tx, mtFloor(tx, tz), tz); R.pos.set(tx, R.tr.y + 0.56, tz); n.yaw += faAng(Math.atan2(tx - mx, tz - mz) - n.yaw) * Math.min(1, dt * 6); n.pos.x = mx; n.pos.z = mz; n.sp = 1.6; n.st = 'mtPush';
       n.gT -= dt; if (n.gT <= 0) { n.gT = 0.1; n.gy = mtFloor(mx, mz); } n.pos.y += (n.gy - n.pos.y) * Math.min(1, dt * 12); return; }
     if (n.st === 'mtPush') { MT.spot = 'box'; MT.path = [MT_SPOT.box.slice(0, 2)]; n.st = 'mtWalk'; }
     if (n.st === 'mtWalk' && mtWalk(n, dt)) return;
@@ -14477,9 +14429,7 @@ function mtThink(n, dt) {
   if (q && q.kind === 'weld' && MT.spot !== 'watch' && n.st !== 'mtWalk') mtGo('watch');
   if (n.st === 'mtWalk') { if (mtWalk(n, dt)) return; }
   const S0 = MT_SPOT[MT.spot] || MT_SPOT.bench, [x, z] = mtW(S0[0], S0[1]);
-  const dHome = Math.hypot(x - n.pos.x, z - n.pos.z);
-  if (dHome > 2.5) { mtGo(MT.spot); return; }
-  if (dHome > 0.35) { dgMove(n, x, z, 1.2, dt); n.st = 'mtStep'; return; }           // nudged off his spot: a step straight back (not the long way round)
+  if (Math.hypot(x - n.pos.x, z - n.pos.z) > 0.6) { mtGo(MT.spot); return; }
   n.st = 'home'; n.sp *= 0.8; n.pos.x += (x - n.pos.x) * Math.min(1, dt * 3); n.pos.z += (z - n.pos.z) * Math.min(1, dt * 3); n.pos.y += (n.gy - n.pos.y) * Math.min(1, dt * 10);
   const me = activeName === 'foot' ? F.pos : S.pos, dP = Math.hypot(me.x - n.pos.x, me.z - n.pos.z), talking = MT.talkUntil > NPC.t || (MT.sheet && MT.sheet.classList.contains('show') && dP < 5);
   if (q && q.kind === 'weld') { const [tx, tz] = mtW(MT_TABLE[0], MT_TABLE[1]); npcFace(n, tx, tz, 4, dt); return; }
@@ -14578,12 +14528,12 @@ function mtEnd(win, why) {
   if (q.kind === 'parts') { if (win) { MT.stage = Math.max(MT.stage, 1); mtSay('partsDone', 3); } }
   if (q.kind === 'weld') { if (win) { MT.stage = Math.max(MT.stage, 2); MT.weldQ = THREE.MathUtils.clamp(q.qs / Math.max(1, q.seams), 0.3, 1); mtSay('weldWin', 3.5); } else if (why === 'holes') mtSay('weldFail', 3.5); }
   if (q.kind === 'launch' && win) { MT.stage = Math.max(MT.stage, 3); MT.launches++; MT.best = Math.max(MT.best, MT.R.apo || 0); }
-  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? 'Parts run done! Matt will patch up any machine you bring to the shed' : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.hit === 'tank' ? 'She lost a fin and came down on the fuel tank' : MT.R.hit === 'ute' ? 'She lost a fin and came down on Madman’s ute' : MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute'))
+  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? 'Parts run done! Matt will patch up any machine you bring to the shed' : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute'))
     : why === 'holes' ? 'Too many holes: the fins are ruined. Talk to Matt to try again' : why === 'angry' ? 'Matt’s not doing jobs with you right now' : 'Job’s off', 3.4));
   if (win && q.who !== MP.me) mpSend({ k: 'qdone', f: MP.me, to: q.who, q: 'matt', stage: MT.stage, best: MT.best, launches: MT.launches, weldQ: MT.weldQ });
   MT.q = null; mtSave(); if (MT.partG) for (const p of MT.partG) p.g.visible = false;
 }
-function mtQualTxt() { const qv = MT.weldQ; return qv >= 0.95 ? 'Perfect welds: she’ll hold' : qv > 0.8 ? 'Decent welds (she might let go)' : 'Ugly welds (she probably won’t hold)'; }
+function mtQualTxt() { const qv = MT.weldQ; return qv > 0.85 ? 'Lovely welds' : qv > 0.65 ? 'Decent welds' : 'Ugly welds (she might not hold)'; }
 function mtFlightDone(ok) { const q = MT.q; if (q && q.kind === 'launch') { q.ph = 'done'; q.endAt = q.t + (ok ? 3 : 3.5); if (ok) (q.lines = q.lines || []).push([q.t + 1.2, 'landed']); } }
 // what a player did, on the host (a mate's comes in over the network as theirs)
 function mtDo(id, pid, x) {
@@ -14609,10 +14559,10 @@ function mtHost(dt) {
   }
   if (q.kind === 'launch') {
     const R = MT.R;
-    if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, mtGround(tx, tz), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
+    if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, groundAt(tx, tz, MT.padY + 3, MT.padY - 3), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
     if (q.ph === 'count') { q.cd += dt; const keys = ['c5', 'c4', 'c3', 'c2', 'c1', 'ign']; while (q.said < keys.length && q.cd >= q.said * 1.0) { SPK.allow = true; try { mtSay(keys[q.said], 0.95); } finally { SPK.allow = false; } q.said++; }
       if (q.cd >= 5.3) { q.ph = 'fly'; R.ph = 'boost'; R.t = 0; R.alt0 = R.pos.y; R.vel.set(0, 0, 0); R.q.identity(); const a = Math.random() * 6.283; R.wind = [Math.cos(a) * 2.8, Math.sin(a) * 2.8];
-        R.fail = MT.weldQ < 0.95 && Math.random() < THREE.MathUtils.clamp((0.95 - MT.weldQ) * 2.2 + 0.1, 0.1, 0.75); R.target = null; R.hit = ''; sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
+        R.fail = Math.random() < THREE.MathUtils.clamp(0.88 - MT.weldQ, 0.04, 0.55); sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
     if (q.ph === 'fly' || q.ph === 'done') mtFly(dt);
     if (q.lines) q.lines = q.lines.filter(([at, k]) => { if (q.t < at) return true; if (k !== 'liftoff' || R.ph === 'boost') mtSay(k, 3); return false; });          // (lines due at a game time)
     if (q.ph === 'done' && q.t >= q.endAt) { mtEnd(true); return; }
@@ -15281,44 +15231,44 @@ function sndPick(name) {
 const MM_LOOK = { name: 'Madman', h: 0.62, w: 1, m: 0.3, skin: 2, hair: 'crop', hc: 1, hat: 'cap', hatc: 1, shirt: 'singlet', sc: 7, legs: 'stubbies', lc: 0, shoes: 'thongs', shc: 1, gl: 'sunnies', fh: 3 };
 const MM_DOGS = [{ name: 'Tank', coat: 'brindle', vest: 0xd8561f }, { name: 'Dusty', coat: 'red', vest: 0x2f3a2a }];
 const MM_L = {
-  idle: ["Nothing worse than a wet channel bank.", "Strewth, she’s a warm one today.", "Could murder a pie right now.", "Saw a boar down the channel last night. Size of a Corolla, fair dinkum.", "Beer o’clock somewhere, mate.", "Bloody flies. Every year.", "Strewth, I’m dry as a dead dingo’s donger.", "Fuck me, it’s hotter than a dingo’s arse out here.", "Pigs have fucked the headland again. Cunts, the lot of ’em.", "Could fuckin’ murder a cold one right now.", "Flies are thick as shit today. Fuckin’ hell.", "Diesel’s gone up again. Bunch of thievin’ bastards.", "Who stole my fucken JD and Cole’s!", "Some cunt’s drunk all me fucken Bundy!", "Who’s been in me fucken esky?!", "Who stole my fucken JD and Cokes?!", "Some cunt’s been in me fridge again. Where’s me fucken JD and Cokes?"],
-  greet: ["G’day mate!", "Oi oi! How ya goin’?", "Ow ya goin’, ya mad bastard?", "Oi! How’s it goin’, ya cheeky cunt?", "Look what the fuckin’ cat dragged in!", "G’day, ya filthy bastard!"],
-  talk: ["Nothing worse than a wet channel bank. Fair dinkum.", "Pigs got into the sorghum again. Rooted half the headland. Little bastards.", "Fuck me dead, mate, the price of diesel. Daylight robbery.", "Don’t touch the ute. That’s rule one. There is no rule two.", "Yeah nah, I don’t do the city. Too many people, not enough pigs.", "Had a sow charge the ute last week. Dented the bullbar. Dented the sow more.", "Tell ya what, them pigs are a pack of rootin’, diggin’ cunts.", "Tank’s the best fuckin’ dog in the district. Dusty’s a useless little shit, but I love her.", "Me ute’s worth more than your whole fuckin’ life, mate.", "Fuck the city. Too many dickheads, not enough pigs.", "Who stole my fucken JD and Cole’s! I’ll find the cunt.", "Who stole my fucken JD and Cokes? I had a whole fucken slab in there."],
-  dogs: ["Settle down, ya mongrels!", "Tank! Sit! ...Tank!", "Shut ya traps, the pair of ya!", "Shut ya fuckin’ traps!", "Tank! Sit, ya mongrel! TANK, FOR FUCK’S SAKE!", "Dusty, ya noisy little shit, pipe down!"],
-  pigs: ["Look at that! Bloody pigs, bold as brass.", "Fuck me dead, they’re right on the doorstep!", "Cheeky buggers, aren’t they?", "Fuck me dead, look at them cheeky cunts!", "Pigs! Right fuckin’ there! Little bastards!"],
-  touch: ["Oi! Mitts off the ute!", "Get off the bloody ute!", "You scratch her, you’re payin’.", "Get ya fuckin’ mitts off me ute!", "Touch her again and I’ll break ya fingers, ya prick.", "Oi, dickhead! Hands off!"],
-  enter: ["OI! Get outta me ute!", "Fuck me dead! Outta the bloody ute!", "Whaddaya reckon you’re doin’?! OUT!", "Get the fuck outta me ute!", "OUT, ya thievin’ little cunt!"],
-  stolen: ["OI! That’s me bloody ute! Bring her back!", "Fuck me dead, he’s nicked the ute! Get back ’ere!", "Bring back me fuckin’ ute, ya cunt!", "That’s MY ute, ya thievin’ arsehole!"],
+  idle: ["Nothing worse than a wet channel bank.", "Strewth, she’s a warm one today.", "Could murder a pie right now.", "Saw a boar down the channel last night. Size of a Corolla, fair dinkum.", "Beer o’clock somewhere, mate.", "Bloody flies. Every year.", "Strewth, I’m dry as a dead dingo’s donger."],
+  greet: ["G’day mate!", "Oi oi! How ya goin’?", "Ow ya goin’, ya mad bastard?"],
+  talk: ["Nothing worse than a wet channel bank. Fair dinkum.", "Pigs got into the sorghum again. Rooted half the headland. Little bastards.", "Fuck me dead, mate, the price of diesel. Daylight robbery.", "Don’t touch the ute. That’s rule one. There is no rule two.", "Yeah nah, I don’t do the city. Too many people, not enough pigs.", "Had a sow charge the ute last week. Dented the bullbar. Dented the sow more."],
+  dogs: ["Settle down, ya mongrels!", "Tank! Sit! ...Tank!", "Shut ya traps, the pair of ya!"],
+  pigs: ["Look at that! Bloody pigs, bold as brass.", "Fuck me dead, they’re right on the doorstep!", "Cheeky buggers, aren’t they?"],
+  touch: ["Oi! Mitts off the ute!", "Get off the bloody ute!", "You scratch her, you’re payin’."],
+  enter: ["OI! Get outta me ute!", "Fuck me dead! Outta the bloody ute!", "Whaddaya reckon you’re doin’?! OUT!"],
+  stolen: ["OI! That’s me bloody ute! Bring her back!", "Fuck me dead, he’s nicked the ute! Get back ’ere!"],
   pinch: ["Right. Two can play at that.", "Not gettin’ away that easy, ya rat!"],
-  pursue: ["Pull over, ya mongrel!", "I’ll run ya off the bloody road!", "That’s MY ute!", "Pull over, ya fuckin’ grub!", "I’m gonna run you off the road, ya cunt!"],
-  yank: ["Out ya get!", "Go on, rack off!", "Get out, ya fuckin’ dropkick!", "Out! And stay the fuck out!"],
-  left: ["And stay out!", "Too right.", "Yeah, piss off!", "And don’t come back, ya fuckwit."],
-  ram: ["OI! Watch the bloody ute!", "Ya galah! That’s me ute!", "Watch the fuckin’ ute, ya dickhead!", "Ya stupid prick, ya dented her!"],
-  shotUte: ["Are you shootin’ at me ute?!", "That’s a fifty grand ute, ya drongo!", "Stop shootin’ me fuckin’ ute, ya cunt!", "That’s fifty grand, ya fuckwit!"],
-  careful: ["Careful where you point that thing!", "Strewth, mind the dogs!", "Point that fuckin’ thing somewhere else!", "Mind the dogs, ya dickhead!"],
-  annoyed: ["Yeah nah, not in the mood, mate.", "Rack off for a bit.", "Piss off, I’m not in the mood.", "Go get fucked for a bit, mate."],
-  hostile: ["Right! That’s it! You’re gettin’ a hidin’!", "Come ’ere, ya little rat!", "I’ll knock ya into next week!", "Right, ya cunt, you’re gettin’ flogged!", "I’m gonna knock ya fuckin’ block off!", "Come ’ere, ya gutless prick!"],
-  calm: ["Righto. We’re square. Don’t touch me ute again.", "Fair enough. Water under the bridge, eh.", "Righto. We’re square. Touch the ute again and you’re fucked."],
-  hurt: ["Ow! Ya bastard!", "Strewth!", "Fuck me dead, that hurt!", "Fuck! Ya bastard!", "Shit! That fuckin’ hurt!", "Ya cunt!"],
-  win: ["Ha! Don’t mess with the ute.", "Stay down, ya galah.", "Stay down, ya useless prick.", "Fuck with the ute, ya get the boot."],
+  pursue: ["Pull over, ya mongrel!", "I’ll run ya off the bloody road!", "That’s MY ute!"],
+  yank: ["Out ya get!", "Go on, rack off!"],
+  left: ["And stay out!", "Too right."],
+  ram: ["OI! Watch the bloody ute!", "Ya galah! That’s me ute!"],
+  shotUte: ["Are you shootin’ at me ute?!", "That’s a fifty grand ute, ya drongo!"],
+  careful: ["Careful where you point that thing!", "Strewth, mind the dogs!"],
+  annoyed: ["Yeah nah, not in the mood, mate.", "Rack off for a bit."],
+  hostile: ["Right! That’s it! You’re gettin’ a hidin’!", "Come ’ere, ya little rat!", "I’ll knock ya into next week!"],
+  calm: ["Righto. We’re square. Don’t touch me ute again.", "Fair enough. Water under the bridge, eh."],
+  hurt: ["Ow! Ya bastard!", "Strewth!", "Fuck me dead, that hurt!"],
+  win: ["Ha! Don’t mess with the ute.", "Stay down, ya galah."],
   bunkFire: ["Strewth! The bunks are goin’ up!", "Fuck me dead, who shot the gas bottle?"],
-  ko: ["Cheap shot...", "Strewth... me head...", "Fuckin’... cheap shot...", "Me fuckin’ head..."],
-  wreck: ["ME UTE! You’ve wrecked me bloody ute!", "Fuck me dead... she’s cooked.", "Ya’ve fucked me ute! Ya fuckin’ cunt!", "She’s fucked. She’s completely fucked."],
+  ko: ["Cheap shot...", "Strewth... me head..."],
+  wreck: ["ME UTE! You’ve wrecked me bloody ute!", "Fuck me dead... she’s cooked."],
   fixed: ["Mate’s towed her back and patched her up. No thanks to you."],
-  ejected: ["Oi! Me own bloody ute!", "Ya mongrel!", "Me own fuckin’ ute!", "Ya fuckin’ mongrel!"],
-  bye: ["Catch ya.", "Hooroo!", "Don’t do anything I wouldn’t do.", "Catch ya, ya filthy animal.", "Piss off then. Hooroo."],
+  ejected: ["Oi! Me own bloody ute!", "Ya mongrel!"],
+  bye: ["Catch ya.", "Hooroo!", "Don’t do anything I wouldn’t do."],
   soon: ["Not today, mate. Dogs are still sore from Tuesday."],
   multi: ["Not with all your mates about. Dogs get confused."],
   intro: ["Oi! You must be the new fella. Name’s Madman. Don’t touch the ute."],
   sip: [],
-  aimed: ["Get that bloody gun off me!", "Point that somewhere else, ya drongo!", "Point that at me again and I’ll shove it up ya arse!", "Get that fuckin’ gun off me, ya cunt!"],
-  donga: ["Oi! Get outta me donga!", "Who said you could come in here?!", "Get the fuck outta me donga!", "Who the fuck said you could come in here?!", "Who stole my fucken JD and Cokes?! Was it you, ya thievin’ prick?"],
+  aimed: ["Get that bloody gun off me!", "Point that somewhere else, ya drongo!"],
+  donga: ["Oi! Get outta me donga!", "Who said you could come in here?!"],
   dogTub: ["Leave ’em be, Dima! They’ve earned a swim, mate!", "Ha! Good boys! Get in there!"],
   sauna: ["Sittin’ in a hot box on purpose? You’re mad, the lot of ya!", "Strewth! It’s forty degrees out and you’s are cookin’ yaselves in a shed!", "Oi! Come out of there before ya cook, ya bloody lunatics!"],
   frog: ["Oi, Pepé. That’s my esky, not yours.", "Backpackers. Eat all me bread and call it a baguette.", "Speak English, ya croissant.", "Righto, Frenchie. Go pick some fruit or somethin’.", "Ooh la la. Wash ya socks, mate."],
   defend: ["Oi! Leave him alone, ya frog!", "Pick on someone ya own size, Frenchie!", "Back off, ya baguette! He’s with me!"],
   defended: ["And stay down, Pierre.", "Bloody backpackers."],
-  dongaOk: ["Come in, mate. Mind the mess.", "Grab a seat. Touch me fucken JD and Cokes and you’re dead."],
+  dongaOk: ["Come in, mate. Mind the mess."],
 };
 const MM = { ready: false, n: null, dogs: [], t: 0, anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, idleT: 14, sayT: 0, told: {}, last: {},
   inUteT: 0, stolen: false, uteAt: null, lostT: 0, pur: null, touchT: 0, nearT: 0, away: true, sipT: 4, sip: 0, react: null, reactT: 0, rest: null, moved: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0,
@@ -16271,14 +16221,14 @@ const DRV = {"X0": -210, "Z0": -270, "C": 4, "NX": 125, "NZ": 115, "b": "AAAAAAA
 const MH = { mode: '', ph: '', t: 0, pax: false, kills: 0, goal: 5, limit: 150, left: 150, mob: null, visited: [], nav: null, cdG: 0, cdS: 0, sayT: 0, stopT: 0, shotT: 0,
   camYaw0: undefined, chip: null, fade: null, fadeT: 0, gave: '', soloKills: 0, told: {}, stats: STORE.get('wfy.hunt', { g: 0, s: 0, k: 0, best: 0 }), seen: new Set() };
 const MH_L = {
-  start: ["Righto, hop in! Grab ya gun, shoot out the window.", "Let’s go get some pork, mate!", "Righto, get in, ya useless prick. Let’s go shoot some fuckin’ pigs!"],
+  start: ["Righto, hop in! Grab ya gun, shoot out the window.", "Let’s go get some pork, mate!"],
   gun: ["Here, have me spare rifle. Don’t point it at the dogs."],
   drive: ["Hang on to somethin’!", "Keep ya eyes peeled."],
-  near: ["There they are! Dogs, GO!", "Fuck me dead, look at the size of that one! Go on dogs!", "There’s the cunts! Dogs, GET ’EM!"],
-  bailed: ["Dogs have got one bailed! Take the shot!", "He’s held up! Shoot!", "Dogs have got the bastard! Shoot the fucker!"],
-  kill: ["Got him!", "Fuck me dead, what a shot!", "Ripper!", "Got the cunt!", "Fuckin’ oath, what a shot!"],
-  miss: ["Strewth, aim at the pig, not the dirt!", "Fuckin’ missed, ya blind bastard!", "Aim, ya useless fuckwit!"],
-  gone: ["They’ve bolted. Dogs, in! Next mob.", "Fuckin’ bolted. Dogs, in!"],
+  near: ["There they are! Dogs, GO!", "Fuck me dead, look at the size of that one! Go on dogs!"],
+  bailed: ["Dogs have got one bailed! Take the shot!", "He’s held up! Shoot!"],
+  kill: ["Got him!", "Fuck me dead, what a shot!", "Ripper!"],
+  miss: ["Strewth, aim at the pig, not the dirt!"],
+  gone: ["They’ve bolted. Dogs, in! Next mob."],
   win: ["That’s five! Beers on me. Home we go.", "Ripper hunt, mate. Back to the dongas."],
   timeout: ["Yeah nah, they’ve gone to ground. Home time."],
   ammo: ["Outta rounds? Righto, home we go.", "That’s the lot? Back to the dongas then.", "Empty? Strewth. Home, then."],
@@ -16287,8 +16237,8 @@ const MH_L = {
   soloBack: ["Got {n} of the buggers. Dogs did all the work."],
   soloNone: ["Not a bloody one. They heard us comin’."],
   cooldown: ["Dogs are knackered. Give ’em a minute."],
-  hit: ["Oi! Watch it!", "Watch it, ya fuckin’ dickhead!"],
-  grab: ["Tank’s got one! Shoot it!", "Tank’s got the fucker by the ear! Shoot it!"],
+  hit: ["Oi! Watch it!"],
+  grab: ["Tank’s got one! Shoot it!"],
 };
 const mhPick = k => { const L = MH_L[k]; return L ? pickFresh(L) : k; };
 function mhSay(k, force, n) { const line = (MH_L[k] ? mhPick(k) : k).replace('{n}', n == null ? '' : n); if (force || MH.sayT <= 0) { MH.sayT = 4; mmSay(line, 0, true); } }
