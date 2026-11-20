@@ -16,6 +16,10 @@ Rebuild it after changing any of their lines (`MM_L`, `MH_L`, `NPC_L`, `DIMA_L` 
 5. `node render.mjs mm`, `node render.mjs fr` and `node render.mjs dm` render the WAVs.
 6. `python3 pack.py voices-v1.bin` adds the effects with ffmpeg and packs the MP3s.
 
+To add only new lines without re-recording the rest: put just the new clips in a JSON shaped like `clips.json`, then
+`CLIPS=new.json OUT=out_mm_new node render.mjs mm` and `python3 add_new.py ../../voices-v1.bin mm out_mm_new` (every other
+clip in the pack is copied across untouched). Then change the `?v=` on `VOX.url` in `index.html` so browsers fetch the new pack.
+
 Madman is `bm_lewis` and `bm_george` blended 60/40 at 0.86 speed, with the vowels pushed toward broad Australian
 (FACE "mite", PRICE "roit", GOAT "naow", MOUTH "neow", raised TRAP, flapped t, open final schwa), then pitched down
 about 2.6 semitones (formants too), with a heavy chest, the nasal band cut, a fast flutter and hard soft clipping for growl.
@@ -27,7 +31,7 @@ Dima is `am_onyx` and `am_fenrir` blended 70/30 at 0.9 speed with a Russian acce
 
 ## Recording Madman yourself
 
-`madman-lines.csv` lists every Madman recording (`mm_001` ... `mm_102`) with the situation, the mood and the
+`madman-lines.csv` lists every Madman recording (`mm_001` ... `mm_201`) with the situation, the mood and the
 line. Record each one to a file of that name (WAV or MP3) and they can replace the Kokoro clips: the
 `game_key` column is the line exactly as the game looks it up.
 
