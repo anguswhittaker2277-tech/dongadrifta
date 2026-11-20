@@ -26,6 +26,7 @@ They were trimmed, layered, compressed and level-matched, and converted to MP3 h
 
 Madman's, the backpackers' and Dima's voices were generated with [Kokoro-82M](https://github.com/hexgrad/kokoro)
 (Apache-2.0), using phonemes from espeak-ng. See `tools/voices/README.md` for how the voice pack is made.
+Matt's voice was made in Voicebox from his own voice profile (the recordings are in `tools/voices/rec_mt/`).
 
 ## Libraries
 

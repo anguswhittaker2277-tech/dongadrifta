@@ -35,5 +35,6 @@ line. Record each one to a file of that name (WAV or MP3) and they can replace t
 
 Matt's lines (`MATT_L` in `index.html`) are listed in `matt-lines.csv` (`mt_001` ... `mt_070`) with the situation, the mood
 and the line. They're recorded in Voicebox off Matt's voice profile: save each as a file of that name (WAV or MP3) in
-`rec_mt/`, then `python3 pack.py voices-v1.bin` packs them in with the rest. The `game_key` column is the line exactly as the
+`rec_mt/`, then `python3 add_rec.py ../../voices-v1.bin` (from this folder) puts them in the pack without touching anyone
+else's clips (a full `python3 pack.py voices-v1.bin` rebuild takes them too). The `game_key` column is the line exactly as the
 game looks it up; until a line has a recording, Matt just says it in his speech bubble.
