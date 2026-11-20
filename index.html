@@ -10441,7 +10441,27 @@ function wpnBoomStep(dt) {
 
 /* ---------- input, aiming camera, HUD ---------- */
 function wpnArmed() { return !!WPN.cur && activeName === 'foot' && F.dead <= 0; }
+// jobs that need your hands: a gun gets put away while you're on one (and comes back after), and can't be drawn mid-job. The welding,
+// the bench, nailing up the bunks (the PUNCH button is the hammer, and it's not there with a gun out), sitting in the sauna, and the
+// sauna challenge, where the axe is the one tool you can have
+function wpnJob() {
+  try {
+    if (activeName !== 'foot' || F.dead > 0) return null;
+    if (MT.w) return { why: 'the welding', ok: null };
+    if (bpMine() || bpLying() || bpSpotting()) return { why: 'the bench', ok: null };
+    if (BB.st === 'build' && BB.help && BB.help[MP.me]) return { why: 'the rebuild', ok: null };
+    if (saSitting()) return { why: 'the sauna', ok: null };
+    if (SA.q && SA.q.who === MP.me) return { why: 'the sauna challenge', ok: 'axe' };
+  } catch (_) {}
+  return null;
+}
+function wpnJobStep() {
+  const J = wpnJob();
+  if (J && WPN.cur && WPN.cur !== J.ok) { const W = WEAPONS[WPN.cur]; if (!WPN.stowed) WPN.stowed = WPN.cur; wpnSelect(null); toast((W ? W.label : 'Gun') + ' away for ' + J.why, 1.8); }
+  else if (!J && WPN.stowed) { const id = WPN.stowed; WPN.stowed = null; if (!WPN.cur && WPN.owned[id] && activeName === 'foot' && F.dead <= 0 && !MH.pax) wpnSelect(id); }      // the job's done: back in your hands
+}
 function wpnSelect(id) {
+  if (id) { const J = wpnJob(); if (J && id !== J.ok) { toast('Not now, you need your hands for ' + J.why, 1.6); return; } }
   if (MH.pax && (!id || WEAPONS[id].kind !== 'gun')) { toast(id ? 'Guns only out the window' : 'Keep it out, mate. We\u2019re huntin\u2019', 1.6); return; }
   if (id && !WPN.owned[id]) return; if (id) WPN.last = id; WPN.cur = id; WPN.reloadT = 0; WPN.spin = 0; WPN.scope = false; WPN.fire = false;
   if (id && WEAPONS[id].kind === 'gun' && WPN.mag[id] == null) WPN.mag[id] = 0;
@@ -10470,7 +10490,7 @@ function wpnSheet() {
 function wpnHud(force) {
   const armed = wpnArmed(), id = WPN.cur, W = id && WEAPONS[id];
   document.body.classList.toggle('armed', armed); document.body.classList.toggle('scoped', armed && WPN.scope);
-  const draw = !armed && activeName === 'foot' && F.dead <= 0 && WPN_ORDER.some(i => WPN.owned[i]); document.body.classList.toggle('candraw', draw);
+  const draw = !armed && activeName === 'foot' && F.dead <= 0 && WPN_ORDER.some(i => WPN.owned[i]) && !wpnJob(); document.body.classList.toggle('candraw', draw);
   if (draw) { const d = WPN.last && WPN.owned[WPN.last] ? WPN.last : WPN_ORDER.find(i => WPN.owned[i]); if (d !== WPN.drawKey) { WPN.drawKey = d; $('wDrawN').textContent = WEAPONS[d].label; } }
   if (!armed && !force) return;
   if (W) { const a = WPN.ammo[id] || 0, am = W.kind === 'gun' ? (W.reload ? (WPN.mag[id] || 0) + ' / ' + a : String(a)) : W.kind === 'flame' ? Math.ceil(a) + ' s' : W.kind === 'melee' ? '' : String(a);
@@ -10527,7 +10547,7 @@ function wpnStep(dt) {
   if (F.dead > 0) { F.dead -= dt; if (F.mode === 'getup' || F.mode === 'walk') { F.mode = 'down'; F.downT = 0; }
     if (F.dead <= 0) { $('wasted').classList.remove('show'); const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); F.hp = 100; camInit = false; toast('Back on your feet', 1.4); } }
   // firing
-  const armed = wpnArmed(); wpnHud(false);
+  wpnJobStep(); const armed = wpnArmed(); wpnHud(false);
   if (!armed) { WPN.fire = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); wpnViewModel(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
   if (WPN.cache.id !== WPN.cur) wpnHold(DAZZA, WPN.cur, WPN.cache);
   wpnCam(dt); WPN.camDone = true;          // the aiming camera before the shot: the shot goes out along what's drawn (the on-foot camera from earlier in the frame can look elsewhere)
@@ -14248,40 +14268,40 @@ const MATT_LOOK = { name: 'Matt', h: 0.72, w: 0.15, m: 0, skin: 1, hair: 'curls'
 const MATT_L = {
   idle: ["Mind the swarf, it's sharp.", 'Engineering is just maths with a hammer, really.', "I've run the numbers three times. It'll fly.", "If it's not on the whiteboard, it doesn't exist.",
     'Measure twice, cut once. Then measure again, because you probably got it wrong.', 'Point one of a mil tolerance. In a shed. On a farm.', 'Half the farm runs on fencing wire and my good intentions.',
-    "Don't touch the lathe. Seriously. It eats sleeves.", "That header's held together with zip ties. I'm not proud of it."],
-  greet: ["G'day! Come to see the rocket?", "Oh, g'day. Don't mind the mess, it's organised chaos.", "G'day mate! Watch your feet, there's bits everywhere."],
+    "Don't touch the lathe. Seriously. It eats sleeves.", "That header's held together with zip ties. I'm not proud of it.", "Torque spec says forty Newton metres. I've given it forty-two for luck.", "Who keeps nicking my ten mil socket? Every time.", "Tolerances are more of a guideline out here.", "Note to self: don't weld in thongs again."],
+  greet: ["G'day! Come to see the rocket?", "Oh, g'day. Don't mind the mess, it's organised chaos.", "G'day mate! Watch your feet, there's bits everywhere.", "Oh, hey! You're just in time. I've got something to show you.", "G'day! Don't touch anything that's humming."],
   talk: ["It's a rocket. Well, it will be. A hundred and fifty metres, if my sums are right.", 'I did mechatronics at uni. Now I fix headers and build rockets in a shed. Living the dream.',
     "Madman reckons it's a waste of time. Madman also reckons a ute counts as a personality.", "Dima asked if it can lift him. I said no. He's been sulking all week.",
-    "The French lot keep asking if it's a weapon. It's a scientific instrument. That happens to be pointy."],
+    "The French lot keep asking if it's a weapon. It's a scientific instrument. That happens to be pointy.", "Madman asked me to fix his ute's aircon. I said it's not rocket science. Then I remembered, I do rocket science.", "Dima wants me to build him a squat rack out of an old header. Honestly? Not the worst idea.", "The Frenchies asked if the rocket could carry a baguette. I said I'd run the numbers.", "Every good engineer has a drawer full of bits from the last project. Mine's a whole shed."],
   partsStart: ["Righto! I need three bits: the fuel pump off the old header, an oxygen bottle from the machinery shed, and a nose cone. There's one behind the little shed at the house. Don't ask.",
     "Three parts, mate. I've marked them on your map. They're the glowy ones."],
   partsBack: ['Got the lot? Bring them back to the shed!', "That's all three! Get them back here, I'm itching."],
-  partsDone: ["Ripper! That's everything. Now we're cooking.", 'Beauty! The nose cone even fits. Mostly.'],
+  partsDone: ["Ripper! That's everything. Now we're cooking.", 'Beauty! The nose cone even fits. Mostly.', "Fuel pump, oxygen, nose cone. Three for three, mate!"],
   weldStart: ['Helmet down. Hold the trigger to strike an arc and keep the puddle in the green. Too hot and you blow straight through.', 'Fins next. Hold weld, keep it in the green, nice and steady.'],
-  weldGood: ['Nice bead!', 'Beautiful. Stack of dimes, that.', 'Steady hands, mate.'],
-  weldHot: ['Too hot! Ease off!', "You're cooking it!"],
-  weldCold: ["Strike it! You're too cold!", "That's not a weld, that's bird poo."],
+  weldGood: ['Nice bead!', 'Beautiful. Stack of dimes, that.', 'Steady hands, mate.', "Smooth as. You've done this before."],
+  weldHot: ['Too hot! Ease off!', "You're cooking it!", "Easy! That's glowing like a barbie!"],
+  weldCold: ["Strike it! You're too cold!", "That's not a weld, that's bird poo.", "Get closer! You're welding the air!"],
   weldHole: ["Ah, you've blown a hole. Keep going, I'll grind it later.", 'Swiss cheese, mate. Ease off a bit.'],
   seam1: ["That's one fin on."], seam2: ['Two down!'], seam3: ['Three! One to go.'],
-  weldWin: ["Mate, that's better than mine. Don't tell anyone.", "Four fins, all on. She's ready to fly."],
+  weldWin: ["Mate, that's better than mine. Don't tell anyone.", "Four fins, all on. She's ready to fly.", "Textbook welds. I'd frame them if I could."],
   weldFail: ["Righto, she's Swiss cheese. We'll grind it back and have another go."],
   launchStart: ["Launch day! I'll wheel her out to the pad.", 'Right, out she goes. Mind your toes.'],
   padReady: ["She's on the rail. Go to the control box and hit the big red button when you're ready."],
   c5: ['Five!'], c4: ['Four!'], c3: ['Three!'], c2: ['Two!'], c1: ['One!'], ign: ['Ignition!'],
-  liftoff: ['Look at her go!', 'Go on, go on!'],
+  liftoff: ['Look at her go!', 'Go on, go on!', "She's away! She's actually away!"],
   chute: ['Chute! Textbook! Absolutely textbook!'],
-  landed: ["I'm putting that on the whiteboard.", 'Did you see that? Did you see that!'],
-  crash: ["Oh no. That's a rapid unscheduled disassembly.", "Well, that's data. Expensive data."],
+  landed: ["I'm putting that on the whiteboard.", 'Did you see that? Did you see that!', "Recovered and reusable. Take that, rocket companies."],
+  crash: ["Oh no. That's a rapid unscheduled disassembly.", "Well, that's data. Expensive data.", "Right. Back to the drawing board. Literally, it's over there."],
   spare: ['Good thing I printed spares.'],
-  busy: ["Bit busy, mate. I'm with your mate."],
-  fixDone: ["She's sweet as now. Try not to roll it again.", 'Leave it with me. Done. Next!'],
+  busy: ["Bit busy, mate. I'm with your mate.", "Hang on, mate. One job at a time."],
+  fixDone: ["She's sweet as now. Try not to roll it again.", 'Leave it with me. Done. Next!', "Fixed. Bit of wire, bit of tape, bit of genius."],
   fixNone: ["Can't fix what's not here. Bring it to the shed."],
   fixUte: ["That's Madman's ute. I'm not touching it. I like my fingers."],
-  hurt: ['Ow! Not the glasses!', 'Oi! I bruise like a peach!'],
-  angry: ["Right, that's it. I'm calculating your trajectory!", "You'll keep!"],
-  ko: ['I think I saw the square root of minus one.'],
+  hurt: ['Ow! Not the glasses!', 'Oi! I bruise like a peach!', "Careful! I need these hands for soldering!"],
+  angry: ["Right, that's it. I'm calculating your trajectory!", "You'll keep!", "You've done it now. I know where you park."],
+  ko: ['I think I saw the square root of minus one.', "Ugh... I can hear colours..."],
   win2: ['Ha! Physics, mate.'],
-  bye: ['Catch ya!', 'Hooroo! Mind the swarf.'],
+  bye: ['Catch ya!', 'Hooroo! Mind the swarf.', "See ya! Come back when you've got something broken."],
 };
 // the shed's own frame: u along the ridge, v across (the back wall is v = -16.2; the lean-to and the open side are past v = 2.4)
 const mtD = () => STRUCT_DEFS[0];
