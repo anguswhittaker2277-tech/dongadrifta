@@ -6370,7 +6370,7 @@ function buildStructs() {
   structMats();
   for (const D of STRUCT_DEFS) buildShed(D);
   for (const B of BOX_DEFS) buildBox(B);
-  buildSilos(); buildLocker(); if (typeof dgBuild === 'function') dgBuild(); if (HS.ready) hsStructs();
+  buildSilos(); buildLocker(); if (typeof dgBuild === 'function' && !DG.yard) dgBuild(); if (HS.ready) hsStructs();      // (the yard's built once and kept: see resetStructs)
   STRUCTS.ready = true;
 }
 function addPart(group, p) { p.alive = true; p.group = group; p.i = STRUCTS.parts.length; STRUCTS.parts.push(p); group.parts.push(p); return p; }
@@ -6757,10 +6757,14 @@ function resetStructs() {
   if (!STRUCTS.ready || !STRUCTS.dirty) return; STRUCTS.dirty = false;
   for (const d of STRUCTS.debris) { d.obj.parent && d.obj.parent.remove(d.obj); d.obj.traverse && d.obj.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   STRUCTS.debris = []; STRUCTS.falling = [];
-  for (const G of STRUCTS.groups.slice()) { if (G.root) { G.root.parent && G.root.parent.remove(G.root); } }
-  for (const G of STRUCTS.groups) for (const p of G.parts) if (p.obj && p.kind === 'floor') { p.obj.parent && p.obj.parent.remove(p.obj); }
+  // the hand-built yard (dongas, their slab and car park, the dunny, sauna, tub, woodlot) can't be knocked about, so it stays as it is:
+  // pulling it down and building it again left the dunny and sauna gone (they only build once) and doubled up the dongas
+  const keep = STRUCTS.groups.filter(G => G.keep);
+  for (const G of STRUCTS.groups.slice()) { if (G.root && !G.keep) { G.root.parent && G.root.parent.remove(G.root); } }
+  for (const G of STRUCTS.groups) if (!G.keep) for (const p of G.parts) if (p.obj && p.kind === 'floor') { p.obj.parent && p.obj.parent.remove(p.obj); }
   resetTrees();
   STRUCTS.parts = []; STRUCTS.groups = []; STRUCTS.boxes = {};
+  for (const G of keep) { STRUCTS.groups.push(G); for (const p of G.parts) { p.i = STRUCTS.parts.length; STRUCTS.parts.push(p); } }
   clearBlast();
   STRUCTS.ready = false; buildStructs(); for (const t of TREES) treeProxy(t); if (IMPL.list.length) { implProxies(); implPads(); }
 }
@@ -8977,7 +8981,7 @@ function mpDriveCopy(p, v, A, B, k, dt) {
     if (v.name === 'truck' && TIP.model) tipperFollow(st, dt);
   } else if (v.kind === 'air' && A.ai) {
     const g = A.ai, h = B && B.ai ? B.ai : g, L = i => g[i] + (h[i] - g[i]) * k, S2 = v.st;
-    S2.pos.set(L(0), L(1), L(2)); S2.yaw = mpLerpA(g[3], h[3], k); S2.pitch = L(4); S2.roll = L(5); S2.motor = L(6); S2.landed = !!(B ? B : A).ai[7]; S2.bob = (S2.bob || 0) + dt; S2.vel.set(0, 0, 0);
+    S2.pos.set(L(0), L(1), L(2)); S2.yaw = mpLerpA(g[3], h[3], k); S2.pitch = L(4); S2.roll = L(5); S2.motor = L(6); S2.landed = !!h[7];      // (h: the next update if it's still flying, else this one: they may have just climbed out) S2.bob = (S2.bob || 0) + dt; S2.vel.set(0, 0, 0);
     placeAircraft(v);
     if (v.model.rotors) for (const r of v.model.rotors) { r.blades.rotation.y += r.dir * S2.motor * v.P.spin * dt; r.disc.material.opacity = S2.motor * 0.22; r.blades.children[0].visible = S2.motor < 0.92; }
   }
@@ -12338,7 +12342,7 @@ function dgBuild() {
     tin: new THREE.MeshLambertMaterial({ color: 0xc9a227 }), tusk: new THREE.MeshLambertMaterial({ color: 0xefe6cf }), boot: new THREE.MeshLambertMaterial({ color: 0x4a3626 }),
     bulb: new THREE.MeshBasicMaterial({ color: 0xffe2a8 }), blue: new THREE.MeshLambertMaterial({ color: 0x2f5f9e }), red: new THREE.MeshLambertMaterial({ color: 0x9c3b30 }),
     green: new THREE.MeshLambertMaterial({ color: 0x3f6b46 }), yellow: new THREE.MeshLambertMaterial({ color: 0xd9b23a }), big: new THREE.MeshLambertMaterial({ map: corr([186, 192, 192], 34), side: THREE.DoubleSide }) };
-  const M = DG.mats, group = { id: 'donga', root: null, parts: [], ctr: new THREE.Vector3(cx, gy + 1.5, cz), rad: 14, gy, fixed: true }; STRUCTS.groups.push(group);
+  const M = DG.mats, group = { id: 'donga', root: null, parts: [], ctr: new THREE.Vector3(cx, gy + 1.5, cz), rad: 14, gy, fixed: true, keep: true }; STRUCTS.groups.push(group);
   for (const U of DG_UNITS) dgUnit(U, gy, group);
   group.root = DG.root;
   // ---- the slab and the breezeway between the two rows ----
@@ -12391,7 +12395,7 @@ function dgBuild() {
     DG.matGravel = DG.matGravel || new THREE.MeshLambertMaterial({ color: 0x9a8d78 });
     const pad = new THREE.Mesh(new THREE.BoxGeometry(w, 0.9, d), DG.matGravel), ctr = new THREE.Vector3(px, py, pz).addScaledVector(e2, -0.45);
     pad.matrixAutoUpdate = false; pad.matrix.makeBasis(e1, e2, e3).setPosition(ctr); pad.receiveShadow = true; scene.add(pad); DG.pad = pad;
-    const g2 = { id: 'dongaPad', root: pad, parts: [], ctr: new THREE.Vector3(px, py, pz), rad: 9, gy: py, fixed: true }; STRUCTS.groups.push(g2);
+    const g2 = { id: 'dongaPad', root: pad, parts: [], ctr: new THREE.Vector3(px, py, pz), rad: 9, gy: py, fixed: true, keep: true }; STRUCTS.groups.push(g2);
     const pp = addPart(g2, { kind: 'donga', obj: pad, fixed: true }); boxPart(pp, ctr, e1, e2, e3, w / 2, 0.45, d / 2); }
 }
 // one donga: the shell, a door on a hinge, a strip of deck out the front and whatever's inside
@@ -12639,7 +12643,7 @@ function dnBuild() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.15), new THREE.MeshLambertMaterial({ map: t })); sign.position.set(dw / 2, 1.5, 0.02); hinge.add(sign);
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), M.steel); knob.position.set(dw - 0.1, 0.95, 0.04); hinge.add(knob);
   // solid: the walls and roof (the doorway's open)
-  const group = { id: 'dunny', root, parts: [], ctr: new THREE.Vector3(DN.x, DN.gy + 1, DN.z), rad: 3, gy: DN.gy, fixed: true }; STRUCTS.groups.push(group);
+  const group = { id: 'dunny', root, parts: [], ctr: new THREE.Vector3(DN.x, DN.gy + 1, DN.z), rad: 3, gy: DN.gy, fixed: true, keep: true }; STRUCTS.groups.push(group);
   const c0 = Math.cos(DN.yaw), s0 = Math.sin(DN.yaw), eU = new THREE.Vector3(c0, 0, -s0), eY = new THREE.Vector3(0, 1, 0), eV = new THREE.Vector3(s0, 0, c0);
   const solid = (u, y, v, hu, hy, hv) => { const [x, z] = dnW(u, v), p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, DN.gy + y, z), eU, eY, eV, hu, hy, hv); };
   solid(0, fl / 2, 0, W / 2 + 0.15, fl / 2, D / 2 + 0.15); solid(0, fl + H / 2, -D / 2, W / 2, H / 2, 0.05); solid(-W / 2, fl + H / 2, 0, 0.05, H / 2, D / 2); solid(W / 2, fl + H / 2, 0, 0.05, H / 2, D / 2);
@@ -13140,13 +13144,13 @@ function saBuild() {
   const tb = tbBuild(M, box);
   root.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== SA.bulb.material && o.material !== M.pane; o.receiveShadow = true; } }); tb.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== M.water; o.receiveShadow = true; } });
   // solid: floor, walls, roof, the stove, the tub
-  const group = { id: 'sauna', root, parts: [], ctr: new THREE.Vector3(SA.x, SA.gy + 1.2, SA.z), rad: 4.5, gy: SA.gy, fixed: true }; STRUCTS.groups.push(group);
+  const group = { id: 'sauna', root, parts: [], ctr: new THREE.Vector3(SA.x, SA.gy + 1.2, SA.z), rad: 4.5, gy: SA.gy, fixed: true, keep: true }; STRUCTS.groups.push(group);
   const eX = new THREE.Vector3(1, 0, 0), eY = new THREE.Vector3(0, 1, 0), eZ = new THREE.Vector3(0, 0, 1);
   const solid = (x, y, z, hx, hy, hz, obj) => { const pt = addPart(group, { kind: 'sauna', obj: obj || root, fixed: true }), [wx, wz] = saW(x, z); boxPart(pt, new THREE.Vector3(wx, SA.gy + y, wz), eX, eY, eZ, hx, hy, hz); };
   solid(0, fl / 2, 0, W / 2 + 0.05, fl / 2, D / 2 + 0.05); solid(0, fl + H / 2, -D / 2, W / 2, H / 2, 0.06); solid(-W / 2, fl + H / 2, 0, 0.06, H / 2, D / 2); solid(W / 2, fl + H / 2, 0, 0.06, H / 2, D / 2);
   solid(-W / 2 + aW / 2, fl + H / 2, D / 2, aW / 2, H / 2, 0.06); solid(W / 2 - bW / 2, fl + H / 2, D / 2, bW / 2, H / 2, 0.06); solid(dx, fl + 1.95 + (H - 1.95) / 2, D / 2, dw / 2, (H - 1.95) / 2, 0.06);
   solid(0, fl + H + 0.1, 0.05, W / 2 + 0.25, 0.05, D / 2 + 0.3); solid(0.85, fl + 0.36, 0.55, 0.23, 0.36, 0.23);
-  const T = SA.tub, tg = { id: 'tub', root: tb, parts: [], ctr: new THREE.Vector3(T.x, tb.position.y + 0.4, T.z), rad: 2.4, gy: tb.position.y, fixed: true }; STRUCTS.groups.push(tg);
+  const T = SA.tub, tg = { id: 'tub', root: tb, parts: [], ctr: new THREE.Vector3(T.x, tb.position.y + 0.4, T.z), rad: 2.4, gy: tb.position.y, fixed: true, keep: true }; STRUCTS.groups.push(tg);
   const r45 = Math.SQRT1_2, eA = new THREE.Vector3(r45, 0, r45), eB = new THREE.Vector3(-r45, 0, r45);           // the round wall as an octagon: two square boxes, one turned 45 degrees
   for (const [a, b] of [[eX, eZ], [eA, eB]]) { const tp = addPart(tg, { kind: 'tub', obj: tb, fixed: true }); boxPart(tp, new THREE.Vector3(T.x, tb.position.y + T.H / 2, T.z), a, eY, b, T.R * 0.93, T.H / 2, T.R * 0.93); }
   const pp = addPart(tg, { kind: 'tub', obj: tb, fixed: true }); boxPart(pp, new THREE.Vector3(T.x, tb.position.y - 0.1, T.z), eX, eY, eZ, 1.55, 0.1, 1.5);
@@ -13630,7 +13634,7 @@ function wlBuild() {
   if (WL.built) return; WL.built = true;
   const M = WL.mats = { bark: new THREE.MeshLambertMaterial({ color: 0x8d8478 }), barkD: new THREE.MeshLambertMaterial({ color: 0x5e554b }), leaf: new THREE.MeshLambertMaterial({ color: 0x5f7a52, flatShading: true }),
     leaf2: new THREE.MeshLambertMaterial({ color: 0x748f60, flatShading: true }), cut: new THREE.MeshLambertMaterial({ color: 0xd9b884 }), old: new THREE.MeshLambertMaterial({ color: 0x8a7d68 }), split: new THREE.MeshLambertMaterial({ color: 0xcfa874 }) };
-  const group = { id: 'woodlot', root: scene, parts: [], ctr: new THREE.Vector3(195, 1, 56), rad: 9, gy: 0.5, fixed: true }; STRUCTS.groups.push(group); WL.group = group;
+  const group = { id: 'woodlot', root: scene, parts: [], ctr: new THREE.Vector3(195, 1, 56), rad: 9, gy: 0.5, fixed: true, keep: true }; STRUCTS.groups.push(group); WL.group = group;
   WL_TREES.forEach(([x, z], i) => {
     const gy = groundAt(x, z, 30, 0), root = new THREE.Group(); root.position.set(x, gy, z); scene.add(root);
     const H = 5.3 + (i % 2) * 0.7, pivot = new THREE.Group(); pivot.position.y = 0.32; root.add(pivot);       // it swings about the cut, just off the ground
@@ -14711,6 +14715,18 @@ function mmParkHome() {
   });
   v.coast = false;
   MM.rest = null;
+}
+// a guest's copy of Madman's ute follows the host's: burnt when it's wrecked there, patched up and parked home when his mate tows it
+// back. (The host runs Madman, so the tow only ever happened on the host's phone and the guest's ute stayed black.)
+const MPW_UTE = { w: false, since: 0 };
+function mpwUteWreckIn(w) {
+  const v = VEH.ute, D = WPN.VD.ute, was = MPW_UTE.w; MPW_UTE.w = w;
+  if (w) { MPW_UTE.since = 0; const d = vd('ute'); if (!d.wrecked) { d.wrecked = true; d.burn = Math.max(d.burn || 0, 2); d.hp = 0; } v.wrecked = true; wpnWreck(v); return; }
+  if (!v.wrecked && !(D && (D.wrecked || D.mats))) { MPW_UTE.since = 0; return; }
+  if (!MPW_UTE.since) MPW_UTE.since = MP.clock;
+  if (was || MP.clock - MPW_UTE.since > 3) {      // towed back on the host (or it only ever blew up on this phone)
+    wpnUnwreck('ute'); delete WPN.VD.ute; WPN.hops = WPN.hops.filter(h => h.v !== v); MPW_UTE.since = 0; if (!v.mp) mmParkHome();
+  }
 }
 
 /* ---------- pose: lean on the tailgate, sip, watch you ---------- */
@@ -15857,7 +15873,7 @@ function mpwRecv(m) {
     SA.lit = !!m.sa[0]; SA.temp = m.sa[1]; if (m.sa[2] > SA.steam + 0.4) for (let k = 0; k < 6; k++) saPuff(true); SA.steam = m.sa[2];
     mpwCliQuestIn(m.sq || null);
     const h = m.mh; Object.assign(MH, { mode: h[0], ph: h[1], kills: h[2], goal: h[3], left: h[4], paxId: h[5] || null, cdG: h[6], cdS: h[7] });
-    MM.anger = m.mm[0]; MM.refuseT = m.mm[1]; MM.hostileT = m.mm[2]; if (VEH.ute) VEH.ute.wrecked = !!m.mm[3];
+    MM.anger = m.mm[0]; MM.refuseT = m.mm[1]; MM.hostileT = m.mm[2]; if (VEH.ute) mpwUteWreckIn(!!m.mm[3]);
     bbNetIn(m.bb); bpNetIn(m.bp);
     void hp; return true; }
   if (m.k === 'pg') { mpwPigsIn(m); return true; }
@@ -16100,7 +16116,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
