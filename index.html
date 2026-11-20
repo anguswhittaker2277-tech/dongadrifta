@@ -4174,7 +4174,7 @@ function shedParking() {
   HOME.combine = { x: -150, z: 46, yaw: Math.PI };
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
-  HOME.buggy = { x: 166.8, z: 57.6, yaw: -Math.PI / 2 };       // the buggy: on the dirt just past the end of the row, beside Madman's ute
+  HOME.buggy = { x: 163.2, z: 57.4, yaw: -2.2 };                 // the buggy: on the dirt at the end of the row past Madman's ute, nose out toward the open track
   { const [x, z] = dgW(0, 0.12, DN); HOME.farmer = { x, z, yaw: DN.yaw, indoors: true, dunny: true }; }   // you wake up in the dunny south of the water tanks, facing the door (not in the bunks: they might be on fire)
   HOME.ute = { x: 166.3, z: 50.4, yaw: -Math.PI / 2 };   // on the gravel beside the BMW, nose out to the open ground (tailgate to the dongas)   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
@@ -4316,6 +4316,10 @@ Object.assign(DOORS, {
   x5: { side: -1, max: 0, bail: [-1.25, 0.65, 1.3],
     inn: v => ({ end: 1.6, ev: [], keys: [K(0, -1.55, 0, 1.25, HP), K(0.3, -1.55, 0, 1.25, HP, { reach: 1 }), K(0.8, -1.2, 0, 1.3, HP, { duck: 0.5, sit: 0.15 }), seatKey(v, 1.3)] }),
     out: v => ({ end: 1.2, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3, 0, { reach: 0.7 }), K(0.75, -1.2, 0, 1.3, -HP, { duck: 0.5, sit: 0.15 }), K(1.2, -1.6, 0, 1.25, -2.2)] }) },
+  // the buggy: open sides, step over the side bar into the driver's seat
+  buggy: { side: -1, max: 0, bail: [-1.2, 0.7, 1.0],
+    inn: v => ({ end: 1.5, ev: [], keys: [K(0, -1.45, 0, 1.0, HP), K(0.3, -1.4, 0, 1.0, HP, { reach: 1 }), K(0.8, -0.95, 0.3, 1.0, HP, { climb: 0.6, duck: 0.4 }), seatKey(v, 1.4)] }),
+    out: v => ({ end: 1.2, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.75, -0.95, 0.3, 1.0, -HP, { climb: 0.6, duck: 0.4 }), K(1.2, -1.5, 0, 1.0, -HP)] }) },
   // no doors on a trophy truck: you climb in through the window net
   trophy: { side: -1, max: 0, bail: [-1.3, 1.1, 1.7],
     inn: v => ({ end: 1.9, ev: [], keys: [K(0, -1.75, 0, 1.75, HP), K(0.35, -1.6, 0, 1.75, HP, { reach: 1 }), K(0.85, -1.15, 0.85, 1.75, HP, { climb: 1, duck: 0.4 }),
