@@ -12979,7 +12979,7 @@ function dnBuild() {
 function dnStep(dt) {
   if (!DN.root) return; const [dx, dz] = dnW(0, DN.D / 2), want = plAnyNear(dx, dz, 1.5) || dnInside(F.pos);
   const was = DN.doorA; DN.doorA += ((want ? 1 : 0) - DN.doorA) * Math.min(1, dt * (want ? 3.5 : 2)); DN.door.rotation.y = -1.5 * DN.doorA; DN.creakT -= dt;
-  if (want && was < 0.05 && DN.creakT <= 0 && AU.buf && AU.buf.creak) { DN.creakT = 3; sfx('creak', _w1.set(dx, DN.gy + 1.2, dz), 0.5, 1.25, 8); }
+  // (the door swings silently: the creak every time you walked past it was doing everyone's head in)
 }
 
 /* ================================================================
