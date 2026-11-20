@@ -3259,6 +3259,7 @@ function animateFarmer(dt) {
     shLx = -2.3 + f * 0.5; shRx = -2.3 - f * 0.5; shLz = 0.6; shRz = -0.6; elL = elR = -0.4;
     hipL = -0.5 + Math.sin(F.t * 11) * 0.4; hipR = -0.2 - Math.sin(F.t * 11) * 0.4; kneeL = kneeR = 0.8;
     headX = -0.2;
+    if (F.mode === 'air' && F.flipT > 0) { hipL = hipR = -1.7; kneeL = kneeR = 2.1; shLx = shRx = -1.1; shLz = 0.25; shRz = -0.25; elL = elR = -1.3; headX = 0.35; }     // tucked for the flip
   } else if (F.mode === 'climb') {
     const cp = F.cph || 0, c = Math.sin(cp);
     shLx = -2.55 + c * 0.55; shRx = -2.55 - c * 0.55; shLz = 0.25; shRz = -0.25; elL = -0.5 - Math.max(0, -c) * 0.5; elR = -0.5 - Math.max(0, c) * 0.5;
@@ -3316,7 +3317,11 @@ function placeFarmerRoot() {
   R.position.copy(F.pos);
   if (F.mode === 'tumble' || F.mode === 'down' || F.mode === 'getup') R.quaternion.copy(F.q);
   else R.quaternion.setFromAxisAngle(UPV, F.yaw);
+  // front flip: one full forward turn about the hips
+  if (F.mode === 'air' && F.flipT > 0) { const u = Math.min(1, F.flipT / 0.62), a = Math.PI * 2 * (u * u * (3 - 2 * u));
+    _flipQ.setFromAxisAngle(_flipX, a); R.quaternion.multiply(_flipQ); _flipP.set(0, 0.9, 0).applyQuaternion(R.quaternion); R.position.set(F.pos.x - _flipP.x, F.pos.y + 0.9 - _flipP.y, F.pos.z - _flipP.z); }
 }
+const _flipQ = new THREE.Quaternion(), _flipX = new THREE.Vector3(1, 0, 0), _flipP = new THREE.Vector3();
 
 function startTumble(vel) {
   F.mode = 'tumble'; F.vel.copy(vel); F.onGround = false; F.downT = 0;   // downT doubles as the tumble timer
@@ -3415,7 +3420,11 @@ function farmerStep(dt, controlled) {
   const tvx = dx * target, tvz = dz * target;
   F.vel.x += THREE.MathUtils.clamp(tvx - F.vel.x, -acc, acc); F.vel.z += THREE.MathUtils.clamp(tvz - F.vel.z, -acc, acc);
   if (target > 0.1) { let d = Math.atan2(dx, dz) - F.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); F.yaw += d * (1 - Math.exp(-11 * dt)); }
-  if (jump && F.onGround && F.jumpCD <= 0) { F.vel.y = FOOT.jumpV; F.onGround = false; F.mode = 'air'; F.jumpCD = 0.4; F.fallY = F.pos.y; if (Math.random() < 0.35) say('jump'); }
+  const jEdge = jump && !F.jPrev; F.jPrev = jump;
+  if (jump && F.onGround && F.jumpCD <= 0) { F.vel.y = FOOT.jumpV; F.onGround = false; F.mode = 'air'; F.jumpCD = 0.4; F.fallY = F.pos.y; F.canFlip = true; F.flipT = 0; if (Math.random() < 0.35) say('jump'); }
+  // tap jump again in the air: a front flip and a second, higher kick upward (once per jump)
+  else if (jEdge && controlled && F.mode === 'air' && F.canFlip && F.vel.y > -3.5) { F.canFlip = false; F.vel.y = Math.max(0, F.vel.y) * 0.5 + 5.6; F.flipT = 1e-4; F.fallY = F.pos.y; if (typeof sfx === 'function') sfx('m_swish', F.pos, 0.8, 0.8, 6); }
+  if (F.flipT > 0) { F.flipT += dt; if (F.flipT > 0.62 || F.mode !== 'air') F.flipT = 0; }
 
   // horizontal move with wall sliding (scan mesh) and parked vehicles
   let mx = F.vel.x * dt, mz = F.vel.z * dt;
@@ -3453,7 +3462,7 @@ function farmerStep(dt, controlled) {
     F.vel.y = Math.max(-40, F.vel.y - 9.8 * dt);
     F.pos.y += F.vel.y * dt;
     if (F.pos.y <= g && F.vel.y <= 0) {
-      const impact = -F.vel.y; F.pos.y = g; F.onGround = true; F.mode = 'walk';
+      const impact = -F.vel.y; F.pos.y = g; F.onGround = true; F.mode = 'walk'; F.flipT = 0; F.canFlip = false;
       if (impact > 11) { startTumble(new THREE.Vector3(F.vel.x * 0.6, 2.5, F.vel.z * 0.6)); }
       else { F.vel.y = 0; F.squash = Math.min(0.5, impact * 0.05); if (impact > 7) say('ouch'); if (impact > 2.5) sfx('thud', F.pos, Math.min(0.9, impact / 9), 1.25, 5); }
     }
