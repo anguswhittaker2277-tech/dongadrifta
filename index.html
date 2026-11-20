@@ -3418,6 +3418,7 @@ function farmerStep(dt, controlled) {
 let camYawF = 0, camPitchF = 0.3, lookIdleT = 9, seqDist = 4.8;
 function footCam(dt) {
   if (typeof bpCam === 'function' && bpCam(dt)) return;          // under the bar, or spotting: the camera up in the corner of Dima's room
+  if (typeof mtCam === 'function' && mtCam(dt)) return;          // welding: over your shoulder at the seam
   const fresh = !camInit; lookIdleT += dt;
   camYawF -= input.kLR * 1.9 * dt; camPitchF = THREE.MathUtils.clamp(camPitchF - input.kUD * 1.2 * dt, camPitchLo(), 1.15);
   if (input.kLR || input.kUD) lookIdleT = 0;
@@ -4952,7 +4953,7 @@ const ACT = { more: false, for: '' };
 function updateActions() {
   let items = [];
   if (activeName === 'foot') {
-    ladderActions(items); npcActions(items); mmActions(items); mhActions(items); saActions(items); bbActions(items); bpActions(items);
+    ladderActions(items); npcActions(items); mmActions(items); mhActions(items); saActions(items); bbActions(items); bpActions(items); mtActions(items);
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
@@ -5027,6 +5028,7 @@ function doAction(id) {
   else if (id.startsWith('sa:')) saAct(id);
   else if (id.startsWith('bb:')) bbAct(id);
   else if (id.startsWith('bp:')) bpAct(id);
+  else if (id.startsWith('mt:')) mtAct(id);
   else if (id === 'radio') radioCycle();
   else if (id === 'locker') wpnOpenLocker();
   else if (id === 'mxgo') mxGo(true);
@@ -5199,7 +5201,7 @@ function drawMinimap() {
   if (isRemote(activeVeh())) {            // Dazza stays where he's standing while the drone is up
     const [x, y] = toScreen(F.pos.x, F.pos.z); ctx.beginPath(); ctx.arc(x, y, 4 * dpr, 0, Math.PI * 2); ctx.fillStyle = '#ffd23a'; ctx.fill(); ctx.strokeStyle = '#161a19'; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
   }
-  drawFunOnMap(ctx, toScreen, dpr, me); mpOnMap(ctx, toScreen, dpr); mxOnMap(ctx, toScreen, dpr);
+  drawFunOnMap(ctx, toScreen, dpr, me); mpOnMap(ctx, toScreen, dpr); mxOnMap(ctx, toScreen, dpr); mtOnMap(ctx, toScreen, dpr);
   // me: an arrow pointing the way I'm facing
   const a = rot + Math.atan2(Math.cos(heading), Math.sin(heading));
   ctx.save(); ctx.translate(W / 2, W / 2); ctx.rotate(a);
@@ -5299,7 +5301,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
+  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) drawMinimap();
@@ -6419,7 +6421,7 @@ function buildStructs() {
   structMats();
   for (const D of STRUCT_DEFS) buildShed(D);
   for (const B of BOX_DEFS) buildBox(B);
-  buildSilos(); buildLocker(); if (typeof dgBuild === 'function' && !DG.yard) dgBuild(); if (HS.ready) hsStructs();      // (the yard's built once and kept: see resetStructs)
+  buildSilos(); buildLocker(); if (typeof dgBuild === 'function' && !DG.yard) dgBuild(); if (HS.ready) hsStructs(); if (typeof mtWorkshop === 'function' && !MT.ws) mtWorkshop();      // (the yard's built once and kept: see resetStructs)
   STRUCTS.ready = true;
 }
 function addPart(group, p) { p.alive = true; p.group = group; p.i = STRUCTS.parts.length; STRUCTS.parts.push(p); group.parts.push(p); return p; }
@@ -7007,7 +7009,8 @@ function emotePose(id, t) {
     p.kneeL = p.kneeR = 0.25 + 0.2 * dn; p.hipL = p.hipR = -0.15 - 0.2 * dn; return p;
   }
   if (id === 'bpLie') { p.flip = Math.PI / 2; p.hipL = p.hipR = 0.05; p.kneeL = p.kneeR = 1.45; bpPressArms(p, BP.vk, DAZZA); p.headX = -0.12; p.torsoX = 0; return p; }     // flat on the bench, pressing
-  if (id === 'bpSpot') { bpSpotArms(p, BP.vk, BP.q && BP.q.stall === 3, DAZZA); return p; }                                                       // at the head of the bench, hands under the bar
+  if (id === 'bpSpot') { bpSpotArms(p, BP.vk, BP.q && BP.q.stall === 3, DAZZA); return p; }
+  if (id === 'mtWeld') { p.torsoX = 0.38; p.headX = 0.32; p.shRx = -1.3; p.shRz = -0.2; p.elR = -0.75; p.shLx = -0.95; p.shLz = 0.32; p.elL = -1.15; p.kneeL = p.kneeR = 0.2; p.hipL = p.hipR = -0.2; return p; }     // bent over the jig, torch in the right hand                                                       // at the head of the bench, hands under the bar
   if (id === 'sit') {                     // sat down: on the sauna bench, or up to the chest in the cold tub, hands on the knees
     const tub = EM.cur && EM.cur.sit === 'tub', br = Math.sin(t * 1.6) * 0.02;
     p.hipL = p.hipR = -1.5; p.kneeL = p.kneeR = tub ? 1.75 : 1.45; p.shLx = p.shRx = tub ? -0.35 : -1.0; p.shLz = tub ? 0.55 : 0.2; p.shRz = tub ? -0.55 : -0.2; p.elL = p.elR = tub ? -0.25 : -0.6;
@@ -7123,7 +7126,7 @@ function startEmote(id) {
   audioInit(); emoteMusic(E); closeEmoteWheel();
   if (id === 'flip' && AU.buf.steps) playAt(AU.buf.steps[0], F.pos, 0.6, 0.8, 5);
 }
-function endEmote() { if (EM.cur && EM.cur.sit) { saStandUp(); return; }
+function endEmote() { if (EM.cur && EM.cur.sit) { saStandUp(); return; } if (EM.cur && EM.cur.mt) { mtWeldExit(); return; }
   if (EM.cur && EM.cur.bp) { const lie = EM.cur.bp === 'lie'; if (lie) bpStandUp(); else { F.mode = 'walk'; F.yaw = EM.yaw0; EM.cur = null; } if (BP.q && BP.q.who === MP.me) bpSend(lie ? 'bp:up' : 'bp:leave'); return; } if (F.mode === 'emote') { F.mode = 'walk'; F.yaw = EM.yaw0; } EM.cur = null; stopEmoteMusic(); }
 function emoteStep(dt) {
   if (F.mode !== 'emote' || !EM.cur) return false;
@@ -9533,7 +9536,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); saReset(); dmReset(); bpReset(); phReset(); bbReset(); snReset();
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); saReset(); dmReset(); bpReset(); mtReset(); phReset(); bbReset(); snReset();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -10270,9 +10273,10 @@ function melTarget(r) {
   for (const n of NPC.list) { if (!npcAlive(n) || n.st === 'drive') continue; const d = Math.hypot(n.pos.x - F.pos.x, n.pos.z - F.pos.z); if (d < bd) { bd = d; best = n; } }
   return best;
 }
-function melCan() { if (typeof bpTapMode === 'function' && bpTapMode()) return true; return activeName === 'foot' && F.dead <= 0 && !wpnArmed() && (F.mode === 'walk' || F.mode === 'air' || !!MEL.cur); }
+function melCan() { if (typeof bpTapMode === 'function' && bpTapMode()) return true; if (typeof mtWelding === 'function' && mtWelding()) return true; return activeName === 'foot' && F.dead <= 0 && !wpnArmed() && (F.mode === 'walk' || F.mode === 'air' || !!MEL.cur); }
 function melPop(txt) { if (typeof motoPop === 'function') motoPop('<b>' + txt + '</b>', 1.1, 'pre'); }
 function melStart(btn = 'punch') {
+  if (typeof mtWelding === 'function' && mtWelding()) return;                                                         // the torch: WELD is held (see MT.held)
   if (typeof bpTapMode === 'function' && bpTapMode()) { if (btn === 'punch') bpTap(); return; }         // bench day: it's SPOT, or PUSH
   if (btn === 'punch' && typeof bbNailTarget === 'function' && bbNailTarget()) { bbSwing(); return; }        // at the bunks with a sheet: it's the hammer
   if (wpnArmed() || activeName !== 'foot' || F.mode !== 'walk' || F.dead > 0) return;
@@ -11249,7 +11253,7 @@ function voxSay(n, text) {
   if (d > 32) return 0;
   const now = AU.ctx.currentTime;
   let parts;
-  if (who === 'mm') parts = voxSplit(text); else if (who === 'dm') { const e = VOX.head.dm && VOX.head.dm[voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
+  if (who === 'mm') parts = voxSplit(text); else if (who === 'dm' || who === 'mt') { const e = VOX.head[who] && VOX.head[who][voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
   if (!parts || !parts.length) return 0;
   voxStop(who);
   const g = AU.ctx.createGain(); g.gain.value = THREE.MathUtils.clamp(1.25 - d / 26, 0.12, 1) * (who === 'mm' ? 1.15 : 0.95); g.connect(AU.master);
@@ -11263,10 +11267,10 @@ function voxSay(n, text) {
   });
   return total;
 }
-const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : VOX_WHO[n.name];
+const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : n.matt ? 'mt' : VOX_WHO[n.name];
 document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
-  if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; } if (n.dima) { dmSayNpc(n, line); return; }     // Madman never gets the backpackers' French: map to his own lines
+  if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; } if (n.dima) { dmSayNpc(n, line); return; } if (n.matt) { mtSayNpc(n, line); return; }     // Madman never gets the backpackers' French: map to his own lines
   spkLine(n, 'fr', line, dur);
 }
 // French, with the English under it
@@ -11597,7 +11601,7 @@ function npcPose(n, dt) {
       shLx = s * (0.45 + run * 0.6); shRx = -s * (0.45 + run * 0.6); elL = elR = -0.3 - run * 0.9; bodyY += Math.abs(c) * (0.035 + run * 0.06); torsoX = 0.05 + run * 0.2; torsoY = -s * 0.12;
     } else { headY = Math.sin(NPC.t * 0.4 + n.ph) * 0.3; }
   }
-  if (n.mm || n.dima || n.sniper || n.st.startsWith('bb')) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.st === 'bbWatch' || n.st === 'mmWatch' || n.st === 'dmWatch' ? bbWatchPose(n, Q) : n.mm ? mmPoseHook(n, Q, dt) : n.dima ? dmPoseHook(n, Q) : n.sniper ? snPoseHook(n, Q) : bbPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
+  if (n.mm || n.dima || n.matt || n.sniper || n.st.startsWith('bb')) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.st === 'bbWatch' || n.st === 'mmWatch' || n.st === 'dmWatch' ? bbWatchPose(n, Q) : n.mm ? mmPoseHook(n, Q, dt) : n.dima ? dmPoseHook(n, Q) : n.matt ? mtPoseHook(n, Q) : n.sniper ? snPoseHook(n, Q) : bbPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
   const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
   lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
   lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
@@ -11637,14 +11641,14 @@ function npcStep(dt) {
   if (mpwCli()) { mpwCliNpc(dt); return; }
   spkStep();
   for (const n of NPC.list) { plBegin(MP.on ? plFocus(n) : plList()[0]);
-    try { if (n.mm) mmThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.lineT = (n.lineT || 0) - dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
+    try { if (n.mm) mmThink(n, dt); else if (n.matt) mtThink(n, dt); else if (n.dima) { if (saNpc(n, dt)) { n.t += dt; n.lineT = (n.lineT || 0) - dt; } else dmThink(n, dt); } else npcThink(n, dt); } finally { plEnd(); }
     npcPose(n, dt); }
   shedFauna(dt);
 }
 function npcReset() {
   NPC.shedWait = 0; if (!NPC.ready) return;
-  for (const n of NPC.list) { if (n.mm || n.dima) continue; if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; n.route = null; n.failN = 0; n.bpts = null; }
-  NPC.list.forEach((n, i) => { if (!n.mm && !n.dima) npcPlace(n, i); });
+  for (const n of NPC.list) { if (n.mm || n.dima || n.matt) continue; if (n.veh) { n.veh.npc = null; n.veh.coast = false; n.veh = null; } scene.attach(n.root); n.bub.sp.visible = false; n.bub.time = 0; n.angry = false; n.ko = false; n.fleeT = 0; n.atkPh = ''; n.route = null; n.failN = 0; n.bpts = null; }
+  NPC.list.forEach((n, i) => { if (!n.mm && !n.dima && !n.matt) npcPlace(n, i); });
 }
 // guns and blasts work on them too
 function npcShot(n, d, dmg, P, head) {
@@ -13036,7 +13040,7 @@ function bbStep(dt) {
   // the mates' sheets (a guest's carry comes from the host; the host knows them all)
   if (MP.on) for (const p of MP.peers.values()) { const h = BB.help[p.id], on = !!(h && h.carry) && !p.veh; if (!p.bbSheet && on && BB.mkSheet) { p.bbSheet = BB.mkSheet(); p.av.torso.add(p.bbSheet); p.bbSheet.position.set(0.34, 0, 0.12); } if (p.bbSheet) p.bbSheet.visible = on; }
   // the builders' props
-  for (const n of NPC.list) { if (n.mm || n.dima || n.sniper || !BB.mkSheet) continue;
+  for (const n of NPC.list) { if (n.mm || n.dima || n.matt || n.sniper || !BB.mkSheet) continue;
     if (!n.bbSheet && (n.st === 'bbCarry' || n.st === 'bbNail')) { n.bbSheet = BB.mkSheet(); n.P.torso.add(n.bbSheet); n.bbSheet.position.set(0, 0.05, 0.42); n.bbSheet.rotation.set(0, Math.PI / 2, 0); const h = new THREE.Group(); h.rotation.x = Math.PI / 2; h.position.set(0, -0.26, 0); n.bbHam = BB.mkHammer(); h.add(n.bbHam); n.P.elR.add(h); }
     if (n.bbSheet) { n.bbSheet.visible = n.st === 'bbCarry'; n.bbHam.visible = n.st === 'bbNail'; } }
   bbChipStep(dt);
@@ -13044,7 +13048,7 @@ function bbStep(dt) {
 
 /* ---------- the builder: one of the backpackers, putting it back up a sheet at a time ---------- */
 function bbPickBuilder() {
-  const ok = n => n && !n.mm && !n.dima && !n.sniper && npcAlive(n) && !n.angry;
+  const ok = n => n && !n.mm && !n.dima && !n.matt && !n.sniper && npcAlive(n) && !n.angry;
   const n = [npcByName('Mathieu'), npcByName('Chloé'), ...NPC.list].find(ok); BB.who = n ? n.name : null;
   if (n) { if (n.veh) npcEject(n, 'park'); n.st = 'wander'; n.bbPh = null; npcSay(n, npcPick(NPC_L.build), 3); }
 }
@@ -13770,6 +13774,661 @@ function barHands(P, Q, w, dy) {
 }
 function bpPressArms(p, k, P) { if (P) { barHands(P, p, 0.4, 0); return; } p.shLx = p.shRx = -0.35 - 1.15 * k; p.shLz = 0.95 - 0.65 * k; p.shRz = -p.shLz; p.elL = p.elR = -2.0 + 1.95 * k; }
 function bpSpotArms(p, k, help, P) { p.torsoX = 0.42 - 0.12 * k; p.kneeL = p.kneeR = 0.14; p.hipL = p.hipR = -0.12; p.headX = 0.35; if (P) { barHands(P, p, 0.24, help ? -0.01 : -0.03); return; } p.shLx = p.shRx = -0.75 - 0.6 * k - (help ? 0.15 : 0); p.shLz = 0.22; p.shRz = -0.22; p.elL = p.elR = -0.45 + 0.2 * k; }
+/* ================================================================
+   MATT AND HIS WORKSHOP
+   The big shed was empty. Now it's Matt's: a young Aussie mechatronics nerd who keeps the farm's gear going and, on the
+   side, builds a rocket. Benches and a pegboard, a lathe, a drill press, the welder, racks of bits, a whiteboard full of
+   sums, and the rocket on its trolley in the middle. Three jobs with him, one after the other:
+     Parts run    three bits from round the farm (they glow, and they're on the map); bring them back to the shed
+     The fins     weld the fins on: hold WELD to keep the puddle in the green (too hot blows holes, too cold does nothing)
+     Launch day   he wheels it out to the pad; you hit the big red button; up she goes (how well you welded counts)
+   After the parts run he'll patch up any machine you bring to the shed, and after the first launch it's launch day
+   whenever you like (he prints spares). The host runs it all; a mate's phone mirrors it.
+   ================================================================ */
+const MT = { ready: false, n: null, ws: null, talkT: 14, spotT: 20, spot: 'bench', stage: 0, launches: 0, best: 0, weldQ: 0.8, q: null, qid: 0, ui: false, held: false, w: null, R: null, rk: null, path: null, sayT: 0, hintT: 0, chipTxt: '', board: -1 };
+function mtLoad() { try { const s = JSON.parse(localStorage.getItem('wfy.matt') || 'null'); MT.stage = s ? s.stage | 0 : 0; MT.launches = s ? s.launches | 0 : 0; MT.best = s ? s.best || 0 : 0; MT.weldQ = s && s.weldQ != null ? s.weldQ : 0.8; } catch (_) {} }
+function mtSave() { try { localStorage.setItem('wfy.matt', JSON.stringify({ stage: MT.stage, launches: MT.launches, best: MT.best, weldQ: MT.weldQ })); } catch (_) {} }
+mtLoad();
+const MATT_LOOK = { name: 'Matt', h: 0.72, w: 0.15, m: 0, skin: 1, hair: 'curls', hc: 1, hat: 'none', hatc: 0, shirt: 'tee', sc: 7, legs: 'shorts', lc: 0, shoes: 'boots', shc: 1, gl: 'reading', fh: 1 };
+const MATT_L = {
+  idle: ["Mind the swarf, it's sharp.", 'Engineering is just maths with a hammer, really.', "I've run the numbers three times. It'll fly.", "If it's not on the whiteboard, it doesn't exist.",
+    'Measure twice, cut once. Then measure again, because you probably got it wrong.', 'Point one of a mil tolerance. In a shed. On a farm.', 'Half the farm runs on fencing wire and my good intentions.',
+    "Don't touch the lathe. Seriously. It eats sleeves.", "That header's held together with zip ties. I'm not proud of it."],
+  greet: ["G'day! Come to see the rocket?", "Oh, g'day. Don't mind the mess, it's organised chaos.", "G'day mate! Watch your feet, there's bits everywhere."],
+  talk: ["It's a rocket. Well, it will be. A hundred and fifty metres, if my sums are right.", 'I did mechatronics at uni. Now I fix headers and build rockets in a shed. Living the dream.',
+    "Madman reckons it's a waste of time. Madman also reckons a ute counts as a personality.", "Dima asked if it can lift him. I said no. He's been sulking all week.",
+    "The French lot keep asking if it's a weapon. It's a scientific instrument. That happens to be pointy."],
+  partsStart: ["Righto! I need three bits: the fuel pump off the old header, an oxygen bottle from the machinery shed, and a nose cone. There's one behind the little shed at the house. Don't ask.",
+    "Three parts, mate. I've marked them on your map. They're the glowy ones."],
+  partsBack: ['Got the lot? Bring them back to the shed!', "That's all three! Get them back here, I'm itching."],
+  partsDone: ["Ripper! That's everything. Now we're cooking.", 'Beauty! The nose cone even fits. Mostly.'],
+  weldStart: ['Helmet down. Hold the trigger to strike an arc and keep the puddle in the green. Too hot and you blow straight through.', 'Fins next. Hold weld, keep it in the green, nice and steady.'],
+  weldGood: ['Nice bead!', 'Beautiful. Stack of dimes, that.', 'Steady hands, mate.'],
+  weldHot: ['Too hot! Ease off!', "You're cooking it!"],
+  weldCold: ["Strike it! You're too cold!", "That's not a weld, that's bird poo."],
+  weldHole: ["Ah, you've blown a hole. Keep going, I'll grind it later.", 'Swiss cheese, mate. Ease off a bit.'],
+  seam1: ["That's one fin on."], seam2: ['Two down!'], seam3: ['Three! One to go.'],
+  weldWin: ["Mate, that's better than mine. Don't tell anyone.", "Four fins, all on. She's ready to fly."],
+  weldFail: ["Righto, she's Swiss cheese. We'll grind it back and have another go."],
+  launchStart: ["Launch day! I'll wheel her out to the pad.", 'Right, out she goes. Mind your toes.'],
+  padReady: ["She's on the rail. Go to the control box and hit the big red button when you're ready."],
+  c5: ['Five!'], c4: ['Four!'], c3: ['Three!'], c2: ['Two!'], c1: ['One!'], ign: ['Ignition!'],
+  liftoff: ['Look at her go!', 'Go on, go on!'],
+  chute: ['Chute! Textbook! Absolutely textbook!'],
+  landed: ["I'm putting that on the whiteboard.", 'Did you see that? Did you see that!'],
+  crash: ["Oh no. That's a rapid unscheduled disassembly.", "Well, that's data. Expensive data."],
+  spare: ['Good thing I printed spares.'],
+  busy: ["Bit busy, mate. I'm with your mate."],
+  fixDone: ["She's sweet as now. Try not to roll it again.", 'Leave it with me. Done. Next!'],
+  fixNone: ["Can't fix what's not here. Bring it to the shed."],
+  fixUte: ["That's Madman's ute. I'm not touching it. I like my fingers."],
+  hurt: ['Ow! Not the glasses!', 'Oi! I bruise like a peach!'],
+  angry: ["Right, that's it. I'm calculating your trajectory!", "You'll keep!"],
+  ko: ['I think I saw the square root of minus one.'],
+  win2: ['Ha! Physics, mate.'],
+  bye: ['Catch ya!', 'Hooroo! Mind the swarf.'],
+};
+// the shed's own frame: u along the ridge, v across (the back wall is v = -16.2; the lean-to and the open side are past v = 2.4)
+const mtD = () => STRUCT_DEFS[0];
+function mtW(u, v) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.cos(t), s = Math.sin(t); return [D.cx + c * u - s * v, D.cz + s * u + c * v]; }
+function mtUV(x, z) { return shedLocal(mtD(), x, z); }
+function mtYaw(du, dv) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.cos(t), s = Math.sin(t); return Math.atan2(c * du - s * dv, s * du + c * dv); }
+function mtFloor(x, z) { const f = shedFloorAt(x, z); return f !== null ? f : groundAt(x, z, 30, 0); }
+// where Matt works ([u, v, facing du, dv]), the welding spot, the trolley's way out to the pad and the control box
+const MT_SPOT = { bench: [-5, -14.35, 0, -1], board: [14.3, -10, 1, 0], lathe: [4.8, -14.3, 0, -1], rocket: [1.25, -8, -1, 0], watch: [9.9, -12.5, -0.5, 1], box: [6.4, 18.8, -0.8, 0.6], trolley: [0, -9.2, 0, 1] };
+const MT_AISLE = -12.9, MT_WELD = [8, -12.15], MT_TABLE = [8, -11], MT_ROCK = [0, -8], MT_PAD = [0, 30], MT_BOX = [5, 18];
+const MT_ROLL = [[0, -8], [0, 3], [0, 17], [0, 30]];
+const MT_PARTS = [
+  { id: 'pump', name: 'the fuel pump', at: () => [-145.6, 50.2] },
+  { id: 'bottle', name: 'the oxygen bottle', at: () => { const D = STRUCT_DEFS[1], t = D.ang * Math.PI / 180; return [D.cx + Math.sin(t) * 17.2, D.cz - Math.cos(t) * 17.2]; } },
+  { id: 'cone', name: 'the nose cone', at: () => [HS_SHED.x + 3.6, HS_SHED.z + 2.4] },
+];
+function mtMats() {
+  if (MT.mats) return MT.mats;
+  const L = c => new THREE.MeshLambertMaterial({ color: c });
+  return MT.mats = { steel: L(0x8d9396), dark: L(0x2f3336), timber: L(0x9a7650), peg: L(0x8a6a48), red: L(0xb3261e), green: L(0x5d7466), yellow: L(0xe0b326), white: L(0xeeeeea), black: L(0x1b1c1d),
+    blue: L(0x2f5f9e), orange: L(0xd9822b), rubber: L(0x262626), grey: L(0x6b7073), brown: L(0x6b4a33), cream: L(0xe8e0c8), chrome: L(0xc7cbcf), bottle: L(0x2e6b3f),
+    fluoro: new THREE.MeshBasicMaterial({ color: 0xf4f8ff }), screen: new THREE.MeshBasicMaterial({ color: 0x3a6ea8 }), bead: new THREE.MeshBasicMaterial({ color: 0xff9a3c }), beadC: L(0x7c7f82) };
+}
+// ---- the workshop: built once into the big shed and kept (like the dongas) ----
+function mtWorkshop() {
+  if (MT.ws) return; const D = mtD(); if (!STRUCTS.groups.some(G => G.id === D.id)) return;
+  const M = mtMats(), t = D.ang * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+  const root = new THREE.Group(); root.position.set(D.cx, 0, D.cz); root.rotation.y = -t; scene.add(root); MT.ws = root;
+  const group = { id: 'workshop', root, parts: [], ctr: new THREE.Vector3(D.cx, 2, D.cz), rad: 26, gy: 0, fixed: true, keep: true }; STRUCTS.groups.push(group); MT.group = group;
+  const eU = new THREE.Vector3(c, 0, s), eY = new THREE.Vector3(0, 1, 0), eV = new THREE.Vector3(-s, 0, c);
+  const fy = (u, v) => { const [x, z] = mtW(u, v); return mtFloor(x, z); };
+  const box = (w, h, d, m, u, y, v, ry = 0, par = root) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(u, y, v); o.rotation.y = ry; par.add(o); return o; };
+  const cyl = (rt, rb, h, m, u, y, v, seg = 12, par = root) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), m); o.position.set(u, y, v); par.add(o); return o; };
+  const solid = (u, y, v, hu, hy, hv) => { const [x, z] = mtW(u, v), p = addPart(group, { kind: 'donga', obj: root, fixed: true }); boxPart(p, new THREE.Vector3(x, y, z), eU, eY, eV, hu, hy, hv); return p; };
+  const label = (txt, w, h, bg, fg, px, u, y, v, ry) => { const cv = document.createElement('canvas'); cv.width = 256; cv.height = Math.round(256 * h / w); const g = cv.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, cv.width, cv.height);
+    g.fillStyle = fg; g.font = `900 ${px}px system-ui,sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; txt.split('\n').forEach((l, i, a) => g.fillText(l, 128, cv.height / 2 + (i - (a.length - 1) / 2) * px * 1.15));
+    const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tx })); m.position.set(u, y, v); m.rotation.y = ry || 0; root.add(m); return m; };
+  // the main bench along the back wall, its pegboard of tools, a vice, a bench grinder, the laptop and a mug
+  { const u0 = -5, v0 = -15.2, f = fy(u0, v0); box(8, 0.06, 0.8, M.timber, u0, f + 0.9, v0); box(7.8, 0.03, 0.7, M.steel, u0, f + 0.25, v0);
+    for (const du of [-3.95, 0, 3.95]) for (const dv of [-0.35, 0.35]) box(0.06, 0.88, 0.06, M.steel, u0 + du, f + 0.44, v0 + dv);
+    box(8, 1.2, 0.03, M.peg, u0, f + 1.78, -15.63); box(8.1, 0.05, 0.05, M.dark, u0, f + 2.4, -15.6); box(8.1, 0.05, 0.05, M.dark, u0, f + 1.16, -15.6);
+    for (let k = 0; k < 9; k++) box(0.025, 0.14 + k * 0.025, 0.012, M.chrome, u0 - 3.6 + k * 0.12, f + 2.05 - k * 0.012, -15.6);          // spanners, small to big
+    for (let k = 0; k < 6; k++) { box(0.02, 0.16, 0.02, [M.red, M.yellow, M.blue, M.orange, M.green, M.red][k], u0 - 2.0 + k * 0.1, f + 1.62, -15.6); box(0.006, 0.14, 0.006, M.chrome, u0 - 2.0 + k * 0.1, f + 1.47, -15.6); }   // screwdrivers
+    box(0.035, 0.32, 0.03, M.timber, u0 - 0.9, f + 1.75, -15.6); box(0.16, 0.05, 0.04, M.dark, u0 - 0.9, f + 1.92, -15.6);              // a hammer
+    box(0.55, 0.12, 0.01, M.chrome, u0 + 0.2, f + 1.85, -15.6); box(0.12, 0.13, 0.03, M.red, u0 - 0.13, f + 1.85, -15.6);           // a hacksaw
+    for (let k = 0; k < 5; k++) cyl(0.045, 0.045, 0.06, M.blue, u0 + 1.2 + k * 0.22, f + 1.56, -15.58, 10);                      // tape rolls, sockets
+    box(0.75, 0.32, 0.01, M.cream, u0 + 2.6, f + 2.05, -15.6); label('THINK\nTWICE', 0.42, 0.24, '#f2c14e', '#222', 44, u0 + 3.3, f + 1.6, -15.6);
+    box(0.22, 0.12, 0.24, M.blue, u0 - 3.55, f + 0.99, v0 + 0.2); box(0.3, 0.12, 0.05, M.dark, u0 - 3.55, f + 1.06, v0 + 0.33);                     // the vice
+    cyl(0.07, 0.07, 0.22, M.green, u0 - 2.6, f + 1.02, v0, 12).rotation.z = Math.PI / 2; for (const d of [-0.15, 0.15]) { const w = cyl(0.08, 0.08, 0.025, M.grey, u0 - 2.6 + d, f + 1.02, v0, 16); w.rotation.z = Math.PI / 2; }   // the bench grinder
+    box(0.34, 0.015, 0.24, M.dark, u0 + 1.6, f + 0.94, v0 + 0.1); const scr = box(0.34, 0.22, 0.012, M.screen, u0 + 1.6, f + 1.05, v0 - 0.02); scr.rotation.x = -0.25;            // the laptop, CAD up
+    cyl(0.04, 0.035, 0.1, M.white, u0 + 2.3, f + 0.98, v0 + 0.15, 10); box(0.5, 0.2, 0.3, M.grey, u0 + 3.1, f + 1.03, v0); box(0.25, 0.08, 0.18, M.red, u0 - 1.2, f + 0.97, v0 + 0.1);   // mug, parts bins, a box of fuses
+    box(8.4, 0.012, 1.3, M.rubber, u0, f + 0.006, -14.3);                                                                          // a rubber mat to stand on
+    solid(u0, f + 0.47, v0, 4.0, 0.47, 0.42); MT.benchY = f + 0.93; }
+  // the drill press and the red tool chest
+  { const u0 = 0.6, v0 = -15.25, f = fy(u0, v0); box(0.4, 0.05, 0.55, M.dark, u0, f + 0.03, v0); cyl(0.04, 0.04, 1.65, M.chrome, u0, f + 0.85, v0 - 0.15, 10); box(0.28, 0.24, 0.42, M.green, u0, f + 1.55, v0 - 0.02);
+    cyl(0.08, 0.08, 0.22, M.green, u0, f + 1.72, v0 - 0.22, 12); cyl(0.02, 0.015, 0.12, M.chrome, u0, f + 1.36, v0 + 0.08, 8); cyl(0.17, 0.17, 0.03, M.grey, u0, f + 0.95, v0 + 0.06, 16); solid(u0, f + 0.9, v0, 0.24, 0.9, 0.3); }
+  { const u0 = -12.4, v0 = -15.25, f = fy(u0, v0); box(1.1, 0.95, 0.5, M.red, u0, f + 0.55, v0); box(1.12, 0.06, 0.52, M.dark, u0, f + 1.05, v0);
+    for (let k = 0; k < 6; k++) box(1.0, 0.01, 0.01, M.dark, u0, f + 0.2 + k * 0.14, v0 + 0.255); for (const du of [-0.45, 0.45]) for (const dv of [-0.18, 0.18]) cyl(0.04, 0.04, 0.04, M.black, u0 + du, f + 0.04, v0 + dv, 8);
+    box(0.6, 0.35, 0.4, M.red, u0 + 0.1, f + 1.26, v0); solid(u0, f + 0.72, v0, 0.56, 0.72, 0.27); }
+  // racks of bits down the left end: steel shelving, tubs, paint tins, a coil of hose
+  for (const v0 of [-12.6, -8.6]) { const u0 = -14.9, f = fy(u0, v0);
+    for (const du of [-0.28, 0.28]) for (const dv of [-1.18, 1.18]) box(0.04, 2.0, 0.04, M.blue, u0 + du, f + 1.0, v0 + dv);
+    for (let k = 0; k < 4; k++) { const y = f + 0.2 + k * 0.58; box(0.6, 0.03, 2.4, M.steel, u0, y, v0);
+      for (let j = 0; j < 4; j++) { const col = [M.orange, M.blue, M.yellow, M.grey, M.red][(j + k * 2 + (v0 > -10 ? 1 : 0)) % 5]; box(0.42, 0.24, 0.42, col, u0, y + 0.135, v0 - 0.85 + j * 0.57); } }
+    solid(u0, f + 1.0, v0, 0.32, 1.0, 1.22); }
+  { const u0 = -14.3, v0 = -15.1, f = fy(u0, v0); cyl(0.29, 0.29, 0.88, M.blue, u0, f + 0.44, v0, 16); cyl(0.29, 0.29, 0.88, M.blue, u0 + 0.62, f + 0.44, v0 + 0.05, 16); solid(u0 + 0.3, f + 0.44, v0, 0.62, 0.44, 0.32); }
+  // the lathe
+  { const u0 = 4.8, v0 = -15.2, f = fy(u0, v0); for (const du of [-0.85, 0.85]) box(0.32, 0.8, 0.4, M.green, u0 + du, f + 0.4, v0); box(2.3, 0.04, 0.5, M.steel, u0, f + 0.82, v0);
+    box(2.2, 0.16, 0.32, M.green, u0, f + 0.92, v0); box(0.48, 0.46, 0.42, M.green, u0 - 0.85, f + 1.23, v0); box(0.3, 0.26, 0.28, M.green, u0 + 0.8, f + 1.13, v0);
+    const ch = cyl(0.13, 0.13, 0.12, M.chrome, u0 - 0.55, f + 1.2, v0, 16); ch.rotation.z = Math.PI / 2; const st = cyl(0.025, 0.025, 1.1, M.chrome, u0 + 0.05, f + 1.2, v0, 10); st.rotation.z = Math.PI / 2;
+    box(0.2, 0.12, 0.2, M.dark, u0 + 0.1, f + 1.06, v0 + 0.08); solid(u0, f + 0.7, v0, 1.18, 0.7, 0.3); }
+  // the welding table: a steel plate on legs, the fin jig (MT.jig, turned to the fin being welded), the welder on its trolley and the gas bottle
+  { const [u0, v0] = MT_TABLE, f = fy(u0, v0); box(2.0, 0.04, 1.0, M.dark, u0, f + 0.86, v0); for (const du of [-0.93, 0.93]) for (const dv of [-0.45, 0.45]) box(0.06, 0.84, 0.06, M.dark, u0 + du, f + 0.42, v0 + dv);
+    box(1.9, 0.03, 0.9, M.dark, u0, f + 0.2, v0); MT.tableY = f + 0.88;
+    const jig = new THREE.Group(); jig.position.set(u0, f + 0.88, v0); root.add(jig); MT.jig = jig;
+    cyl(0.2, 0.22, 0.05, M.grey, 0, 0.025, 0, 16, jig);
+    const can = new THREE.Group(); jig.add(can); MT.can = can;
+    cyl(0.16, 0.16, 0.7, M.white, 0, 0.4, 0, 16, can); cyl(0.165, 0.165, 0.03, M.black, 0, 0.72, 0, 16, can);
+    MT.fins = []; MT.beads = [];
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2, dx = Math.cos(a), dz = Math.sin(a); const fin = box(0.36, 0.45, 0.02, M.red, dx * 0.34, 0.33, dz * 0.34, -a, can); MT.fins.push(fin);
+      const px = -dz, pz = dx, bead = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 1, 6), M.bead); bead.geometry.translate(0, 0.5, 0); bead.position.set(dx * 0.172 + px * 0.017, 0.105, dz * 0.172 + pz * 0.017); bead.scale.y = 0.0001; bead.visible = false; can.add(bead); MT.beads.push(bead); }
+    const torch = new THREE.Group(); box(0.03, 0.03, 0.22, M.dark, 0, 0, 0, 0, torch); cyl(0.012, 0.008, 0.06, M.chrome, 0, 0, 0.13, 8, torch).rotation.x = Math.PI / 2; torch.visible = false; root.add(torch); MT.torch = torch;
+    const hm = box(0.24, 0.26, 0.22, M.dark, u0 + 0.7, f + 1.01, v0 - 0.2); box(0.12, 0.06, 0.01, M.bottle, u0 + 0.7, f + 1.03, v0 - 0.31);                              // a helmet, visor and all
+    const wu = u0 + 1.55, wv = v0 - 0.7; box(0.42, 0.46, 0.62, M.yellow, wu, f + 0.62, wv); box(0.5, 0.04, 0.7, M.dark, wu, f + 0.37, wv); for (const dv of [-0.28, 0.28]) cyl(0.08, 0.08, 0.05, M.black, wu - 0.18, f + 0.09, wv + dv, 10).rotation.x = Math.PI / 2;
+    box(0.04, 0.3, 0.04, M.dark, wu + 0.18, f + 0.2, wv); cyl(0.11, 0.11, 1.15, M.bottle, wu + 0.12, f + 0.58, wv + 0.42, 14); cyl(0.04, 0.05, 0.1, M.chrome, wu + 0.12, f + 1.2, wv + 0.42, 8);
+    solid(u0, f + 0.45, v0, 1.0, 0.45, 0.5); solid(wu + 0.05, f + 0.6, wv + 0.15, 0.3, 0.6, 0.5); }
+  // the engine on its stand, the desk with the 3D printer, the fridge, the couch facing the whiteboard
+  { const u0 = -6.5, v0 = -7, f = fy(u0, v0); box(0.08, 0.7, 0.08, M.dark, u0, f + 0.35, v0); box(0.9, 0.06, 0.08, M.dark, u0, f + 0.03, v0); box(0.08, 0.06, 0.9, M.dark, u0, f + 0.03, v0);
+    box(0.62, 0.5, 0.46, M.grey, u0 + 0.38, f + 0.82, v0); box(0.64, 0.12, 0.5, M.dark, u0 + 0.38, f + 1.13, v0); cyl(0.11, 0.11, 0.05, M.chrome, u0 + 0.05, f + 0.75, v0 + 0.25, 14).rotation.x = Math.PI / 2; solid(u0 + 0.25, f + 0.6, v0, 0.5, 0.6, 0.35); }
+  { const u0 = 13.2, v0 = -15.15, f = fy(u0, v0); box(1.6, 0.05, 0.7, M.timber, u0, f + 0.74, v0); for (const du of [-0.75, 0.75]) for (const dv of [-0.3, 0.3]) box(0.04, 0.72, 0.04, M.dark, u0 + du, f + 0.36, v0 + dv);
+    box(0.5, 0.32, 0.04, M.black, u0 - 0.35, f + 1.0, v0 - 0.15); box(0.46, 0.28, 0.01, M.screen, u0 - 0.35, f + 1.0, v0 - 0.125);
+    for (const du of [-0.2, 0.2]) for (const dv of [-0.2, 0.2]) box(0.025, 0.46, 0.025, M.black, u0 + 0.45 + du, f + 1.0, v0 + dv); box(0.45, 0.04, 0.45, M.black, u0 + 0.45, f + 1.24, v0); box(0.38, 0.02, 0.38, M.grey, u0 + 0.45, f + 0.8, v0);
+    cyl(0.04, 0.06, 0.12, M.orange, u0 + 0.45, f + 0.87, v0, 10); solid(u0, f + 0.6, v0, 0.82, 0.6, 0.37); }
+  { const u0 = 15.0, v0 = -13.9, f = fy(u0, v0); box(0.72, 1.7, 0.7, M.white, u0, f + 0.85, v0); box(0.02, 0.5, 0.04, M.chrome, u0 - 0.37, f + 1.15, v0 + 0.25); label("MATT'S\nHANDS OFF", 0.26, 0.2, '#fffbe0', '#b3261e', 40, u0 - 0.365, f + 1.4, v0 - 0.1, -Math.PI / 2); solid(u0, f + 0.85, v0, 0.36, 0.85, 0.35); }
+  { const u0 = 11.4, v0 = -10, f = fy(u0, v0), cg = new THREE.Group(); cg.position.set(u0, f, v0); cg.rotation.y = Math.PI / 2; root.add(cg);
+    box(2.0, 0.42, 0.85, M.brown, 0, 0.25, 0, 0, cg); box(2.0, 0.55, 0.2, M.brown, 0, 0.62, -0.35, 0, cg); for (const d of [-0.95, 0.95]) box(0.2, 0.62, 0.85, M.brown, d, 0.36, 0, 0, cg); box(1.6, 0.1, 0.6, M.cream, 0, 0.49, 0.05, 0, cg);
+    solid(u0, f + 0.4, v0, 0.45, 0.4, 1.05); }
+  // the whiteboard: the plan, ticked off as you go (see mtBoardDraw)
+  { const u0 = 15.5, v0 = -10, f = fy(u0, v0); const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 480; MT.boardCv = cv; const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; MT.boardTx = tx;
+    const b = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 1.4), new THREE.MeshLambertMaterial({ map: tx })); b.position.set(u0, f + 1.75, v0); b.rotation.y = -Math.PI / 2; root.add(b);
+    for (const dy of [-0.72, 0.72]) box(0.03, 0.04, 3.06, M.chrome, u0 + 0.01, f + 1.75 + dy, v0); for (const dv of [-1.52, 1.52]) box(0.03, 1.48, 0.04, M.chrome, u0 + 0.01, f + 1.75, v0 + dv); box(0.08, 0.03, 1.2, M.chrome, u0 - 0.03, f + 1.02, v0); mtBoardDraw(); }
+  // fluoros up on the trusses, a drum of oil, the sign on the door
+  for (const u0 of [-9, 0, 9]) for (const v0 of [-13, -6]) { const f = fy(u0, v0); box(1.25, 0.05, 0.13, M.dark, u0, f + 5.62, v0); box(1.2, 0.035, 0.08, M.fluoro, u0, f + 5.585, v0); }
+  { const u0 = 14.9, v0 = -4.2, f = fy(u0, v0); cyl(0.29, 0.29, 0.88, M.red, u0, f + 0.44, v0, 16); solid(u0, f + 0.44, v0, 0.3, 0.44, 0.3); }
+  label("MATT'S WORKSHOP\nmind the swarf", 1.6, 0.6, '#1f3a5f', '#f2c14e', 40, 0, fy(0, 2.2) + 4.6, 2.36, Math.PI);
+  // more of it: the compressor, a rack of steel stock, a parts washer, the CNC router, an engine crane, tyres, a step ladder by the rocket
+  { const u0 = -10.25, v0 = -15.1, f = fy(u0, v0); const tk = cyl(0.22, 0.22, 0.95, M.red, u0, f + 0.32, v0, 14); tk.rotation.z = Math.PI / 2; box(0.4, 0.26, 0.3, M.dark, u0 + 0.1, f + 0.66, v0); cyl(0.06, 0.06, 0.03, M.white, u0 - 0.3, f + 0.62, v0 + 0.16, 10).rotation.x = Math.PI / 2;
+    for (const du of [-0.38, 0.38]) cyl(0.07, 0.07, 0.05, M.black, u0 + du, f + 0.07, v0 + 0.2, 10).rotation.x = Math.PI / 2; solid(u0, f + 0.42, v0, 0.5, 0.42, 0.3); }
+  { const u0 = 8.6, v0 = -15.35, f = fy(u0, v0); for (const du of [-1.3, 0, 1.3]) { box(0.08, 2.0, 0.08, M.dark, u0 + du, f + 1.0, v0); for (let k = 0; k < 4; k++) box(0.05, 0.04, 0.42, M.dark, u0 + du, f + 0.35 + k * 0.5, v0 + 0.2); }
+    for (let k = 0; k < 4; k++) for (let j = 0; j < 3; j++) { const b = j === 1 ? cyl(0.025, 0.025, 3.0, M.chrome, u0, f + 0.4 + k * 0.5, v0 + 0.12 + j * 0.1, 8) : box(3.0, 0.04, 0.04, j ? M.grey : M.steel, u0, f + 0.4 + k * 0.5, v0 + 0.12 + j * 0.1); if (j === 1) b.rotation.z = Math.PI / 2; }
+    solid(u0, f + 1.0, v0 + 0.15, 1.5, 1.0, 0.3); }
+  { const u0 = 11.0, v0 = -15.1, f = fy(u0, v0); box(0.9, 0.85, 0.6, M.blue, u0, f + 0.43, v0); box(0.92, 0.05, 0.62, M.dark, u0, f + 0.88, v0); cyl(0.015, 0.015, 0.4, M.chrome, u0 + 0.2, f + 1.05, v0 - 0.1, 6); solid(u0, f + 0.45, v0, 0.46, 0.45, 0.31); }
+  { const u0 = -9.2, v0 = -10.4, f = fy(u0, v0); box(2.6, 0.06, 1.4, M.dark, u0, f + 0.85, v0); for (const du of [-1.25, 1.25]) for (const dv of [-0.65, 0.65]) box(0.08, 0.83, 0.08, M.steel, u0 + du, f + 0.42, v0 + dv);
+    box(2.5, 0.02, 1.3, M.timber, u0, f + 0.89, v0); for (const du of [-1.25, 1.25]) box(0.1, 0.4, 0.1, M.orange, u0 + du, f + 1.1, v0 + 0.2); box(2.6, 0.12, 0.12, M.orange, u0, f + 1.3, v0 + 0.2); box(0.18, 0.28, 0.18, M.dark, u0 + 0.4, f + 1.12, v0 + 0.2);
+    box(0.5, 0.012, 0.5, M.cream, u0 - 0.6, f + 0.905, v0 - 0.2); solid(u0, f + 0.6, v0, 1.3, 0.6, 0.7); }
+  { const u0 = -4.2, v0 = -6.2, f = fy(u0, v0); box(0.08, 0.08, 1.3, M.red, u0 - 0.35, f + 0.08, v0); box(0.08, 0.08, 1.3, M.red, u0 + 0.35, f + 0.08, v0); box(0.8, 0.08, 0.08, M.red, u0, f + 0.08, v0 - 0.6);
+    const mast = box(0.1, 1.6, 0.1, M.red, u0, f + 0.85, v0 - 0.55); mast.rotation.x = 0.08; const boom = box(0.09, 0.09, 1.5, M.red, u0, f + 1.62, v0 - 0.05); boom.rotation.x = -0.25; cyl(0.006, 0.006, 0.6, M.dark, u0, f + 1.5, v0 + 0.65, 4); box(0.08, 0.06, 0.04, M.chrome, u0, f + 1.18, v0 + 0.66);
+    solid(u0, f + 0.8, v0 - 0.4, 0.4, 0.8, 0.25); }
+  { const u0 = -14.6, v0 = -4.0, f = fy(u0, v0); for (let k = 0; k < 4; k++) { const ty = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.11, 8, 16), M.black); ty.rotation.x = Math.PI / 2; ty.position.set(u0 + (k % 2) * 0.04, f + 0.11 + k * 0.22, v0); root.add(ty); } solid(u0, f + 0.45, v0, 0.42, 0.45, 0.42); }
+  { const u0 = 1.3, v0 = -6.8, f = fy(u0, v0); for (const dv of [-0.28, 0.28]) { const a = box(0.05, 1.7, 0.05, M.yellow, u0 - 0.25, f + 0.83, v0 + dv); a.rotation.z = 0.15; const b = box(0.05, 1.7, 0.05, M.yellow, u0 + 0.25, f + 0.83, v0 + dv); b.rotation.z = -0.15; }
+    for (let k = 0; k < 4; k++) box(0.44 - k * 0.07, 0.03, 0.6, M.chrome, u0 - 0.15 + k * 0.02, f + 0.35 + k * 0.38, v0); box(0.3, 0.05, 0.62, M.yellow, u0, f + 1.66, v0); }
+  // his gadget bench down the right wall: a robot arm he built (it waves about: MT.arm), a soldering station, a scope with a trace on it
+  { const u0 = 14.85, v0 = -6.7, f = fy(u0, v0); box(0.8, 0.05, 2.2, M.timber, u0, f + 0.9, v0); for (const dv of [-1.0, 1.0]) for (const du of [-0.33, 0.33]) box(0.05, 0.88, 0.05, M.steel, u0 + du, f + 0.44, v0 + dv);
+    box(0.32, 0.22, 0.3, M.grey, u0 + 0.1, f + 1.04, v0 + 0.75); box(0.2, 0.14, 0.01, new THREE.MeshBasicMaterial({ color: 0x47d16b }), u0 - 0.06, f + 1.05, v0 + 0.75, -Math.PI / 2);
+    box(0.18, 0.08, 0.14, M.blue, u0, f + 0.97, v0 - 0.85); cyl(0.008, 0.008, 0.2, M.chrome, u0 - 0.05, f + 1.05, v0 - 0.75, 6);
+    const arm = new THREE.Group(); arm.position.set(u0, f + 0.925, v0 - 0.05); root.add(arm); cyl(0.11, 0.13, 0.08, M.orange, 0, 0.04, 0, 14, arm);
+    const yawG = new THREE.Group(); yawG.position.y = 0.08; arm.add(yawG); cyl(0.06, 0.07, 0.1, M.dark, 0, 0.05, 0, 10, yawG);
+    const sh = new THREE.Group(); sh.position.y = 0.1; yawG.add(sh); box(0.06, 0.38, 0.06, M.orange, 0, 0.19, 0, 0, sh);
+    const el = new THREE.Group(); el.position.y = 0.38; sh.add(el); cyl(0.035, 0.035, 0.08, M.dark, 0, 0, 0, 8, el).rotation.z = Math.PI / 2; box(0.05, 0.3, 0.05, M.orange, 0, 0.15, 0, 0, el);
+    const hd = new THREE.Group(); hd.position.y = 0.3; el.add(hd); box(0.08, 0.04, 0.05, M.dark, 0, 0.02, 0, 0, hd); box(0.012, 0.07, 0.04, M.chrome, -0.03, 0.07, 0, 0, hd); box(0.012, 0.07, 0.04, M.chrome, 0.03, 0.07, 0, 0, hd);
+    MT.arm = { yawG, sh, el, hd }; solid(u0, f + 0.6, v0, 0.42, 0.6, 1.12); }
+  // the lean-to: pallets of boxes, an IBC of water, an old ute chassis up on stands (his other project), a trailer of scrap
+  for (const [u0, v0, n] of [[-12.6, 6.2, 3], [-12.6, 8.4, 2], [-10.3, 6.2, 4]]) { const f = fy(u0, v0); box(1.2, 0.14, 1.0, M.timber, u0, f + 0.07, v0);
+    for (let k = 0; k < n; k++) box(0.5, 0.42, 0.42, M.cream, u0 - 0.27 + (k % 2) * 0.54, f + 0.35 + Math.floor(k / 2) * 0.43, v0 + (k % 3 === 2 ? 0.2 : -0.18)); solid(u0, f + 0.5, v0, 0.6, 0.5, 0.5); }
+  { const u0 = -10.3, v0 = 8.5, f = fy(u0, v0); box(1.0, 1.0, 1.0, M.white, u0, f + 0.62, v0); for (const du of [-0.52, 0.52]) for (const dv of [-0.52, 0.52]) box(0.04, 1.15, 0.04, M.steel, u0 + du, f + 0.6, v0 + dv);
+    for (const y of [0.12, 0.6, 1.14]) { box(1.08, 0.03, 0.03, M.steel, u0, f + y, v0 - 0.52); box(1.08, 0.03, 0.03, M.steel, u0, f + y, v0 + 0.52); box(0.03, 0.03, 1.08, M.steel, u0 - 0.52, f + y, v0); box(0.03, 0.03, 1.08, M.steel, u0 + 0.52, f + y, v0); }
+    box(1.1, 0.1, 1.1, M.timber, u0, f + 0.05, v0); solid(u0, f + 0.6, v0, 0.56, 0.6, 0.56); }
+  { const u0 = -3.5, v0 = 9.2, f = fy(u0, v0), rust = new THREE.MeshLambertMaterial({ color: 0x8a4b2c });
+    for (const dv of [-0.5, 0.5]) box(4.2, 0.12, 0.1, M.dark, u0, f + 0.62, v0 + dv); for (const du of [-1.4, 0, 1.4]) box(0.1, 0.1, 1.1, M.dark, u0 + du, f + 0.62, v0);
+    for (const du of [-1.5, 1.5]) for (const dv of [-0.55, 0.55]) { box(0.12, 0.5, 0.12, M.red, u0 + du, f + 0.3, v0 + dv); box(0.25, 0.04, 0.25, M.red, u0 + du, f + 0.04, v0 + dv); }
+    box(1.5, 1.0, 1.55, rust, u0 + 0.1, f + 1.2, v0); box(0.9, 0.04, 1.4, M.dark, u0 + 0.1, f + 1.72, v0); box(0.05, 0.55, 1.35, M.bottle, u0 + 0.86, f + 1.35, v0);
+    box(0.6, 0.45, 0.55, M.grey, u0 - 1.3, f + 0.92, v0); cyl(0.36, 0.36, 0.22, M.black, u0 - 2.6, f + 0.36, v0 + 0.9, 14).rotation.x = Math.PI / 2;
+    solid(u0, f + 0.9, v0, 2.15, 0.9, 0.8); }
+  { const u0 = 9.2, v0 = 9.6, f = fy(u0, v0); box(3.0, 0.1, 1.7, M.dark, u0, f + 0.55, v0); box(1.2, 0.08, 0.08, M.dark, u0 - 2.0, f + 0.45, v0); for (const dv of [-0.9, 0.9]) cyl(0.3, 0.3, 0.2, M.black, u0 + 0.2, f + 0.3, v0 + dv, 14).rotation.x = Math.PI / 2;
+    for (const dv of [-0.85, 0.85]) box(3.0, 0.3, 0.04, M.grey, u0, f + 0.75, v0 + dv);
+    for (let k = 0; k < 7; k++) { const b = box(0.3 + (k % 3) * 0.25, 0.12 + (k % 2) * 0.1, 0.25 + (k % 4) * 0.12, [M.steel, M.grey, M.dark, M.red][k % 4], u0 - 1.1 + k * 0.36, f + 0.68 + (k % 3) * 0.08, v0 - 0.4 + (k % 3) * 0.35); b.rotation.y = k * 0.7; }
+    cyl(0.04, 0.04, 2.4, M.chrome, u0, f + 0.75, v0 + 0.1, 8).rotation.z = Math.PI / 2 - 0.1; solid(u0, f + 0.6, v0, 1.6, 0.6, 0.9); }
+  // the parts, once they're in, on the bench (MT.benchParts)
+  { const g = new THREE.Group(); root.add(g); MT.benchParts = g; const y = MT.benchY;
+    const pump = new THREE.Group(); box(0.22, 0.14, 0.14, M.grey, 0, 0.07, 0, 0, pump); cyl(0.05, 0.05, 0.2, M.dark, 0.16, 0.07, 0, 10, pump).rotation.z = Math.PI / 2; pump.position.set(-7.6, y, -15.1); g.add(pump);
+    const bot = cyl(0.09, 0.09, 0.55, M.bottle, -1.6, y + 0.28, -15.25, 12, g); bot.rotation.z = 0.05; }
+  MT.benchParts.visible = MT.stage >= 1;
+  // the launch pad out past the lean-to, its rail, the blast plate, the control box and a warning sign
+  { const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), py = groundAt(px, pz, 30, 0), pad = new THREE.Group(); pad.position.set(px, py, pz); pad.rotation.y = -t; scene.add(pad); MT.pad = pad; MT.padY = py;
+    const gp = { id: 'mtPad', root: pad, parts: [], ctr: new THREE.Vector3(px, py + 1, pz), rad: 5, gy: py, fixed: true, keep: true }; STRUCTS.groups.push(gp);
+    box(2.6, 0.18, 2.6, SMAT.slab || M.grey, 0, 0.05, 0, 0, pad); box(1.1, 0.03, 1.1, M.dark, 0, 0.155, 0, 0, pad); box(0.07, 4.6, 0.07, M.steel, 0.32, 2.45, 0, 0, pad); box(0.07, 4.6, 0.07, M.steel, 0.42, 2.45, 0, 0, pad);
+    for (let k = 0; k < 6; k++) box(0.17, 0.03, 0.03, M.steel, 0.37, 0.6 + k * 0.75, 0, 0, pad); box(1.0, 0.04, 0.04, M.dark, 0.85, 0.2, 0.9, 0.6, pad);
+    const pp = addPart(gp, { kind: 'donga', obj: pad, fixed: true }); boxPart(pp, new THREE.Vector3(px, py + 0.05, pz), eU, eY, eV, 1.3, 0.12, 1.3);
+    const sg = label('DANGER\nROCKET TESTING\nkeep back 15 m', 0.9, 0.62, '#f2c14e', '#1b1c1d', 30, 0, 0, 0); root.remove(sg); const [sx, sz] = mtW(-3.5, 24), sy = groundAt(sx, sz, 30, 0); sg.position.set(sx, sy + 1.25, sz); sg.rotation.y = mtYaw(0, 1); scene.add(sg);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.0, 0.06), M.steel); post.position.set(sx, sy + 0.5, sz); scene.add(post);
+    const [bx, bz] = mtW(MT_BOX[0], MT_BOX[1]), by = groundAt(bx, bz, 30, 0), cb = new THREE.Group(); cb.position.set(bx, by, bz); cb.rotation.y = mtYaw(MT_PAD[0] - MT_BOX[0], MT_PAD[1] - MT_BOX[1]); scene.add(cb); MT.boxG = cb;
+    for (let k = 0; k < 3; k++) { const a = k * 2.094, l = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.0, 0.03), M.dark); l.position.set(Math.cos(a) * 0.18, 0.48, Math.sin(a) * 0.18); l.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35); cb.add(l); }
+    box(0.4, 0.22, 0.3, M.yellow, 0, 1.02, 0, 0, cb); const btn = cyl(0.07, 0.07, 0.05, M.red, 0, 1.15, 0.04, 14, cb); MT.btn = btn; box(0.05, 0.03, 0.05, M.chrome, 0.13, 1.14, 0.08, 0, cb);
+    const gb = { id: 'mtBox', root: cb, parts: [], ctr: new THREE.Vector3(bx, by + 0.6, bz), rad: 1, gy: by, fixed: true, keep: true }; STRUCTS.groups.push(gb); const bp = addPart(gb, { kind: 'donga', obj: cb, fixed: true }); boxPart(bp, new THREE.Vector3(bx, by + 0.6, bz), eU, eY, eV, 0.25, 0.6, 0.25); }
+  mtRocketBuild(); mtPartsBuild();
+  const refs = objRefs([MT, STRUCTS.parts]); weldKids(root, refs); weldKids(MT.pad, refs); weldKids(MT.boxG, refs);
+}
+function mtBoardDraw() {
+  const cv = MT.boardCv; if (!cv) return; const key = MT.stage * 1000 + Math.round(MT.best); if (MT.board === key) return; MT.board = key;
+  const g = cv.getContext('2d'); g.fillStyle = '#f7f8f6'; g.fillRect(0, 0, 1024, 480);
+  const pen = (c, w) => { g.strokeStyle = c; g.fillStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; };
+  pen('#1f3a8f', 3); g.font = 'italic 700 46px "Comic Sans MS", "Chalkboard", cursive'; g.fillText('WINGFIELD ONE  (v7)', 36, 64);
+  g.font = 'italic 30px "Comic Sans MS", "Chalkboard", cursive'; g.fillText('Δv = Isp · g₀ · ln(m₀ / m₁)', 40, 128); g.fillText('apogee ≈ v² / 2g  →  ~150 m', 40, 172); g.fillText('thrust 26 m/s² for 2.6 s', 40, 216);
+  pen('#b3261e', 3); g.fillText('DO NOT tell Madman', 40, 270); g.beginPath(); g.moveTo(40, 280); g.lineTo(322, 284); g.stroke();
+  // the rocket, sketched
+  pen('#222', 3); const rx = 620, ry = 60; g.beginPath(); g.moveTo(rx, ry); g.lineTo(rx + 22, ry + 50); g.lineTo(rx + 22, ry + 300); g.lineTo(rx - 22, ry + 300); g.lineTo(rx - 22, ry + 50); g.closePath(); g.stroke();
+  g.beginPath(); g.moveTo(rx + 22, ry + 240); g.lineTo(rx + 58, ry + 312); g.lineTo(rx + 22, ry + 300); g.moveTo(rx - 22, ry + 240); g.lineTo(rx - 58, ry + 312); g.lineTo(rx - 22, ry + 300); g.stroke();
+  pen('#1f3a8f', 2); g.font = '22px "Comic Sans MS", cursive'; g.fillText('3.2 m', rx + 70, ry + 160); g.fillText('nose cone (?)', rx + 40, ry + 30); g.fillText('fins x4', rx + 64, ry + 330);
+  // the plan, ticked
+  const items = [['fuel pump', MT.stage >= 1], ['O₂ bottle', MT.stage >= 1], ['nose cone', MT.stage >= 1], ['weld fins', MT.stage >= 2], ['LAUNCH!', MT.stage >= 3]];
+  g.font = 'italic 30px "Comic Sans MS", "Chalkboard", cursive'; items.forEach(([t2, ok], i) => { const y = 120 + i * 52, x = 790; pen('#222', 3); g.strokeRect(x, y - 24, 26, 26); if (ok) { pen('#2e7d32', 5); g.beginPath(); g.moveTo(x + 4, y - 10); g.lineTo(x + 11, y - 2); g.lineTo(x + 26, y - 26); g.stroke(); } pen('#222', 3); g.fillText(t2, x + 40, y); });
+  if (MT.best > 0) { pen('#2e7d32', 3); g.font = 'italic 700 34px "Comic Sans MS", cursive'; g.fillText('BEST: ' + Math.round(MT.best) + ' m !!', 760, 440); }
+  if (MT.boardTx) MT.boardTx.needsUpdate = true;
+}
+// ---- the rocket: on its trolley in the shed, rolled out to the pad, then up (MT.R is where it's at; the model follows it) ----
+function mtRocketBuild() {
+  const M = mtMats(), r = new THREE.Group(); scene.add(r);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 2.45, 16), M.white); body.position.y = 1.375; r.add(body);
+  for (const y of [0.4, 1.9]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.163, 0.163, 0.06, 16), M.black); b.position.y = y; r.add(b); }
+  const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.16, 12), M.dark); noz.position.y = 0.08; r.add(noz);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.62, 16), M.red); nose.position.y = 2.91; r.add(nose);
+  const fins = []; for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4, f = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.45, 0.02), M.red); f.position.set(Math.cos(a) * 0.34, 0.38, Math.sin(a) * 0.34); f.rotation.y = -a; r.add(f); fins.push(f); }
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.13, 1.4, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffc46b, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false })); flame.rotation.x = Math.PI; flame.position.y = -0.7; flame.visible = false; r.add(flame);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([255, 200, 120], true), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); glow.scale.set(2.2, 2.2, 1); glow.position.y = -0.3; glow.visible = false; r.add(glow);
+  // the chute: a red and white dome on shroud lines, folded away till apogee
+  const chute = new THREE.Group(); const dome = new THREE.Mesh(new THREE.SphereGeometry(1.3, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xd8322a, side: THREE.DoubleSide })); dome.scale.y = 0.55; dome.position.y = 3.0; chute.add(dome);
+  const dome2 = new THREE.Mesh(new THREE.SphereGeometry(1.31, 16, 8, 0, Math.PI * 2, 0, Math.PI / 6), M.white); dome2.scale.y = 0.55; dome2.position.y = 3.0; chute.add(dome2);
+  for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3, l = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 3.1, 4), M.dark); l.position.set(Math.cos(a) * 0.62, 1.5, Math.sin(a) * 0.62); l.lookAt(0, 0, 0); l.rotateX(Math.PI / 2); chute.add(l); }
+  chute.visible = false; scene.add(chute);
+  // the trolley it lives on in the shed (and rolls out on)
+  const tr = new THREE.Group(); const top = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.07, 1.0), M.dark); top.position.y = 0.42; tr.add(top);
+  for (const dx of [-0.42, 0.42]) for (const dz of [-0.42, 0.42]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.05), M.dark); l.position.set(dx, 0.22, dz); tr.add(l); const w = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.04, 10), M.black); w.rotation.z = Math.PI / 2; w.position.set(dx, 0.05, dz); tr.add(w); }
+  const cr = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.12, 14), M.grey); cr.position.y = 0.5; tr.add(cr); scene.add(tr);
+  const gr = { id: 'mtRocket', root: null, parts: [], ctr: new THREE.Vector3(), rad: 3, gy: 0, fixed: true, keep: true }; STRUCTS.groups.push(gr);
+  const part = addPart(gr, { kind: 'donga', obj: null, fixed: true }); boxPart(part, new THREE.Vector3(), eXw, eYw, eZw, 0.5, 1.9, 0.5);
+  MT.rk = { r, body, nose, fins, flame, glow, chute, tr, part, gr, smoke: [], smT: 0, roar: null };
+  MT.R = { ph: 'shed', t: 0, pos: new THREE.Vector3(), vel: new THREE.Vector3(), q: new THREE.Quaternion(), tr: new THREE.Vector3(), s: 0, wind: [0, 0], fail: false, apo: 0, spin: new THREE.Vector3(), alt0: 0 };
+  mtRocketHome();
+}
+const _mtV = new THREE.Vector3(), _mtV2 = new THREE.Vector3(), _mtQ = new THREE.Quaternion(), _mtQ2 = new THREE.Quaternion();
+function mtRocketHome() {
+  const R = MT.R; if (!R) return; const [x, z] = mtW(MT_ROCK[0], MT_ROCK[1]), y = mtFloor(x, z);
+  R.ph = 'shed'; R.t = 0; R.s = 0; R.tr.set(x, y, z); R.pos.set(x, y + 0.56, z); R.vel.set(0, 0, 0); R.q.identity(); R.fail = false; R.apo = 0; R.spin.set(0, 0, 0);
+}
+// the rocket's place on the trolley's way out (s metres along MT_ROLL)
+function mtRollAt(s, out) { if (s < 0) { const [u0, v0] = MT_ROLL[0], [u1, v1] = MT_ROLL[1], L = Math.hypot(u1 - u0, v1 - v0); return out.set(u0 + (u1 - u0) / L * s, 0, v0 + (v1 - v0) / L * s); } let left = s; for (let i = 0; i + 1 < MT_ROLL.length; i++) { const [u0, v0] = MT_ROLL[i], [u1, v1] = MT_ROLL[i + 1], L = Math.hypot(u1 - u0, v1 - v0); if (left <= L || i + 2 === MT_ROLL.length) { const k = Math.min(1, left / L); return out.set(u0 + (u1 - u0) * k, 0, v0 + (v1 - v0) * k); } left -= L; } return out; }
+const MT_ROLL_L = (() => { let L = 0; for (let i = 0; i + 1 < MT_ROLL.length; i++) L += Math.hypot(MT_ROLL[i + 1][0] - MT_ROLL[i][0], MT_ROLL[i + 1][1] - MT_ROLL[i][1]); return L; })();
+// the flight, on the host: boost (26 m/s² up its own axis for 2.6 s), coast to the top, the chute, a slow drift down; a bad weld can shed a fin
+function mtFly(dt) {
+  const R = MT.R; if (R.ph === 'landed' || R.ph === 'crash') return; R.t += dt; const g = 9.8;
+  if (R.ph === 'boost' || R.ph === 'tumble') {
+    const ax = _mtV.set(0, 1, 0).applyQuaternion(R.q);
+    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crash', 3.2); }
+    if (R.t < 2.6) R.vel.addScaledVector(ax, 26 * dt);
+    R.vel.y -= g * dt; R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt;
+    if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
+    else if (R.vel.lengthSq() > 4) { _mtV2.copy(R.vel).normalize(); _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
+    if (R.ph === 'boost' && R.t > 2.6) R.ph = 'coast';
+  } else if (R.ph === 'coast') {
+    R.vel.y -= g * dt; R.vel.multiplyScalar(Math.exp(-0.02 * dt)); if (R.vel.lengthSq() > 1) { _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 2)); }
+    if (R.vel.y <= 0) { R.ph = 'chute'; R.t = 0; R.apo = R.pos.y - R.alt0; mtSay('chute', 3); sfx('crack', R.pos, 0.5, 1.6, 120); }
+  } else if (R.ph === 'chute') {
+    R.vel.x += (R.wind[0] - R.vel.x) * Math.min(1, dt * 0.8); R.vel.z += (R.wind[1] - R.vel.z) * Math.min(1, dt * 0.8); R.vel.y += (-7 - R.vel.y) * Math.min(1, dt * 1.5);
+    _mtQ.setFromEuler(new THREE.Euler(0.15 * Math.sin(R.t * 1.3), 0, 0.15 * Math.cos(R.t * 1.1))); R.q.slerp(_mtQ, Math.min(1, dt * 1.5));
+  }
+  R.pos.addScaledVector(R.vel, dt);
+  if (R.ph !== 'landed' && R.ph !== 'crash') { const gy = groundAt(R.pos.x, R.pos.z, R.pos.y + 3, -1e9);
+    if (gy > -1e8 && R.pos.y <= gy && (R.ph !== 'boost' || R.t > 0.5)) { R.pos.y = gy; R.vel.set(0, 0, 0);
+      if (R.ph === 'chute') { R.ph = 'landed'; R.t = 0; _mtQ.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2 - 0.2)); R.q.copy(_mtQ); mtFlightDone(true); }
+      else { R.ph = 'crash'; R.t = 0; wpnBoom(R.pos.clone().setY(gy + 0.5), 4, 0.6, false); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false); } } }
+}
+// the model: where MT.R says, the flame and smoke while it burns, the chute once it's out
+function mtRocketVis(dt) {
+  const K = MT.rk, R = MT.R; if (!K || !R) return;
+  K.r.position.copy(R.pos); K.r.quaternion.copy(R.q);
+  K.tr.position.copy(R.tr); if (R.ph === 'shed' || R.ph === 'roll') K.tr.rotation.y = mtYaw(0, 1);
+  const st = MT.stage, burn = R.ph === 'boost' || (R.ph === 'tumble' && R.t < 2.6) || (R.ph === 'ign');
+  K.nose.visible = st >= 1 || R.ph !== 'shed'; K.fins.forEach((f, i) => { f.visible = st >= 2 && !(R.ph === 'tumble' && i === 0) && R.ph !== 'crash'; });
+  K.body.material = R.ph === 'crash' ? WMAT.wreck : mtMats().white;
+  K.flame.visible = K.glow.visible = burn; if (burn) { const fl = 0.8 + Math.random() * 0.45; K.flame.scale.set(fl, 0.9 + Math.random() * 0.5, fl); }
+  const chuteOn = R.ph === 'chute' || (R.ph === 'landed' && R.t < 3); K.chute.visible = chuteOn;
+  if (chuteOn) { K.chute.position.copy(R.pos); K.chute.quaternion.copy(R.q); if (R.ph === 'landed') { const k = Math.min(1, R.t / 3); K.chute.scale.set(1, 1 - k * 0.95, 1); K.chute.position.y -= k * 0.3; } else { const k = Math.min(1, R.t / 0.6); K.chute.scale.set(k, k, k); } }
+  // collision: the trolley (and the rocket on it) in the shed, on the way out and on the pad
+  const parked = R.ph === 'shed' || R.ph === 'roll' || R.ph === 'pad' || R.ph === 'count';
+  K.part.alive = parked; if (parked && (!K.at || K.at.distanceToSquared(R.pos) > 1e-4)) { K.at = (K.at || new THREE.Vector3()).copy(R.pos); boxPart(K.part, _mtV.copy(R.pos).setY(R.pos.y + 1.5), eXw, eYw, eZw, 0.45, 1.75, 0.45); K.gr.ctr.copy(R.pos).setY(R.pos.y + 1.5); }
+  // smoke: a trail while it burns, a cloud on the pad at lift-off
+  K.smT -= dt; if (burn && K.smT <= 0) { K.smT = 0.035; mtPuff(_mtV.set(0, -0.2, 0).applyQuaternion(R.q).add(R.pos), R.t < 0.6 ? 1.6 : 0.9); }
+  for (const p of K.smoke) { if (p.life <= 0) continue; p.life -= dt; const k = 1 - p.life / p.max; p.s.position.addScaledVector(p.vel, dt); p.vel.multiplyScalar(Math.exp(-0.8 * dt)); p.vel.y += 0.25 * dt;
+    const sc = p.size * (1 + k * 3.5); p.s.scale.set(sc, sc, 1); p.s.material.opacity = 0.55 * (1 - k); p.s.visible = p.life > 0; }
+  // the roar
+  if (typeof AU !== 'undefined' && AU.ctx && AU.buf && AU.buf.fire_big) { if (!K.roar) { const s = src(AU.buf.fire_big, true), gg = gn(0), sp = spatial(); s.connect(gg); gg.connect(sp.in); s.playbackRate.value = 1.6; s.start(); K.roar = { gg, sp }; }
+    ramp(K.roar.gg.gain, burn ? 1.4 : 0, burn ? 0.05 : 0.6); if (burn) K.roar.sp.place(R.pos, 60, 1); }
+}
+function mtPuff(P, size) {
+  const K = MT.rk; let p = K.smoke.find(q => q.life <= 0);
+  if (!p) { if (K.smoke.length >= 60) return; p = { s: new THREE.Sprite(new THREE.SpriteMaterial({ map: SMOKE_TEX, transparent: true, depthWrite: false, opacity: 0 })), life: 0, max: 1, size: 1, vel: new THREE.Vector3() }; scene.add(p.s); K.smoke.push(p); }
+  p.max = p.life = 2.2 + Math.random() * 1.6; p.size = size * (0.7 + Math.random() * 0.6); p.s.position.copy(P); p.vel.set((Math.random() - 0.5) * 1.6, (Math.random() - 0.3) * 0.8, (Math.random() - 0.5) * 1.6); p.s.visible = true;
+}
+// ---- the parts: glowing, with a beam you can see from a way off ----
+function mtPartsBuild() {
+  const M = mtMats(); MT.partG = [];
+  const beamM = new THREE.MeshBasicMaterial({ color: 0xffb43a, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  for (const P of MT_PARTS) { const [x, z] = P.at(), y = mtFloor(x, z), g = new THREE.Group(); g.position.set(x, y, z); scene.add(g);
+    const it = new THREE.Group(); g.add(it);
+    if (P.id === 'pump') { const b = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.22), M.grey); b.position.y = 0.11; it.add(b); const c = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.3, 10), M.dark); c.rotation.z = Math.PI / 2; c.position.set(0.26, 0.11, 0); it.add(c); }
+    else if (P.id === 'bottle') { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.8, 12), M.bottle); b.position.y = 0.4; it.add(b); const v = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.12, 8), M.chrome); v.position.y = 0.86; it.add(v); }
+    else { const c = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.6, 16), M.red); c.position.y = 0.3; it.add(c); }
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 26, 10, 1, true), beamM); beam.position.y = 13; g.add(beam);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([255, 190, 90], true), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); halo.scale.set(1.6, 1.6, 1); halo.position.y = 0.4; g.add(halo);
+    g.visible = false; MT.partG.push({ g, it, halo, x, z, y }); }
+}
+// ---- Matt himself ----
+function mtBuild() {
+  MT.ready = true; const L = lookFix(MATT_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
+  // ear muffs round his neck and a tape measure on his belt
+  const M = mtMats(); const muff = new THREE.Group(); for (const d of [-1, 1]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.04, 12), M.yellow); c.rotation.z = Math.PI / 2; c.position.set(d * 0.12, 0, 0.02); muff.add(c); }
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 6, 14, Math.PI), M.dark); band.rotation.x = Math.PI / 2 + 0.6; band.position.z = -0.02; muff.add(band); muff.position.set(0, 0.5, 0.02); (P.torso || P.body).add(muff);
+  const tape = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.035), M.yellow); tape.position.set(0.19, 0.05, 0.02); (P.body || P.root).add(tape);
+  const n = { npc: true, matt: true, name: 'Matt', P, root: P.root, pack: new THREE.Group(), look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'home', t: 0, hp: 110, max: 110, tilt: 0, gy: 0, gT: 0, ph: 0, side: 1, stuck: 0, tgt: null,
+    veh: null, vehT: 1e9, driveT: 1e9, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null, lookH: 0, angry: false };
+  npcBubble(n); MT.n = n; NPC.list.push(n); mtPlace();
+}
+function mtPlace() {
+  const n = MT.n; if (!n) return; const S0 = MT_SPOT.bench, [x, z] = mtW(S0[0], S0[1]); scene.attach(n.root); n.root.scale.setScalar(n.s);
+  n.pos.set(x, 0, z); n.gy = n.pos.y = mtFloor(x, z); n.yaw = mtYaw(S0[2], S0[3]); n.st = 'home'; n.t = 0; n.tilt = 0; n.sp = 0; n.hp = n.max; n.angry = false; n.ko = false; n.atkPh = ''; n.bub.sp.visible = false; n.bub.time = 0;
+  MT.spot = 'bench'; MT.path = null; MT.spotT = 20 + Math.random() * 20;
+}
+function mtSay(k, dur) { const n = MT.n, L = MATT_L[k]; if (!n || !L || !n.bub || !npcAlive(n)) return; const line = pickFresh(L); dur = dur || Math.max(2.4, Math.min(6, line.length * 0.065)); mmSayBub(n, line, dur); n.lineT = dur; MT.talkT = Math.max(MT.talkT, dur + 8); }
+function mtSayNpc(n, line) { for (const k in NPC_L) if (NPC_L[k].includes(line)) { const m = { hurt: 'hurt', angry: 'angry', ko: 'ko', win: 'win2' }[k]; if (m) mtSay(m, 2.6); return; } }
+// a walk round the shed: out to the aisle, along it, in to the spot (or out through the lean-to to the pad and back)
+function mtPathTo(u1, v1) {
+  const [u0, v0] = mtUV(MT.n.pos.x, MT.n.pos.z), P = [], door = 1.5;
+  if (v0 > -1) { if (v1 > -1) { P.push([u1, v1]); return P; } P.push([door, Math.min(v0, 12)], [door, MT_AISLE]); }
+  else if (v1 > -1) { P.push([u0, MT_AISLE], [door, MT_AISLE], [door, 12], [u1, v1]); return P; }
+  else P.push([u0, MT_AISLE]);
+  P.push([u1, MT_AISLE], [u1, v1]); return P;
+}
+function mtGo(spot) { MT.spot = spot; const S0 = MT_SPOT[spot]; MT.path = mtPathTo(S0[0], S0[1]); MT.n.st = 'mtWalk'; MT.n.t = 0; }
+function mtWalk(n, dt) {        // true while still walking
+  if (!MT.path || !MT.path.length) return false; const [u, v] = MT.path[0], [x, z] = mtW(u, v);
+  if (dgMove(n, x, z, 1.5, dt)) { MT.path.shift(); if (!MT.path.length) { const S0 = MT_SPOT[MT.spot]; n.st = 'home'; n.t = 0; return false; } }
+  n.gT -= dt; if (n.gT <= 0) { n.gT = 0.12; n.gy = mtFloor(n.pos.x, n.pos.z); } return true;
+}
+function mtThink(n, dt) {
+  n.t += dt; n.lineT = (n.lineT || 0) - dt;
+  if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) { npcThink(n, dt); if (n.st === 'wander') { n.st = 'home'; n.t = 0; n.angry = false; MT.path = null; mtGo('bench'); } return; }
+  const veh = faNearT('veh', n.pos);
+  if (veh && veh.sp > 2.5) { const dx = n.pos.x - veh.x, dz = n.pos.z - veh.z, f = dx * veh.fx + dz * veh.fz, l = dx * veh.fz - dz * veh.fx;
+    if (f > -veh.r - 0.4 && f < veh.f + 0.4 && Math.abs(l) < veh.w + 0.4 && Math.abs(n.pos.y - veh.y) < 2.2) { const sg = Math.sign(l) || 1; npcLaunch(n, veh.fx * veh.dir * veh.sp * 0.9 + veh.fz * sg * veh.sp * 0.2, veh.fz * veh.dir * veh.sp * 0.9 - veh.fx * sg * veh.sp * 0.2, 8 + veh.sp * 4); return; } }
+  const q = MT.q, R = MT.R;
+  // launch day: push the trolley out (he walks behind it), then over to the control box to watch
+  if (q && q.kind === 'launch') {
+    if (q.ph === 'fetch') { if (n.st !== 'mtWalk' || MT.spot !== 'trolley') { MT.spot = 'trolley'; MT.path = mtPathTo(MT_SPOT.trolley[0], MT_SPOT.trolley[1]); n.st = 'mtWalk'; }
+      if (!mtWalk(n, dt)) { q.ph = 'roll'; R.ph = 'roll'; R.s = 0; } return; }
+    if (q.ph === 'roll') { R.s = Math.min(MT_ROLL_L, R.s + 1.6 * dt); const a = mtRollAt(R.s, _mtV), b = mtRollAt(R.s - 1.15, _mtV2), [tx, tz] = mtW(a.x, a.z), [mx, mz] = mtW(b.x, b.z);
+      R.tr.set(tx, mtFloor(tx, tz), tz); R.pos.set(tx, R.tr.y + 0.56, tz); n.yaw += faAng(Math.atan2(tx - mx, tz - mz) - n.yaw) * Math.min(1, dt * 6); n.pos.x = mx; n.pos.z = mz; n.sp = 1.6; n.st = 'mtPush';
+      n.gT -= dt; if (n.gT <= 0) { n.gT = 0.1; n.gy = mtFloor(mx, mz); } n.pos.y += (n.gy - n.pos.y) * Math.min(1, dt * 12); return; }
+    if (n.st === 'mtPush') { MT.spot = 'box'; MT.path = [MT_SPOT.box.slice(0, 2)]; n.st = 'mtWalk'; }
+    if (n.st === 'mtWalk' && mtWalk(n, dt)) return;
+    npcFace(n, R.pos.x, R.pos.z, 4, dt); n.sp *= 0.8;
+    n.st = R.ph === 'landed' || (R.ph === 'chute') ? 'mtCheer' : R.ph === 'crash' || R.ph === 'tumble' ? 'mtFace' : 'mtWatchPad'; return;
+  }
+  if (n.st === 'mtCheer' || n.st === 'mtFace' || n.st === 'mtWatchPad') { n.st = 'home'; mtGo('bench'); }
+  // welding: he stands off the table's corner and watches you
+  if (q && q.kind === 'weld' && MT.spot !== 'watch' && n.st !== 'mtWalk') mtGo('watch');
+  if (n.st === 'mtWalk') { if (mtWalk(n, dt)) return; }
+  const S0 = MT_SPOT[MT.spot] || MT_SPOT.bench, [x, z] = mtW(S0[0], S0[1]);
+  if (Math.hypot(x - n.pos.x, z - n.pos.z) > 0.6) { mtGo(MT.spot); return; }
+  n.st = 'home'; n.sp *= 0.8; n.pos.x += (x - n.pos.x) * Math.min(1, dt * 3); n.pos.z += (z - n.pos.z) * Math.min(1, dt * 3); n.pos.y += (n.gy - n.pos.y) * Math.min(1, dt * 10);
+  const me = activeName === 'foot' ? F.pos : S.pos, dP = Math.hypot(me.x - n.pos.x, me.z - n.pos.z), talking = MT.talkUntil > NPC.t || (MT.sheet && MT.sheet.classList.contains('show') && dP < 5);
+  if (q && q.kind === 'weld') { const [tx, tz] = mtW(MT_TABLE[0], MT_TABLE[1]); npcFace(n, tx, tz, 4, dt); return; }
+  if (talking || dP < 3.5) npcFace(n, me.x, me.z, 4, dt); else n.yaw += faAng(mtYaw(S0[2], S0[3]) - n.yaw) * Math.min(1, dt * 3);
+  MT.talkT -= dt; MT.spotT -= dt;
+  if (MT.talkT <= 0 && dP < 9 && !talking) { MT.talkT = 50 + Math.random() * 40; mtSay(dP < 4 && !MT.greeted ? 'greet' : 'idle'); MT.greeted = true; }
+  if (dP > 12) MT.greeted = false;
+  if (MT.spotT <= 0 && !talking && !q) { MT.spotT = 25 + Math.random() * 25; const opts = ['bench', 'board', 'lathe', 'rocket'].filter(k => k !== MT.spot && (k !== 'rocket' || (R && R.ph === 'shed'))); mtGo(opts[Math.floor(Math.random() * opts.length)]); }
+}
+function mtPoseHook(n, Q) {
+  const w = Math.sin(NPC.t * 7 + n.ph), w2 = Math.sin(NPC.t * 3.1 + n.ph);
+  if (n.st === 'mtPush') { Q.shLx = Q.shRx = -1.35; Q.shLz = 0.2; Q.shRz = -0.2; Q.elL = Q.elR = -0.45; Q.torsoX = 0.3; return; }
+  if (n.st === 'mtCheer') { Q.shLx = -2.9 + w * 0.25; Q.shRx = -2.9 - w * 0.25; Q.shLz = 0.35; Q.shRz = -0.35; Q.elL = Q.elR = -0.2; Q.headX = -0.25; Q.bodyY = Math.max(0, Math.sin(NPC.t * 9)) * 0.06; return; }
+  if (n.st === 'mtFace') { Q.shRx = -2.1; Q.shRz = -0.2; Q.elR = -2.45; Q.shLx = 0.1; Q.headX = 0.35; Q.torsoX = 0.15; return; }
+  if (n.st === 'mtWatchPad') { Q.shLz = 0.95; Q.shRz = -0.95; Q.elL = Q.elR = -1.35; Q.shLx = Q.shRx = -0.25; Q.headX = -0.2; return; }
+  if (n.st !== 'home') return;
+  if (MT.q && MT.q.kind === 'weld') { Q.shLz = 0.95; Q.shRz = -0.95; Q.elL = Q.elR = -1.35; Q.shLx = Q.shRx = -0.25; Q.headX = 0.15; return; }       // hands on hips, watching your bead
+  const talking = MT.talkUntil > NPC.t || (MT.sheet && MT.sheet.classList.contains('show'));
+  if (talking) return;
+  if (MT.spot === 'bench' || MT.spot === 'lathe') { Q.torsoX = 0.35; Q.headX = 0.3; Q.shLx = -0.95 + w * 0.08; Q.shRx = -1.0 - w * 0.1; Q.elL = -0.9; Q.elR = -0.85 + w2 * 0.15; Q.shLz = 0.18; Q.shRz = -0.18; return; }      // tinkering
+  if (MT.spot === 'board') { Q.shRx = -2.05 + Math.sin(NPC.t * 2.3) * 0.12; Q.shRz = -0.15 + Math.cos(NPC.t * 2.3) * 0.1; Q.elR = -0.55; Q.headX = -0.1; return; }                                          // writing up sums
+  if (MT.spot === 'rocket') { Q.shRx = -1.25; Q.elR = -2.35; Q.shLx = -0.5; Q.shLz = -0.3; Q.elL = -1.6; Q.headX = -0.2; Q.torsoX = -0.05; }                                                                  // hand on chin, admiring it
+}
+function mtReset() {
+  if (MT.w) mtWeldExit(true); MT.q = null; if (MT.R) mtRocketHome(); if (MT.n) mtPlace(); MT.talkT = 14; MT.hintT = 0;
+  if (MT.partG) for (const p of MT.partG) p.g.visible = false;
+}
+// ---- the menu ----
+function mtUI() {
+  if (MT.ui) return; MT.ui = true; const st = document.createElement('style');
+  st.textContent = '#mtSheet{position:fixed;inset:0;z-index:30;background:rgba(22,26,25,.35);display:none;align-items:center;justify-content:center;padding:12px}#mtSheet.show{display:flex}' +
+    '#mtCard{background:var(--card);border-radius:var(--r1);box-shadow:var(--shadow);width:min(520px,100%);max-height:calc(100vh - 24px);overflow:auto;padding:14px 16px;box-sizing:border-box;font:14px/1.35 var(--font);color:var(--ink)}' +
+    '#mtCard h2{margin:0;font-size:17px}#mtX{width:36px;height:36px;border-radius:50%;border:0;background:var(--inset);font:700 16px var(--font);cursor:pointer;color:var(--ink)}#mtMood{margin:6px 0 0;font-size:12.5px;color:var(--ink-3)}' +
+    '#mtGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}#mtGrid .w-card{min-height:58px;justify-content:center}#mtGrid .w-card[aria-disabled=true]{opacity:.5;cursor:default}' +
+    '#mtChip{position:fixed;z-index:9;left:50%;top:calc(58px + env(safe-area-inset-top,0px));transform:translateX(-50%);display:none;gap:9px;align-items:center;background:rgba(22,26,25,.82);color:#fff;border-radius:14px;padding:7px 14px;font:700 13px var(--font);pointer-events:none;white-space:nowrap}' +
+    '#mtChip.show{display:flex}#mtChip b{color:#f2c14e}#mtChip .bar{width:70px;height:7px;border-radius:4px;background:rgba(255,255,255,.2);overflow:hidden;display:inline-block}#mtChip .bar i{display:block;height:100%;background:#f2c14e}#mtChip .x{color:#e8504a;letter-spacing:2px}' +
+    '#mtHelm{position:fixed;inset:0;z-index:6;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(20,60,30,.35) 0%,rgba(6,22,10,.85) 75%,rgba(2,10,4,.95) 100%);transition:opacity .08s}' +
+    '#mtHeat{position:fixed;z-index:8;right:calc(max(16px,env(safe-area-inset-right,0px)) + 236px);bottom:calc(40px + env(safe-area-inset-bottom,0px));width:26px;height:min(200px,44vh);border-radius:13px;background:rgba(22,26,25,.6);border:2px solid rgba(255,255,255,.75);overflow:hidden;display:none;pointer-events:none}#mtHeat.show{display:block}' +
+    '#mtHeat .zone{position:absolute;left:0;right:0;background:rgba(123,211,137,.45)}#mtHeat .hot{position:absolute;left:0;right:0;top:0;background:rgba(232,80,74,.35)}#mtHeat .needle{position:absolute;left:0;right:0;height:4px;background:#fff;box-shadow:0 0 6px #fff}' +
+    'body.mtWeld #mKick,body.mtWeld #mHead{display:none!important}' +
+    '@media (max-height:400px){#mtChip{top:calc(52px + env(safe-area-inset-top,0px))}#mtGrid .w-card{min-height:48px}}';
+  document.head.appendChild(st);
+  const c = document.createElement('div'); c.id = 'mtChip'; c.className = 'ui'; document.body.appendChild(c); MT.chip = c;
+  const h = document.createElement('div'); h.id = 'mtHelm'; document.body.appendChild(h); MT.helm = h;
+  const m = document.createElement('div'); m.id = 'mtHeat'; m.className = 'ui'; m.innerHTML = '<div class="hot"></div><div class="zone"></div><div class="needle"></div>'; document.body.appendChild(m); MT.heat = m;
+  const sh = document.createElement('div'); sh.id = 'mtSheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.setAttribute('aria-label', 'Matt');
+  sh.innerHTML = '<div id="mtCard"><div class="ch-head"><h2>Matt</h2><button id="mtX" type="button" aria-label="Close">&times;</button></div><p id="mtMood"></p><div id="mtGrid">' +
+    '<button type="button" class="w-card" data-mt="talk"><b>Talk</b><span>Ask about the rocket</span></button>' +
+    '<button type="button" class="w-card" data-mt="job"><b>Parts run</b><span></span></button>' +
+    '<button type="button" class="w-card" data-mt="fix"><b>Fix my ride</b><span></span></button>' +
+    '<button type="button" class="w-card" data-mt="leave"><b>Leave</b><span>Hooroo</span></button></div></div>';
+  document.body.appendChild(sh); MT.sheet = sh;
+  sh.addEventListener('click', e => { if (e.target === sh || e.target.id === 'mtX') { sh.classList.remove('show'); if (mpwCli()) mpwSendAct('mt:close'); return; } const b = e.target.closest('[data-mt]'); if (b && b.getAttribute('aria-disabled') !== 'true') mtChoose(b.dataset.mt); });
+}
+function mtTalkable() { const n = MT.n; return !!n && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air') && F.dead <= 0 && !n.veh && !n.angry && !n.ko && npcAlive(n) && !['mtPush', 'chase', 'fight', 'flee'].includes(n.st) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 3.2; }
+const MT_JOB = [['Parts run', 'Three bits for the rocket from round the farm. They glow'], ['The fins', 'Weld the fins on. Keep the puddle in the green'], ['Launch day', 'Wheel it out to the pad and hit the big red button'], ['Launch day', 'Another launch (he printed spares)']];
+function mtMenuOpen() {
+  mtUI(); if (!mtTalkable()) return; const n = MT.n, q = MT.q, st = Math.min(3, MT.stage), mine = q && q.who === MP.me;
+  $('mtMood').textContent = 'Aussie mechatronics nerd, builds rockets in the shed. ' + (MT.launches ? 'Launches: ' + MT.launches + (MT.best ? ' · best ' + Math.round(MT.best) + ' m' : '') : st ? 'The rocket’s coming along.' : 'He’s short a few parts.');
+  const b = MT.sheet.querySelector('[data-mt="job"]'), [ttl, sub] = MT_JOB[st]; b.querySelector('b').textContent = ttl;
+  b.querySelector('span').textContent = q ? (mine ? 'Already on: ' + mtStepText(q) : 'He’s at it with ' + ((plById(q.who) || {}).name || 'your mate')) : sub; b.setAttribute('aria-disabled', q ? 'true' : 'false');
+  const f = MT.sheet.querySelector('[data-mt="fix"]'), ok = MT.stage >= 1; f.setAttribute('aria-disabled', ok ? 'false' : 'true'); f.querySelector('span').textContent = ok ? 'Bring a machine to the shed: dents, tyres, even a wreck' : 'Help him with the parts run first';
+  MT.sheet.classList.add('show'); npcFace(n, F.pos.x, F.pos.z, 99, 1); if (mpwCli()) mpwSendAct('mt:open'); else { MT.talkId = MP.me; MT.talkUntil = NPC.t + 25; }
+}
+function mtChoose(k) {
+  if (MT.sheet && !PX.cur) MT.sheet.classList.remove('show');
+  if (k === 'fix' && mpwCli() && !MPW.net) { const nm = mtFixLocal(); mpwSendAct('mtc', nm === 'ute' ? 'fixute' : nm ? 'fixok' : 'fixnone'); return; }      // (each phone has its own dents: mend yours here, he says so there)
+  if (mpwCli() && !MPW.net) { mpwSendAct('mtc', k); return; }
+  const n = MT.n; if (!n) return; MT.talkUntil = 0;
+  if (k === 'talk') mtSay('talk'); else if (k === 'leave') mtSay('bye');
+  else if (k === 'fix') { const nm = mtFixLocal(); mtSay(nm === 'ute' ? 'fixUte' : nm ? 'fixDone' : 'fixNone'); }
+  else if (k === 'fixok') mtSay('fixDone'); else if (k === 'fixnone') mtSay('fixNone'); else if (k === 'fixute') mtSay('fixUte');
+  else if (k === 'job' && !MT.q) mtStart();
+}
+// patch up the machine nearest the shed (your own phone's copy of it)
+function mtFixLocal() {
+  const n = MT.n; if (!n) return null; let best = null, bd = 18;
+  for (const v of Object.values(VEH)) { if (v.kind !== 'ground' || v.npc || (v.mp && v.mp !== MP.me)) continue; const p = v.state && v.state.pos; if (!p) continue; const d = Math.hypot(p.x - n.pos.x, p.z - n.pos.z); if (d < bd) { bd = d; best = v; } }
+  if (!best) return null; if (best.name === 'ute') return 'ute';
+  wpnUnwreck(best.name); delete WPN.VD[best.name]; WPN.hops = WPN.hops.filter(h => h.v !== best); dmgReset(best.name); toast((best.label || 'Your machine') + ': fixed up by Matt', 2.2); sfx('m_punch', best.state.pos, 0.4, 1.6, 8); return best.name;
+}
+function mtStepText(q) {
+  if (q.kind === 'parts') { const got = q.got.filter(Boolean).length; return got < 3 ? got + ' of 3 parts found' : 'bring them back'; }
+  if (q.kind === 'weld') return 'fin ' + Math.min(4, q.seams + 1) + ' of 4'; return q.ph === 'fetch' || q.ph === 'roll' ? 'rolling out' : q.ph === 'pad' ? 'hit the button' : 'launched';
+}
+// ---- the jobs (on the host) ----
+function mtStart() {
+  const n = MT.n, who = PX.cur ? PX.cur.id : MP.me, st = Math.min(3, MT.stage); if (!n || MT.q) return;
+  MT.qid++;
+  if (st === 0) { MT.q = { kind: 'parts', who, ph: 'find', got: [0, 0, 0], t: 0, qid: MT.qid }; mtSay('partsStart', 7); }
+  else if (st === 1) { MT.q = { kind: 'weld', who, ph: 'go', seams: 0, holes: 0, qs: 0, t: 0, qid: MT.qid }; mtSay('weldStart', 6); }
+  else { if (MT.R.ph !== 'shed') { mtRocketHome(); mtSay('spare', 2.4); } MT.q = { kind: 'launch', who, ph: 'fetch', t: 0, cd: 0, qid: MT.qid, lines: [[MT.R.ph === 'shed' ? 0.2 : 2.6, 'launchStart']] }; }
+}
+function mtEnd(win, why) {
+  const q = MT.q; if (!q) return; const P = plById(q.who);
+  if (q.kind === 'parts') { if (win) { MT.stage = Math.max(MT.stage, 1); mtSay('partsDone', 3); } }
+  if (q.kind === 'weld') { if (win) { MT.stage = Math.max(MT.stage, 2); MT.weldQ = THREE.MathUtils.clamp(q.qs / Math.max(1, q.seams), 0.3, 1); mtSay('weldWin', 3.5); } else if (why === 'holes') mtSay('weldFail', 3.5); }
+  if (q.kind === 'launch' && win) { MT.stage = Math.max(MT.stage, 3); MT.launches++; MT.best = Math.max(MT.best, MT.R.apo || 0); }
+  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? 'Parts run done! Matt will patch up any machine you bring to the shed' : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute'))
+    : why === 'holes' ? 'Too many holes: the fins are ruined. Talk to Matt to try again' : why === 'angry' ? 'Matt’s not doing jobs with you right now' : 'Job’s off', 3.4));
+  if (win && q.who !== MP.me) mpSend({ k: 'qdone', f: MP.me, to: q.who, q: 'matt', stage: MT.stage, best: MT.best, launches: MT.launches, weldQ: MT.weldQ });
+  MT.q = null; mtSave(); if (MT.partG) for (const p of MT.partG) p.g.visible = false;
+}
+function mtQualTxt() { const qv = MT.weldQ; return qv > 0.85 ? 'Lovely welds' : qv > 0.65 ? 'Decent welds' : 'Ugly welds (she might not hold)'; }
+function mtFlightDone(ok) { const q = MT.q; if (q && q.kind === 'launch') { q.ph = 'done'; q.endAt = q.t + (ok ? 3 : 3.5); if (ok) (q.lines = q.lines || []).push([q.t + 1.2, 'landed']); } }
+// what a player did, on the host (a mate's comes in over the network as theirs)
+function mtDo(id, pid, x) {
+  const q = MT.q; if (!q) return;
+  if (q.kind === 'weld' && q.who === pid) {
+    if (id === 'mt:wstart') q.ph = 'weld'; else if (id === 'mt:wstop') q.ph = 'go';
+    else if (id === 'mt:seam') { q.seams = Math.min(4, q.seams + 1); q.qs += THREE.MathUtils.clamp(+x || 0.7, 0, 1); if (q.seams >= 4) mtEnd(true); else mtSay('seam' + q.seams, 2); }
+    else if (id === 'mt:hole') { q.holes++; if (q.holes >= 4) mtEnd(false, 'holes'); else mtSay('weldHole', 2.6); }
+    else if (id === 'mt:whint' && NPC.t > MT.hintT) { MT.hintT = NPC.t + 5; mtSay(x === 'hot' ? 'weldHot' : x === 'cold' ? 'weldCold' : 'weldGood', 2); }
+  }
+  if (q.kind === 'launch' && id === 'mt:launch' && q.ph === 'pad') { const P = plById(pid), [bx, bz] = mtW(MT_BOX[0], MT_BOX[1]); if (P && Math.hypot(P.pos.x - bx, P.pos.z - bz) < 3) { q.ph = 'count'; q.cd = 0; MT.R.ph = 'count'; q.said = 0; } }
+}
+function mtSend(id, x) { if (mpwCli()) mpwSendAct(id, x); else mtDo(id, MP.me, x); }
+function mtHost(dt) {
+  const q = MT.q, n = MT.n; if (!q) return; q.t += dt;
+  if (!plById(q.who) && q.kind !== 'launch') { MT.q = null; return; }                     // they've gone
+  if (n && (n.angry || !npcAlive(n)) && q.kind !== 'launch') { mtEnd(false, 'angry'); return; }
+  if (q.kind === 'parts') {
+    MT_PARTS.forEach((P, i) => { if (q.got[i]) return; const g = MT.partG[i]; for (const p of plList()) { if (p.dead) continue; const d = Math.hypot(p.pos.x - g.x, p.pos.z - g.z), r = p.veh ? 3.6 : 2.0;
+      if (d < r && Math.abs(p.pos.y - g.y) < 3) { q.got[i] = p.id; const got = q.got.filter(Boolean).length; plWith(p, () => toast('Got ' + P.name + ' (' + got + ' of 3)' + (got === 3 ? '. Back to Matt’s shed!' : ''), 2.6)); sfx('ping', _mtV.set(g.x, g.y + 0.5, g.z), 0.6, 1.2, 12); if (got === 3) { q.ph = 'back'; } break; } } });
+    if (q.ph === 'back' && n) { for (const p of plList()) { if (!q.got.includes(p.id) && p.id !== q.who) continue; if (Math.hypot(p.pos.x - n.pos.x, p.pos.z - n.pos.z) < 5 && !p.veh) { mtEnd(true); return; } }
+      if (q.t > (q.backT || 0)) { q.backT = q.t + 70; } }
+  }
+  if (q.kind === 'launch') {
+    const R = MT.R;
+    if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, groundAt(tx, tz, MT.padY + 3, MT.padY - 3), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
+    if (q.ph === 'count') { q.cd += dt; const keys = ['c5', 'c4', 'c3', 'c2', 'c1', 'ign']; while (q.said < keys.length && q.cd >= q.said * 1.0) { SPK.allow = true; try { mtSay(keys[q.said], 0.95); } finally { SPK.allow = false; } q.said++; }
+      if (q.cd >= 5.3) { q.ph = 'fly'; R.ph = 'boost'; R.t = 0; R.alt0 = R.pos.y; R.vel.set(0, 0, 0); R.q.identity(); const a = Math.random() * 6.283; R.wind = [Math.cos(a) * 2.8, Math.sin(a) * 2.8];
+        R.fail = Math.random() < THREE.MathUtils.clamp(0.88 - MT.weldQ, 0.04, 0.55); sfx('boom', R.pos, 0.7, 0.7, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
+    if (q.ph === 'fly' || q.ph === 'done') mtFly(dt);
+    if (q.lines) q.lines = q.lines.filter(([at, k]) => { if (q.t < at) return true; if (k !== 'liftoff' || R.ph === 'boost') mtSay(k, 3); return false; });          // (lines due at a game time)
+    if (q.ph === 'done' && q.t >= q.endAt) { mtEnd(true); return; }
+  }
+}
+// ---- your side: the action buttons, the welding (on your own phone) ----
+const MT_WELD_EM = { id: 'mtWeld', mt: 'weld', work: true, lock: true };
+function mtWelding() { return !!MT.w && F.mode === 'emote' && EM.cur === MT_WELD_EM; }
+function mtActions(items) {
+  if (activeName !== 'foot' || F.dead > 0) return;
+  if (mtWelding()) { items.push({ id: 'mt:wstop', label: 'Put the torch down', cls: 'dark' }); return; }
+  if (F.mode !== 'walk') return;
+  if (mtTalkable() && !seqBusy()) items.push({ id: 'mt:talk', label: 'Talk to Matt', cls: 'warn' });
+  const q = MT.q; if (!q) return;
+  if (q.kind === 'weld' && q.who === MP.me && q.ph === 'go') { const [x, z] = mtW(MT_WELD[0], MT_WELD[1]); if (Math.hypot(F.pos.x - x, F.pos.z - z) < 1.8) items.push({ id: 'mt:weld', label: 'Start welding', cls: 'warn' }); }
+  if (q.kind === 'launch' && q.ph === 'pad') { const [x, z] = mtW(MT_BOX[0], MT_BOX[1]); if (Math.hypot(F.pos.x - x, F.pos.z - z) < 2.2) items.push({ id: 'mt:launch', label: 'Hit the big red button', cls: 'warn' }); }
+}
+function mtAct(id) {
+  if (id === 'mt:talk') { mtMenuOpen(); return; }
+  if (id === 'mt:weld') { mtWeldEnter(); return; }
+  if (id === 'mt:wstop') { mtWeldExit(); return; }
+  if (id === 'mt:launch') { if (MT.btn) { MT.btn.position.y -= 0.02; setTimeout(() => { if (MT.btn) MT.btn.position.y += 0.02; }, 300); } sfx('thud', F.pos, 0.4, 1.8, 6); mtSend('mt:launch'); }
+}
+function mtWeldEnter() {
+  const q = MT.q; if (!q || q.kind !== 'weld') return; if (typeof wpnHolster === 'function' && WPN.cur) wpnHolster();
+  const [x, z] = mtW(MT_WELD[0], MT_WELD[1]), yaw = mtYaw(0, 1); standFarmerAt({ x, y: mtFloor(x, z), z }, yaw);
+  EM.cur = MT_WELD_EM; EM.t = 0; EM.yaw0 = yaw; F.mode = 'emote'; F.vel.set(0, 0, 0); F.speedH = 0;
+  MT.w = { seam: q.seams, holes: q.holes, h: 0.15, prog: 0, holeT: 0, outT: 0, outK: '', qs: 0, qn: 0, sparkT: 0, sparks: [], arc: null };
+  mtSend('mt:wstart'); toast('Hold WELD (or Q) to strike the arc. Keep the needle in the green', 3.4);
+}
+function mtWeldExit(quiet) {
+  const W = MT.w; MT.w = null; if (W) { for (const s of W.sparks) scene.remove(s.s); if (W.arc) scene.remove(W.arc); }
+  if (EM.cur === MT_WELD_EM) { EM.cur = null; F.mode = 'walk'; F.yaw = EM.yaw0; }
+  if (MT.torch) MT.torch.visible = false; if (MT.helm) MT.helm.style.opacity = '0'; if (MT.arcV) ramp(MT.arcV.g.gain, 0, 0.05);
+  if (!quiet && MT.q && MT.q.kind === 'weld' && MT.q.who === MP.me) mtSend('mt:wstop');
+}
+// the seam being welded, in the world (bottom to top as it goes)
+function mtSeamAt(k, h, out) { const b = MT.beads[k]; MT.can.updateWorldMatrix(true, false); return out.copy(b.position).setY(b.position.y + h).applyMatrix4(MT.can.matrixWorld); }
+function mtWeldStep(dt) {
+  const W = MT.w, q = MT.q;
+  if (!W) return;
+  if (!q || q.kind !== 'weld' || q.who !== MP.me || !mtWelding()) { mtWeldExit(true); return; }
+  if (W.seam !== q.seams && q.seams > W.seam) { W.seam = q.seams; W.prog = 0; }
+  if (W.seam >= 4) { mtWeldExit(true); return; }
+  const held = MT.held, lo = 0.42 + W.seam * 0.025, hi = 0.71 - W.seam * 0.025;
+  W.h = THREE.MathUtils.clamp(W.h + (held ? (0.5 + 0.35 * W.h) : -0.85) * dt, 0, 1);
+  const inBand = held && W.h >= lo && W.h <= hi;
+  if (inBand) { W.prog += dt / 4.2; const mid = (lo + hi) / 2, half = (hi - lo) / 2; W.qs += (1 - Math.abs(W.h - mid) / half * 0.6) * dt; W.qn += dt; W.outT = 0; }
+  else if (held || W.prog > 0) { W.outT += dt; const k = W.h > hi ? 'hot' : 'cold'; if (W.outT > 1.6 && W.outK !== k + Math.floor(W.outT / 5)) { W.outK = k + Math.floor(W.outT / 5); mtSend('mt:whint', k); } }
+  if (held && W.h > 0.9) { W.holeT += dt; if (W.holeT > 0.4) { W.holeT = 0; W.holes++; W.h = 0.5; W.prog = Math.max(0, W.prog - 0.15); sfx('crack', F.pos, 0.35, 2.2, 6); mtSend('mt:hole'); if (W.holes >= 4) { mtWeldExit(true); return; } } } else W.holeT = Math.max(0, W.holeT - dt);
+  if (W.prog >= 1) { const qv = W.qn > 0 ? W.qs / W.qn : 0.7; W.qs = 0; W.qn = 0; W.prog = 0; W.seam++; mtSend('mt:seam', +qv.toFixed(2)); sfx('ping', F.pos, 0.35, 1.6, 6); if (W.seam >= 4) { mtWeldExit(true); return; } }
+  // the arc: a blue-white glare at the seam, sparks flying, the bead glowing behind it; the helmet darkens while it's lit
+  const P = mtSeamAt(W.seam, W.prog * 0.45 + 0.005, _mtV);
+  if (!W.arc) { W.arc = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([210, 230, 255], true), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); scene.add(W.arc); }
+  W.arc.visible = held; W.arc.position.copy(P); const fl = 0.35 + Math.random() * 0.35; W.arc.scale.set(fl, fl, 1);
+  if (MT.torch) { MT.torch.visible = true; const [tu, tv] = mtUV(P.x, P.z); MT.torch.position.set(tu, P.y - (MT.ws ? 0 : 0) + 0.02, tv - 0.12); MT.torch.rotation.set(-0.6, 0, 0); }
+  W.sparkT -= dt; if (held && W.sparkT <= 0) { W.sparkT = 0.03; let s = W.sparks.find(o => o.life <= 0); if (!s && W.sparks.length < 40) { s = { s: new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([255, 210, 120], true), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })), life: 0, v: new THREE.Vector3() }; scene.add(s.s); W.sparks.push(s); }
+    if (s) { s.life = 0.35 + Math.random() * 0.4; s.s.position.copy(P); s.v.set((Math.random() - 0.5) * 3, Math.random() * 2.2, (Math.random() - 0.5) * 3); s.s.scale.set(0.05, 0.05, 1); s.s.visible = true; } }
+  for (const s of W.sparks) { if (s.life <= 0) continue; s.life -= dt; s.v.y -= 9.8 * dt; s.s.position.addScaledVector(s.v, dt); s.s.visible = s.life > 0; }
+  if (MT.helm) MT.helm.style.opacity = held ? '0.9' : '0.35';
+  if (typeof AU !== 'undefined' && AU.ctx && AU.buf && AU.buf.fire) { if (!MT.arcV) { const s = src(AU.buf.fire, true), g = gn(0), sp = spatial(); s.playbackRate.value = 2.6; s.connect(g); g.connect(sp.in); s.start(); MT.arcV = { g, sp }; }
+    ramp(MT.arcV.g.gain, held ? 0.9 : 0, 0.03); MT.arcV.sp.place(P, 10, 1); }
+  // the heat gauge
+  if (MT.heat) { const Z = MT.heat.querySelector('.zone'), H = MT.heat.querySelector('.hot'), N = MT.heat.querySelector('.needle'); Z.style.bottom = (lo * 100) + '%'; Z.style.height = ((hi - lo) * 100) + '%'; H.style.height = '10%'; N.style.bottom = 'calc(' + (W.h * 100).toFixed(1) + '% - 2px)'; }
+}
+// the beads on the jig, and the jig turned to the fin being welded (for everyone watching too)
+function mtJigStep(dt) {
+  if (!MT.jig) return; const q = MT.q, W = MT.w, weld = q && q.kind === 'weld', done = weld ? q.seams : (MT.stage >= 2 ? 4 : 0), cur = W ? W.seam : done;
+  MT.can.visible = MT.stage < 2 || weld;
+  const want = Math.min(3, cur) * Math.PI / 2 - Math.PI; MT.jig.rotation.y += faAng(want - MT.jig.rotation.y) * Math.min(1, dt * 4);
+  MT.beads.forEach((b, k) => { const p = k < done ? 1 : (W && k === W.seam ? W.prog : 0); b.visible = p > 0.001; b.scale.y = Math.max(0.0001, p * 0.45); b.material = k < done ? MT.mats.beadC : MT.mats.bead; });
+}
+// the chip at the top while a job's on
+function mtChip() {
+  if (!MT.ui) mtUI(); const q = MT.q, mine = q && q.who === MP.me, watching = q && q.kind === 'launch';
+  const on = !!q && (mine || watching); MT.chip.classList.toggle('show', on); MT.heat.classList.toggle('show', mtWelding());
+  if (!on) { MT.chipTxt = ''; return; }
+  let t = '';
+  if (q.kind === 'parts') { const got = q.got.filter(Boolean).length; t = '<span>PARTS RUN</span> <b>' + got + '/3</b> · ' + (got < 3 ? 'follow the beams (they’re on your map)' : 'back to Matt’s shed'); }
+  else if (q.kind === 'weld') { const W = MT.w, s = W ? W.seam : q.seams, holes = W ? W.holes : q.holes; t = '<span>THE FINS</span> <b>fin ' + Math.min(4, s + 1) + '/4</b> ' + (W ? '<span class="bar"><i style="width:' + Math.round(W.prog * 100) + '%"></i></span>' : '· go to the welding table') + ' <span class="x">' + '✕'.repeat(holes) + '○'.repeat(Math.max(0, 4 - holes)) + '</span>'; }
+  else { const R = MT.R; t = '<span>LAUNCH DAY</span> ' + (q.ph === 'fetch' ? 'Matt’s getting the trolley' : q.ph === 'roll' ? 'Matt’s wheeling her out' : q.ph === 'pad' ? (mine ? '<b>Go to the control box and hit the button</b>' : 'Anyone can hit the button') : q.ph === 'count' ? '<b>' + Math.max(0, 5 - Math.floor(q.cd)) + '</b>' : R.ph === 'chute' ? 'Chute out · <b>' + Math.round(R.apo) + ' m</b>' : R.ph === 'boost' || R.ph === 'coast' ? '<b>' + Math.max(0, Math.round(R.pos.y - R.alt0)) + ' m</b>' : R.ph === 'tumble' ? '<b>Uh oh</b>' : 'Down'); }
+  if (t !== MT.chipTxt) { MT.chipTxt = t; MT.chip.innerHTML = t; }
+}
+// the PUNCH button says WELD while you've got the torch
+function mtPunchLabel() { const on = mtWelding(), el = $('mPunch'); document.body.classList.toggle('mtWeld', on); if (!el || MT.punchOn === on) return; MT.punchOn = on; const s = el.querySelector('span'); if (s) s.textContent = on ? 'WELD' : 'PUNCH'; }
+// the camera while you weld: down over your shoulder at the seam
+function mtCam(dt) {
+  if (!mtWelding() || !MT.w) return false;
+  const P = mtSeamAt(MT.w.seam, 0.25, _mtV2), [su, sv] = mtUV(P.x, P.z), [ex, ez] = mtW(su - 0.55, sv - 1.15), eye = _mtV.set(ex, P.y + 0.62, ez);
+  if (!camInit) { camPos.copy(eye); camInit = true; } else camPos.lerp(eye, 1 - Math.exp(-6 * dt)); lookAt.lerp(P, 1 - Math.exp(-8 * dt));
+  camera.position.copy(camPos); camera.lookAt(lookAt); F.fpK = 0; F.fp = false; return true;
+}
+// parts on the minimap, and the control box once she's on the pad
+function mtOnMap(ctx, toScreen, dpr) {
+  const q = MT.q; if (!q || !MT.partG) return;
+  const dot = (x, z, col, txt) => { const [sx, sy] = toScreen(x, z); ctx.beginPath(); ctx.arc(sx, sy, 6.5 * dpr, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 2 * dpr; ctx.strokeStyle = '#fff'; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = `800 ${8 * dpr}px -apple-system, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, sx, sy + 0.5 * dpr); };
+  if (q.kind === 'parts') { MT_PARTS.forEach((P, i) => { if (!q.got[i]) dot(MT.partG[i].x, MT.partG[i].z, '#e8902a', '★'); }); if (q.ph === 'back' && MT.n) dot(MT.n.pos.x, MT.n.pos.z, '#2e7d32', 'M'); }
+  else if (MT.n && (q.kind === 'weld' || q.kind === 'launch')) { const [x, z] = q.kind === 'launch' ? mtW(MT_BOX[0], MT_BOX[1]) : mtW(MT_TABLE[0], MT_TABLE[1]); dot(x, z, '#e8902a', '!'); }
+}
+// ---- every frame ----
+function mtStep(dt) {
+  if (!MT.ws) return;
+  if (!MT.ready) { if (NPC.ready) mtBuild(); else return; }
+  if (!mpwCli()) mtHost(dt);
+  if (MT.R && mpwCli() && MT.net) { const R = MT.R; if (R.ph === 'boost' || R.ph === 'tumble' || R.ph === 'chute') R.t += dt;      // a mate's copy: the clock for the flame and the chute, and smoothed between updates
+    if (R.tp) { if (R.pos.distanceTo(R.tp) > 30) R.pos.copy(R.tp); else R.pos.lerp(R.tp, 1 - Math.exp(-12 * dt)); R.q.slerp(R.tq, 1 - Math.exp(-12 * dt)); } }
+  if (MT.R && (MT.R.ph === 'landed' || MT.R.ph === 'crash')) MT.R.t += dt;
+  const q = MT.q;
+  if (MT.partG) MT.partG.forEach((p, i) => { const on = !!q && q.kind === 'parts' && !q.got[i]; p.g.visible = on; if (on) { p.it.rotation.y += dt * 1.5; p.it.position.y = 0.15 + Math.sin(NPC.t * 2 + i) * 0.08; p.halo.material.opacity = 0.6 + 0.4 * Math.sin(NPC.t * 4 + i); } });
+  if (MT.benchParts) MT.benchParts.visible = MT.stage >= 1;
+  if (MT.arm) { const A = MT.arm, t = NPC.t; A.yawG.rotation.y = Math.sin(t * 0.37) * 1.3; A.sh.rotation.x = -0.35 + Math.sin(t * 0.53) * 0.45; A.el.rotation.x = 0.9 + Math.sin(t * 0.71 + 1) * 0.5; A.hd.rotation.y = t * 0.8; }      // the robot arm, doing its rounds
+  mtWeldStep(dt); mtJigStep(dt); mtRocketVis(dt); mtBoardDraw(); mtChip(); mtPunchLabel();
+  if (MT.sheet && MT.sheet.classList.contains('show') && !mtTalkable()) MT.sheet.classList.remove('show');
+}
+// ---- over the network: the host sends the state, a mate's phone takes it in ----
+function mtNetOut() {
+  const q = MT.q, R = MT.R; if (!R) return 0;
+  const qq = q ? [q.kind, q.who, q.ph, q.kind === 'parts' ? q.got.map(g => g ? 1 : 0).join('') : '', q.seams || 0, q.holes || 0, r1(q.cd || 0), q.qid] : 0;
+  return [MT.stage, MT.launches, Math.round(MT.best), qq, [R.ph, mpR(R.pos.x), mpR(R.pos.y), mpR(R.pos.z), r2(R.q.x), r2(R.q.y), r2(R.q.z), r2(R.q.w), mpR(R.tr.x), mpR(R.tr.y), mpR(R.tr.z), Math.round(R.apo), mpR(R.alt0)]];
+}
+function mtNetIn(m) {
+  if (!m || !MT.R) return; MT.net = true; MT.stage = m[0]; MT.launches = m[1]; MT.best = m[2];
+  const a = m[3]; if (!a) MT.q = null; else { const old = MT.q && MT.q.qid === a[7] ? MT.q : null; MT.q = { kind: a[0], who: a[1], ph: a[2], got: a[3] ? [...a[3]].map(Number) : [0, 0, 0], seams: a[4], holes: a[5], cd: a[6], qid: a[7], mirror: true }; if (old && old.t) MT.q.t = old.t; }
+  const r = m[4], R = MT.R, ph0 = R.ph; R.ph = r[0]; if (R.ph !== ph0 && (R.ph === 'boost' || R.ph === 'chute' || R.ph === 'landed' || R.ph === 'crash')) R.t = 0;
+  R.tp = R.tp || new THREE.Vector3(); R.tq = R.tq || new THREE.Quaternion(); R.tp.set(r[1], r[2], r[3]); R.tq.set(r[4], r[5], r[6], r[7]).normalize(); if (R.ph === 'shed' || R.ph === 'pad' || R.ph === 'landed' || R.ph === 'crash') { R.pos.copy(R.tp); R.q.copy(R.tq); } R.tr.set(r[8], r[9], r[10]); R.apo = r[11]; R.alt0 = r[12];
+}
+function mtGuestDone(m) { MT.net = false; mtLoad(); MT.stage = Math.max(MT.stage, m.stage | 0); MT.best = Math.max(MT.best, m.best || 0); MT.launches = Math.max(MT.launches, m.launches | 0); if (m.weldQ != null) MT.weldQ = m.weldQ; mtSave(); MT.net = true; }
+// WELD is held, not tapped: the PUNCH button (or Q) down
+(() => { const b = $('mPunch'); if (b) { b.addEventListener('pointerdown', () => { MT.held = true; }); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { MT.held = false; }); }
+  addEventListener('keydown', e => { if (e.key && e.key.toLowerCase() === 'q') MT.held = true; }); addEventListener('keyup', e => { if (e.key && e.key.toLowerCase() === 'q') MT.held = false; }); addEventListener('blur', () => { MT.held = false; }); })();
 // someone (or you) in there?
 function saOccupants() { const out = []; if (activeName === 'foot' && saInside(F.pos)) out.push('you'); for (const n of NPC.list) if (!n.veh && saInside(n.pos)) out.push(n.name); return out; }
 const saDima = () => NPC.list.find(n => n.dima);
@@ -14552,7 +15211,7 @@ function mmChatter(n, dt, dP) {
 /* ---------- Madman and the backpackers ----------
    He can't stand them: when one wanders close he has a dig (and sometimes gets one back). But if one of them has a go
    at you and he's about, he's on your side: he storms over and sorts them out. */
-const mmBackpackers = () => NPC.list.filter(b => !b.mm && !b.dima && !b.veh && npcAlive(b));
+const mmBackpackers = () => NPC.list.filter(b => !b.mm && !b.dima && !b.matt && !b.veh && npcAlive(b));
 // a backpacker having a go at you (or a mate), within reach of him
 function mmFightNear(n, r) { return mmBackpackers().find(b => b.angry && (b.st === 'chase' || b.st === 'fight') && Math.hypot(b.pos.x - n.pos.x, b.pos.z - n.pos.z) < r) || null; }
 function mmDefend(n, dt) {
@@ -15922,6 +16581,7 @@ function spkQuestNpc() {
   if (typeof BP !== 'undefined' && BP.q && BP.q.who === MP.me) return DM.n || null;
   if (typeof BB !== 'undefined' && BB.st === 'build' && BB.help[MP.me]) return (BB.who && npcByName(BB.who)) || null;
   if (MH.mode === 'guided' && (MH.pax || MH.paxId === MP.me)) return MM.n || null;
+  if (typeof MT !== 'undefined' && MT.q && (MT.q.who === MP.me || MT.q.kind === 'launch')) return MT.n || null;
   return undefined;
 }
 function spkMuted(n) {
@@ -15962,6 +16622,7 @@ function plFocus(n) {
   let pin = null;
   if (n.foeId && n.angry) pin = plById(n.foeId);
   if (!pin && n.mm) pin = L.find(q => q.veh === 'ute') || plById(MH.paxId) || (MM.talkUntil > MM.t ? plById(MM.talkId) : null);
+  if (!pin && n.matt) pin = (MT.q ? plById(MT.q.who) : null) || (MT.talkUntil > NPC.t ? plById(MT.talkId) : null);
   if (!pin && n.dima) pin = (BP.q ? plById(BP.q.who) : null) || (SA.q ? plById(SA.q.who) : null) || (DM.talkUntil > NPC.t ? plById(DM.talkId) : null);
   if (pin) { n.focusId = pin.id; return pin; }
   let best = L[0], bd = 1e9;
@@ -16045,7 +16706,7 @@ function mpwHostSend(dt) {
       tree: q.tree, qid: q.qid, ts: T ? T.st : 'stand', td: T ? r2(T.dir) : 0, th: T ? Math.round(T.hp) : 0, lg: q.log ? q.log.map(r2) : null, dr: q.drag ? 1 : 0, ca: q.carry ? 1 : 0, sp: q.split || 0, rh: q.roundHp }; }
     o.mh = [MH.mode, MH.ph, MH.kills, MH.goal, r1(MH.left), MH.paxId || '', r1(MH.cdG), r1(MH.cdS)];
     o.mm = [r1(MM.anger), r1(MM.refuseT), r1(MM.hostileT), VEH.ute && VEH.ute.wrecked ? 1 : 0];
-    o.bb = bbNetOut(); o.bp = bpNetOut();
+    o.bb = bbNetOut(); o.bp = bpNetOut(); o.mt = mtNetOut();
     mpSend(o); }
   // the pigs (the ones anybody's near), a bit less often
   MPW.pigT -= dt;
@@ -16074,7 +16735,7 @@ function mpwRecv(m) {
     mpwCliQuestIn(m.sq || null);
     const h = m.mh; Object.assign(MH, { mode: h[0], ph: h[1], kills: h[2], goal: h[3], left: h[4], paxId: h[5] || null, cdG: h[6], cdS: h[7] });
     MM.anger = m.mm[0]; MM.refuseT = m.mm[1]; MM.hostileT = m.mm[2]; if (VEH.ute) mpwUteWreckIn(!!m.mm[3]);
-    bbNetIn(m.bb); bpNetIn(m.bp);
+    bbNetIn(m.bb); bpNetIn(m.bp); mtNetIn(m.mt);
     void hp; return true; }
   if (m.k === 'pg') { mpwPigsIn(m); return true; }
   if (m.k === 'pv') { for (const nm in m.v) { const v = VEH[nm], g = m.v[nm]; if (!v || !v.state || v.npc || v.mp || nm === activeName || SEQ.veh === v || v.coast) continue;
@@ -16091,6 +16752,7 @@ function mpwRecv(m) {
   if (m.k === 'mhDone') { mpwHuntDone(m); return true; }
   if (m.k === 'giveAxe') { wpnTake('axe'); wpnSelect('axe'); return true; }
   if (m.k === 'qdone' && m.q === 'bench') { if (m.win) bpWon(); return true; }
+  if (m.k === 'qdone' && m.q === 'matt') { mtGuestDone(m); return true; }
   if (m.k === 'qdone') { if (m.q === 'sauna' && m.win) { SA.done++; SA.best = Math.max(SA.best, m.hits || 0); try { localStorage.setItem('wfy.sauna', JSON.stringify({ best: SA.best, done: SA.done })); } catch (_) {} } return true; }
   // host side: what the guests do
   if (m.k === 'act' && MP.host) { mpwOnAct(m); return true; }
@@ -16133,6 +16795,10 @@ function mpwOnAct(m) {
     else if (a === 'bb:join' || a === 'bb:grab' || a === 'bb:drop') bbDo(a, q.id);
     else if (a === 'bb:hit1') bbNail(m.x, q.id);
     else if (typeof a === 'string' && a.startsWith('bp:')) bpDo(a, q.id);
+    else if (a === 'mtc') mtChoose(m.x);
+    else if (a === 'mt:open') { MT.talkId = q.id; MT.talkUntil = NPC.t + 25; }
+    else if (a === 'mt:close') { if (MT.talkId === q.id) MT.talkUntil = 0; }
+    else if (typeof a === 'string' && a.startsWith('mt:')) mtDo(a, q.id, m.x);
     else if (a === 'mh:dry') { if (MH.mode === 'guided' && MH.paxId === q.id) MH.paxDry = true; }
     else if (a === 'npc:kick') { const n = npcByName(m.x); if (n && n.veh && n.st === 'drive' && !n.mm) { sfx('m_punch', n.veh.state.pos, 0.9, 0.8, 8); npcEject(n, 'kick'); toast('Kicked out of the ' + (n.look.name || '') + '’s joyride', 1.6); } }
   }); } finally { MPW.net = false; MPW.sim = simK; }
@@ -16256,14 +16922,16 @@ function mpwCliBegin() {
   SA.q = null;
   if (MH.mode && !MH.pax) mhEnd();
   SPK.q.length = 0; BP.q = null;
+  if (MT.w) mtWeldExit(true); MT.q = null;
 }
 function mpwCliEnd() {
   // back on our own: the mirrors become ordinary again
   for (const a of FA.pigs.slice()) if (a.mirror) removePig(a); MPW.pigs.clear();
   for (const nm of MPW.vbuf.keys()) { const v = VEH[nm]; if (v && v.mp === '#npc') { v.mp = null; v.npc = null; } } MPW.vbuf.clear(); MPW.buf.clear(); MPW.dbuf.length = 0;
   for (const n of NPC.list) { if (n.root.parent !== scene) scene.attach(n.root); n.root.scale.setScalar(n.s); n.veh = null; n.root.quaternion.identity(); n.tilt = 0; n.sp = 0; n.angry = false; n.ko = false; n.hp = n.max || 100;
-    n.gy = n.pos.y = groundAt(n.pos.x, n.pos.z, n.pos.y + 2, n.pos.y); n.st = n.mm ? 'home' : n.dima ? 'home' : 'wander'; n.t = 0; n.atkPh = ''; }
+    n.gy = n.pos.y = groundAt(n.pos.x, n.pos.z, n.pos.y + 2, n.pos.y); n.st = n.mm || n.dima || n.matt ? 'home' : 'wander'; n.t = 0; n.atkPh = ''; }
   for (const v of Object.values(VEH)) if (v.npc && !v.npc.veh) v.npc = null;
+  if (MT.w) mtWeldExit(true); MT.q = null; MT.net = false; mtLoad(); if (MT.R) mtRocketHome(); if (MT.R) { MT.R.tp = null; }
   if (MM.ready) for (const d of MM.dogs) if (d.mode !== 'tray') mmDogTray(d);
   SA.q = null;
   if (MH.pax) { mhUnseat(false); document.body.classList.remove('pax'); } MH.mode = ''; MH.paxId = null; mhChip(false); BP.q = null;
@@ -16316,7 +16984,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>

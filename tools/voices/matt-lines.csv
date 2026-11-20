@@ -1,0 +1,71 @@
+file,situation,mood,line,game_key
+mt_001,"Pottering in the workshop, to nobody in particular","chatty, nerdy","Mind the swarf, it's sharp.",mind the swarf its sharp
+mt_002,"Pottering in the workshop, to nobody in particular","chatty, nerdy","Engineering is just maths with a hammer, really.",engineering is just maths with a hammer really
+mt_003,"Pottering in the workshop, to nobody in particular","chatty, nerdy",I've run the numbers three times. It'll fly.,ive run the numbers three times itll fly
+mt_004,"Pottering in the workshop, to nobody in particular","chatty, nerdy","If it's not on the whiteboard, it doesn't exist.",if its not on the whiteboard it doesnt exist
+mt_005,"Pottering in the workshop, to nobody in particular","chatty, nerdy","Measure twice, cut once. Then measure again, because you probably got it wrong.",measure twice cut once then measure again because you probably got it wrong
+mt_006,"Pottering in the workshop, to nobody in particular","chatty, nerdy",Point one of a mil tolerance. In a shed. On a farm.,point one of a mil tolerance in a shed on a farm
+mt_007,"Pottering in the workshop, to nobody in particular","chatty, nerdy",Half the farm runs on fencing wire and my good intentions.,half the farm runs on fencing wire and my good intentions
+mt_008,"Pottering in the workshop, to nobody in particular","chatty, nerdy",Don't touch the lathe. Seriously. It eats sleeves.,dont touch the lathe seriously it eats sleeves
+mt_009,"Pottering in the workshop, to nobody in particular","chatty, nerdy",That header's held together with zip ties. I'm not proud of it.,that headers held together with zip ties im not proud of it
+mt_010,You walk up to him in the shed,"friendly, a bit distracted",G'day! Come to see the rocket?,gday come to see the rocket
+mt_011,You walk up to him in the shed,"friendly, a bit distracted","Oh, g'day. Don't mind the mess, it's organised chaos.",oh gday dont mind the mess its organised chaos
+mt_012,You walk up to him in the shed,"friendly, a bit distracted","G'day mate! Watch your feet, there's bits everywhere.",gday mate watch your feet theres bits everywhere
+mt_013,You pick Talk in his menu,enthusiastic nerd,"It's a rocket. Well, it will be. A hundred and fifty metres, if my sums are right.",its a rocket well it will be a hundred and fifty metres if my sums are right
+mt_014,You pick Talk in his menu,enthusiastic nerd,I did mechatronics at uni. Now I fix headers and build rockets in a shed. Living the dream.,i did mechatronics at uni now i fix headers and build rockets in a shed living the dream
+mt_015,You pick Talk in his menu,enthusiastic nerd,Madman reckons it's a waste of time. Madman also reckons a ute counts as a personality.,madman reckons its a waste of time madman also reckons a ute counts as a personality
+mt_016,You pick Talk in his menu,enthusiastic nerd,Dima asked if it can lift him. I said no. He's been sulking all week.,dima asked if it can lift him i said no hes been sulking all week
+mt_017,You pick Talk in his menu,enthusiastic nerd,The French lot keep asking if it's a weapon. It's a scientific instrument. That happens to be pointy.,the french lot keep asking if its a weapon its a scientific instrument that happens to be pointy
+mt_018,You start the parts run,"excited, explaining","Righto! I need three bits: the fuel pump off the old header, an oxygen bottle from the machinery shed, and a nose cone. There's one behind the little shed at the house. Don't ask.",righto i need three bits the fuel pump off the old header an oxygen bottle from the machinery shed and a nose cone theres one behind the little shed at the house dont ask
+mt_019,You start the parts run,"excited, explaining","Three parts, mate. I've marked them on your map. They're the glowy ones.",three parts mate ive marked them on your map theyre the glowy ones
+mt_020,All three parts found,eager,Got the lot? Bring them back to the shed!,got the lot bring them back to the shed
+mt_021,All three parts found,eager,"That's all three! Get them back here, I'm itching.",thats all three get them back here im itching
+mt_022,You bring the parts back,delighted,Ripper! That's everything. Now we're cooking.,ripper thats everything now were cooking
+mt_023,You bring the parts back,delighted,Beauty! The nose cone even fits. Mostly.,beauty the nose cone even fits mostly
+mt_024,You start welding the fins,instructive,Helmet down. Hold the trigger to strike an arc and keep the puddle in the green. Too hot and you blow straight through.,helmet down hold the trigger to strike an arc and keep the puddle in the green too hot and you blow straight through
+mt_025,You start welding the fins,instructive,"Fins next. Hold weld, keep it in the green, nice and steady.",fins next hold weld keep it in the green nice and steady
+mt_026,Your weld bead looks good,impressed,Nice bead!,nice bead
+mt_027,Your weld bead looks good,impressed,"Beautiful. Stack of dimes, that.",beautiful stack of dimes that
+mt_028,Your weld bead looks good,impressed,"Steady hands, mate.",steady hands mate
+mt_029,You are welding too hot,urgent,Too hot! Ease off!,too hot ease off
+mt_030,You are welding too hot,urgent,You're cooking it!,youre cooking it
+mt_031,You are welding too cold,teasing,Strike it! You're too cold!,strike it youre too cold
+mt_032,You are welding too cold,teasing,"That's not a weld, that's bird poo.",thats not a weld thats bird poo
+mt_033,You blew a hole in the fin,"wincing, encouraging","Ah, you've blown a hole. Keep going, I'll grind it later.",ah youve blown a hole keep going ill grind it later
+mt_034,You blew a hole in the fin,"wincing, encouraging","Swiss cheese, mate. Ease off a bit.",swiss cheese mate ease off a bit
+mt_035,First fin welded,pleased,That's one fin on.,thats one fin on
+mt_036,Second fin welded,pleased,Two down!,two down
+mt_037,Third fin welded,pleased,Three! One to go.,three one to go
+mt_038,All four fins welded,genuinely impressed,"Mate, that's better than mine. Don't tell anyone.",mate thats better than mine dont tell anyone
+mt_039,All four fins welded,genuinely impressed,"Four fins, all on. She's ready to fly.",four fins all on shes ready to fly
+mt_040,"Too many holes, fins ruined","resigned, kind","Righto, she's Swiss cheese. We'll grind it back and have another go.",righto shes swiss cheese well grind it back and have another go
+mt_041,Launch day starts,pumped,Launch day! I'll wheel her out to the pad.,launch day ill wheel her out to the pad
+mt_042,Launch day starts,pumped,"Right, out she goes. Mind your toes.",right out she goes mind your toes
+mt_043,Rocket on the pad,excited,She's on the rail. Go to the control box and hit the big red button when you're ready.,shes on the rail go to the control box and hit the big red button when youre ready
+mt_044,Countdown,shouting,Five!,five
+mt_045,Countdown,shouting,Four!,four
+mt_046,Countdown,shouting,Three!,three
+mt_047,Countdown,shouting,Two!,two
+mt_048,Countdown,shouting,One!,one
+mt_049,"Countdown, ignition","shouting, thrilled",Ignition!,ignition
+mt_050,The rocket lifts off,ecstatic,Look at her go!,look at her go
+mt_051,The rocket lifts off,ecstatic,"Go on, go on!",go on go on
+mt_052,Parachute opens at the top,overjoyed,Chute! Textbook! Absolutely textbook!,chute textbook absolutely textbook
+mt_053,Rocket lands safely,giddy,I'm putting that on the whiteboard.,im putting that on the whiteboard
+mt_054,Rocket lands safely,giddy,Did you see that? Did you see that!,did you see that did you see that
+mt_055,Rocket comes apart,"deflated, dry humour",Oh no. That's a rapid unscheduled disassembly.,oh no thats a rapid unscheduled disassembly
+mt_056,Rocket comes apart,"deflated, dry humour","Well, that's data. Expensive data.",well thats data expensive data
+mt_057,Launching again after the last one,proud,Good thing I printed spares.,good thing i printed spares
+mt_058,He is busy with your mate,apologetic,"Bit busy, mate. I'm with your mate.",bit busy mate im with your mate
+mt_059,He fixes your machine,cheerful,She's sweet as now. Try not to roll it again.,shes sweet as now try not to roll it again
+mt_060,He fixes your machine,cheerful,Leave it with me. Done. Next!,leave it with me done next
+mt_061,No machine near the shed to fix,shrugging,Can't fix what's not here. Bring it to the shed.,cant fix whats not here bring it to the shed
+mt_062,You ask him to fix Madman ute,nervous laugh,That's Madman's ute. I'm not touching it. I like my fingers.,thats madmans ute im not touching it i like my fingers
+mt_063,You hit him,pained,Ow! Not the glasses!,ow not the glasses
+mt_064,You hit him,pained,Oi! I bruise like a peach!,oi i bruise like a peach
+mt_065,You keep hitting him,indignant,"Right, that's it. I'm calculating your trajectory!",right thats it im calculating your trajectory
+mt_066,You keep hitting him,indignant,You'll keep!,youll keep
+mt_067,You knocked him out,woozy,I think I saw the square root of minus one.,i think i saw the square root of minus one
+mt_068,He wins a scrap,smug,"Ha! Physics, mate.",ha physics mate
+mt_069,You leave his menu,friendly,Catch ya!,catch ya
+mt_070,You leave his menu,friendly,Hooroo! Mind the swarf.,hooroo mind the swarf
