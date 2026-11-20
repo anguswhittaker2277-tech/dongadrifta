@@ -48,6 +48,16 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
   - the engine brake: Truck Revving Idling Engine Sound (680686) by **wesleywestmusic**;
   - the push bike's freewheel: bike-wheel-free-looped (274481) by **yurkobb**;
   - the tractor tyre lugs: thumps from the two body-fall recordings above.
+- Engines, also from Freesound, each idling recording pitched with the revs (the BMW is Angus's own recording):
+  - the truck: Truck Engine Idle Loops (187564) by **qubodup**;
+  - the tractor and harvester: tractor idling (149193) by **videog**;
+  - the dozer: MB trac 1400 turbo running idle (440508) by **jmagiera**;
+  - the telehandler: Back Hoe Tractor (462878) by **DrDufus**;
+  - the ute: Diesel idle 1 (565598) by **C-V**;
+  - the SUV and the X5: Car Arriving Idling And Pulling Away (429405) by **leonelmail**;
+  - the trophy truck: Ford Mustang Engine (1985) (119449) by **lmbubec**;
+  - the dirt bike and the buggy: Motocross bike starting and ticking over (175964) by **kristian321**;
+  - the gyrocopter: Engine, motor (loopable) (398675) by **Dominik_W**.
 
 They were trimmed, layered, compressed and level-matched, and converted to MP3 here.
 
