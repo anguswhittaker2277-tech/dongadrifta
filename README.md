@@ -74,6 +74,14 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
   - the whines and whistles (turbo, hydraulics, motors, tyre hum): Wind Turbine Whine 2 (434101) by **DeVern** and
     Toy Drone Engine Different Speeds (188243) by **qubodup**, pitched as needed;
   - fires use the bunks' fire recording above.
+- Music (in `music/`, fetched when it's first played), also CC0 from Freesound, trimmed into seamless loops and loudness-matched:
+  - BMW radio, Techno: A Hectic Backpacker Trip (441150) by **dekstromoramid**;
+  - BMW radio, House: ElectroHouse Cheesy (51278) by **RutgerMuller**;
+  - The Robot: ElectroDub01 (505) by **geekhorde**;
+  - Sprinkler and Dad Point: Disco funk loops 001 remix 1 long loop 120 bpm (572781) by **josefpres**;
+  - Boot Scoot: Denver Belle (135128) by **ecfike**;
+  - Shearer's Shuffle: 60 Sec Commercial Music - Music for Pickup Trucks - Loopable (676484) by **NearTheAtmoshphere**;
+  - Air Guitar: Punk_Rock_Short31 (679186) by **bainmack**.
 
 They were trimmed, layered, compressed and level-matched, and converted to MP3 here.
 

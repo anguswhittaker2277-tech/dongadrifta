@@ -7156,7 +7156,7 @@ function makeFireVoice() {
 /* ================================================================
    EMOTES — tap the smiley on foot for the wheel. All original moves (nothing copied from any game):
      Backflip, The Robot, The Sprinkler, Boot Scoot, Shearer's Shuffle, Air Guitar, Dad Point.
-   Each dance has its own little backing track, synthesised here like everything else.
+   Each dance has its own backing track: a real recording per style in music/ (synthGroove only stands in if it can't be fetched).
    Move the stick or jump to stop dancing. The camera swings round to the front.
    ================================================================ */
 const EMOTES = [
@@ -7283,14 +7283,31 @@ function synthGroove(style, bpm) {
   }
   return normRms(d, 0.16);
 }
+/* MUSIC: real tracks (CC0, from Freesound; credits in the README), one file each in music/, fetched the first time it's wanted.
+   Each is cut as a seamless loop. If a file can't be fetched (index.html opened straight from disk), the old generated music plays. */
+const MUSIC_V = 1;
+function musicGet(name) {
+  AU.music = AU.music || {}; if (AU.music[name]) return AU.music[name];
+  return (AU.music[name] = fetch('music/' + name + '.mp3?v=' + MUSIC_V).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then(ab => new Promise((ok, bad) => { const p = AU.ctx.decodeAudioData(ab, ok, bad); if (p && p.catch) p.catch(bad); })).then(musicTrim)
+    .catch(e => { delete AU.music[name]; throw e; }));
+}
+function musicTrim(b) {             // the MP3's padding off both ends, so the loop doesn't stutter
+  const C = b.numberOfChannels, L = b.length, d = []; for (let k = 0; k < C; k++) d.push(b.getChannelData(k));
+  const loud = (i) => d.some(ch => Math.abs(ch[i]) > 0.001); let i0 = 0, i1 = L; while (i0 < L - 1 && !loud(i0)) i0++; while (i1 > i0 + 1 && !loud(i1 - 1)) i1--;
+  if (i0 < 8 && L - i1 < 8) return b; const o = AU.ctx.createBuffer(C, i1 - i0, b.sampleRate); for (let k = 0; k < C; k++) o.getChannelData(k).set(d[k].subarray(i0, i1)); return o;
+}
 function emoteMusic(E) {
   if (!AU.ctx || !AU.on || !E.bpm) return;
-  if (!EM.bufs[E.id]) EM.bufs[E.id] = toBuf(synthGroove(E.style, E.bpm));
-  stopEmoteMusic();
-  const s = src(EM.bufs[E.id], true), g = gn(0); s.connect(g); g.connect(AU.master); s.start(); ramp(g.gain, 0.5, 0.1);
+  stopEmoteMusic(); EM.want = E.id;
+  musicGet(E.style).then(b => { if (EM.want !== E.id || EM.src) return; emotePlay(b); }, () => { if (EM.want !== E.id || EM.src) return;
+    if (!EM.bufs[E.id]) EM.bufs[E.id] = toBuf(synthGroove(E.style, E.bpm)); emotePlay(EM.bufs[E.id]); });
+}
+function emotePlay(b) {
+  const s = src(b, true), g = gn(0); s.connect(g); g.connect(AU.master); s.start(); ramp(g.gain, 0.5, 0.1);
   EM.src = s; EM.gain = g;
 }
-function stopEmoteMusic() { if (EM.src) { const s = EM.src; ramp(EM.gain.gain, 0, 0.15); setTimeout(() => { try { s.stop(); } catch (_) {} }, 400); EM.src = null; } }
+function stopEmoteMusic() { EM.want = null; if (EM.src) { const s = EM.src; ramp(EM.gain.gain, 0, 0.15); setTimeout(() => { try { s.stop(); } catch (_) {} }, 400); EM.src = null; } }
 function startEmote(id) {
   if (activeName !== 'foot' || !F.onGround || (F.mode !== 'walk' && F.mode !== 'emote') || saSitting()) { toast('Get your feet on the ground first', 1.4); return; }
   const E = EMOTES.find(e => e.id === id); if (!E) return;
@@ -11905,11 +11922,12 @@ function npcTrace(o, d, best) {
 }
 
 /* ================================================================
-   BMW RADIO: two synthesised stations (original techno and house, generated live, no recordings).
+   BMW RADIO: two stations playing real tracks (music/techno.mp3, music/house.mp3; see radioReal). The generated music below only plays
+   if those files can't be fetched.
    Button in the BMW cycles Off > Tallinn Techno FM > Pärnu House Radio > Off.
    ================================================================ */
 const RAD = { st: 0, next: 0, step: 0, bar: 0, bus: null, duck: null, noise: null, timer: 0, fade: 0 };
-const RADIO_ST = [
+const RADIO_ST = [            // (the generated stations below are only the fallback now: radioReal() plays real tracks)
   { name: 'Tallinn Techno FM', short: 'Techno', bpm: 134, root: 55, swing: 0 },
   { name: 'Pärnu House Radio', short: 'House', bpm: 124, root: 43.65, swing: 0.1 }
 ];
@@ -11962,14 +11980,23 @@ function radioTick() {
   if (!RAD.st) return;
   if (activeName !== 'bmw' || !AU.ctx) { radioSet(0, true); return; }
   const c = AU.ctx; if (c.state === 'suspended') c.resume();
+  if (RAD.real) { RAD.next = c.currentTime + 0.08; return; }          // a real track is playing (or on its way): no generated music
   while (RAD.next < c.currentTime + 0.12) radioStep();
 }
 function radioSet(i, quiet) {
   const was = RAD.st; RAD.st = i;
   if (RAD.bus) { const c = AU.ctx; RAD.bus.gain.cancelScheduledValues(c.currentTime); RAD.bus.gain.setTargetAtTime(i ? 0.55 : 0, c.currentTime, i ? 0.05 : 0.12); }
   if (i && i !== was) { RAD.step = 0; RAD.next = AU.ctx.currentTime + 0.08; }
+  if (i !== was) radioReal(i);
   if (!quiet) toast(i ? '♪ ' + RADIO_ST[i - 1].name : 'Radio off', 1.8);
   actKey = '';
+}
+// the stations play real tracks: Techno FM and House Radio, each its own file in music/, dropped in part way through like a real radio
+function radioReal(i) {
+  if (RAD.src) { const s0 = RAD.src; RAD.src = null; try { s0.stop(AU.ctx.currentTime + 0.25); } catch (_) {} }
+  RAD.real = false; if (!i || !AU.ctx) return; RAD.real = 'loading';
+  musicGet(['techno', 'house'][i - 1]).then(b => { if (RAD.st !== i || RAD.src) return; radioBus(); const s = src(b, true); s.connect(RAD.bus); s.start(0, Math.random() * b.duration * 0.8); RAD.src = s; RAD.real = true; },
+    () => { if (RAD.st === i) RAD.real = false; });
 }
 function radioCycle() {
   audioInit(); if (!AU.ctx) { toast('No audio on this device', 1.6); return; }
@@ -17392,7 +17419,7 @@ window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImp
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
