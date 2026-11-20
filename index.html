@@ -13835,6 +13835,7 @@ function mtW(u, v) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.cos(t)
 function mtUV(x, z) { return shedLocal(mtD(), x, z); }
 function mtYaw(du, dv) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.cos(t), s = Math.sin(t); return Math.atan2(c * du - s * dv, s * du + c * dv); }
 function mtFloor(x, z) { const f = shedFloorAt(x, z); return f !== null ? f : groundAt(x, z, 30, 0); }
+function mtGround(x, z) { const sk = STRUCTS.skip; STRUCTS.skip = MT.rk ? MT.rk.gr : sk; try { return mtFloor(x, z); } finally { STRUCTS.skip = sk; } }      // (under the rocket: not its own box)
 // where Matt works ([u, v, facing du, dv]), the welding spot, the trolley's way out to the pad and the control box
 const MT_SPOT = { bench: [-5, -14.35, 0, -1], board: [14.3, -10, 1, 0], lathe: [4.8, -14.3, 0, -1], rocket: [1.25, -8, -1, 0], watch: [9.9, -12.5, -0.5, 1], box: [6.4, 18.8, -0.8, 0.6], trolley: [0, -9.2, 0, 1] };
 const MT_AISLE = -12.9, MT_WELD = [8, -12.15], MT_TABLE = [8, -11], MT_ROCK = [0, -8], MT_PAD = [0, 30], MT_BOX = [5, 18];
@@ -14039,7 +14040,7 @@ function mtRocketBuild() {
 }
 const _mtV = new THREE.Vector3(), _mtV2 = new THREE.Vector3(), _mtQ = new THREE.Quaternion(), _mtQ2 = new THREE.Quaternion();
 function mtRocketHome() {
-  const R = MT.R; if (!R) return; const [x, z] = mtW(MT_ROCK[0], MT_ROCK[1]), y = mtFloor(x, z);
+  const R = MT.R; if (!R) return; const [x, z] = mtW(MT_ROCK[0], MT_ROCK[1]), y = mtGround(x, z);
   R.ph = 'shed'; R.t = 0; R.s = 0; R.tr.set(x, y, z); R.pos.set(x, y + 0.56, z); R.vel.set(0, 0, 0); R.q.identity(); R.fail = false; R.apo = 0; R.spin.set(0, 0, 0);
 }
 // the rocket's place on the trolley's way out (s metres along MT_ROLL)
@@ -14050,9 +14051,10 @@ function mtFly(dt) {
   const R = MT.R; if (R.ph === 'landed' || R.ph === 'crash') return; R.t += dt; const g = 9.8;
   if (R.ph === 'boost' || R.ph === 'tumble') {
     const ax = _mtV.set(0, 1, 0).applyQuaternion(R.q);
-    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crash', 3.2); }
-    if (R.t < 2.6) R.vel.addScaledVector(ax, 26 * dt);
-    R.vel.y -= g * dt; R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt;
+    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crash', 3.2); mtAim(R); }
+    if (R.t < 2.6 && !R.target) R.vel.addScaledVector(ax, 26 * dt);
+    R.vel.y -= g * dt; if (!R.target) { R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt; }
+    if (R.target && R.pos.distanceTo(R.target.p) < 2.6) { mtStrike(R); return; }
     if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
     else if (R.vel.lengthSq() > 4) { _mtV2.copy(R.vel).normalize(); _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
     if (R.ph === 'boost' && R.t > 2.6) R.ph = 'coast';
@@ -14068,6 +14070,22 @@ function mtFly(dt) {
     if (gy > -1e8 && R.pos.y <= gy && (R.ph !== 'boost' || R.t > 0.5)) { R.pos.y = gy; R.vel.set(0, 0, 0);
       if (R.ph === 'chute') { R.ph = 'landed'; R.t = 0; _mtQ.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2 - 0.2)); R.q.copy(_mtQ); mtFlightDone(true); }
       else { R.ph = 'crash'; R.t = 0; wpnBoom(R.pos.clone().setY(gy + 0.5), 4, 0.6, false); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false); } } }
+}
+// a fin's gone: she corkscrews off and comes down on whichever's about, the fuel tank or Madman's ute (aimed on a plain throw, no thrust)
+function mtAim(R) {
+  const opts = [], T = STRUCTS.boxes && STRUCTS.boxes.tank, u = VEH.ute;
+  if (T && T.rb && !STRUCTS.blown) opts.push({ kind: 'tank', p: T.rb.pos.clone().setY(T.rb.pos.y + 0.6) });
+  if (u && u.state && u.state.pos && !u.wrecked && !(WPN.VD.ute && WPN.VD.ute.wrecked) && !u.mp && activeName !== 'ute') opts.push({ kind: 'ute', p: u.state.pos.clone().setY(u.state.pos.y + 0.9) });
+  if (!opts.length) return;
+  const tg = opts[Math.floor(Math.random() * opts.length)], d = Math.hypot(tg.p.x - R.pos.x, tg.p.z - R.pos.z), t = THREE.MathUtils.clamp(d / 32, 2.2, 7); R.target = tg;
+  R.vel.set((tg.p.x - R.pos.x) / t, (tg.p.y - R.pos.y) / t + 0.5 * 9.8 * t, (tg.p.z - R.pos.z) / t);
+}
+function mtStrike(R) {
+  const tg = R.target, dir = _mtV2.copy(R.vel).normalize(); R.ph = 'crash'; R.t = 0; R.hit = tg.kind; R.vel.set(0, 0, 0); R.target = null;
+  if (tg.kind === 'tank' && STRUCTS.boxes.tank && !STRUCTS.blown) explodeTank(STRUCTS.boxes.tank, dir.clone(), R.pos.clone());
+  else if (tg.kind === 'ute' && VEH.ute) { wpnVehDamage(VEH.ute, 9999, dir.clone(), 'blast', true); wpnBoom(R.pos.clone(), 4, 0.7, false); }
+  else wpnBoom(R.pos.clone(), 4, 0.6, false);
+  R.pos.y = groundAt(R.pos.x, R.pos.z, R.pos.y + 2, R.pos.y - 6); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false);
 }
 // the model: where MT.R says, the flame and smoke while it burns, the chute once it's out
 function mtRocketVis(dt) {
@@ -14182,7 +14200,7 @@ function mtThink(n, dt) {
     if (q.ph === 'fetch') { if (n.st !== 'mtWalk' || MT.spot !== 'trolley') { MT.spot = 'trolley'; MT.path = mtPathTo(MT_SPOT.trolley[0], MT_SPOT.trolley[1]); n.st = 'mtWalk'; }
       if (!mtWalk(n, dt)) { q.ph = 'roll'; R.ph = 'roll'; R.s = 0; } return; }
     if (q.ph === 'roll') { R.s = Math.min(MT_ROLL_L, R.s + 1.6 * dt); const a = mtRollAt(R.s, _mtV), b = mtRollAt(R.s - 1.15, _mtV2), [tx, tz] = mtW(a.x, a.z), [mx, mz] = mtW(b.x, b.z);
-      R.tr.set(tx, mtFloor(tx, tz), tz); R.pos.set(tx, R.tr.y + 0.56, tz); n.yaw += faAng(Math.atan2(tx - mx, tz - mz) - n.yaw) * Math.min(1, dt * 6); n.pos.x = mx; n.pos.z = mz; n.sp = 1.6; n.st = 'mtPush';
+      const gy = mtGround(tx, tz); R.tr.set(tx, R.s < 0.05 ? gy : R.tr.y + (gy - R.tr.y) * Math.min(1, dt * 6), tz); R.pos.set(tx, R.tr.y + 0.56, tz);      // (eased over steps, like the lip of the shed floor) n.yaw += faAng(Math.atan2(tx - mx, tz - mz) - n.yaw) * Math.min(1, dt * 6); n.pos.x = mx; n.pos.z = mz; n.sp = 1.6; n.st = 'mtPush';
       n.gT -= dt; if (n.gT <= 0) { n.gT = 0.1; n.gy = mtFloor(mx, mz); } n.pos.y += (n.gy - n.pos.y) * Math.min(1, dt * 12); return; }
     if (n.st === 'mtPush') { MT.spot = 'box'; MT.path = [MT_SPOT.box.slice(0, 2)]; n.st = 'mtWalk'; }
     if (n.st === 'mtWalk' && mtWalk(n, dt)) return;
@@ -14295,12 +14313,12 @@ function mtEnd(win, why) {
   if (q.kind === 'parts') { if (win) { MT.stage = Math.max(MT.stage, 1); mtSay('partsDone', 3); } }
   if (q.kind === 'weld') { if (win) { MT.stage = Math.max(MT.stage, 2); MT.weldQ = THREE.MathUtils.clamp(q.qs / Math.max(1, q.seams), 0.3, 1); mtSay('weldWin', 3.5); } else if (why === 'holes') mtSay('weldFail', 3.5); }
   if (q.kind === 'launch' && win) { MT.stage = Math.max(MT.stage, 3); MT.launches++; MT.best = Math.max(MT.best, MT.R.apo || 0); }
-  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? 'Parts run done! Matt will patch up any machine you bring to the shed' : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute'))
+  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? 'Parts run done! Matt will patch up any machine you bring to the shed' : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.hit === 'tank' ? 'She lost a fin and came down on the fuel tank' : MT.R.hit === 'ute' ? 'She lost a fin and came down on Madman’s ute' : MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute'))
     : why === 'holes' ? 'Too many holes: the fins are ruined. Talk to Matt to try again' : why === 'angry' ? 'Matt’s not doing jobs with you right now' : 'Job’s off', 3.4));
   if (win && q.who !== MP.me) mpSend({ k: 'qdone', f: MP.me, to: q.who, q: 'matt', stage: MT.stage, best: MT.best, launches: MT.launches, weldQ: MT.weldQ });
   MT.q = null; mtSave(); if (MT.partG) for (const p of MT.partG) p.g.visible = false;
 }
-function mtQualTxt() { const qv = MT.weldQ; return qv > 0.85 ? 'Lovely welds' : qv > 0.65 ? 'Decent welds' : 'Ugly welds (she might not hold)'; }
+function mtQualTxt() { const qv = MT.weldQ; return qv >= 0.95 ? 'Perfect welds: she’ll hold' : qv > 0.8 ? 'Decent welds (she might let go)' : 'Ugly welds (she probably won’t hold)'; }
 function mtFlightDone(ok) { const q = MT.q; if (q && q.kind === 'launch') { q.ph = 'done'; q.endAt = q.t + (ok ? 3 : 3.5); if (ok) (q.lines = q.lines || []).push([q.t + 1.2, 'landed']); } }
 // what a player did, on the host (a mate's comes in over the network as theirs)
 function mtDo(id, pid, x) {
@@ -14326,10 +14344,10 @@ function mtHost(dt) {
   }
   if (q.kind === 'launch') {
     const R = MT.R;
-    if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, groundAt(tx, tz, MT.padY + 3, MT.padY - 3), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
+    if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, mtGround(tx, tz), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
     if (q.ph === 'count') { q.cd += dt; const keys = ['c5', 'c4', 'c3', 'c2', 'c1', 'ign']; while (q.said < keys.length && q.cd >= q.said * 1.0) { SPK.allow = true; try { mtSay(keys[q.said], 0.95); } finally { SPK.allow = false; } q.said++; }
       if (q.cd >= 5.3) { q.ph = 'fly'; R.ph = 'boost'; R.t = 0; R.alt0 = R.pos.y; R.vel.set(0, 0, 0); R.q.identity(); const a = Math.random() * 6.283; R.wind = [Math.cos(a) * 2.8, Math.sin(a) * 2.8];
-        R.fail = Math.random() < THREE.MathUtils.clamp(0.88 - MT.weldQ, 0.04, 0.55); sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
+        R.fail = MT.weldQ < 0.95 && Math.random() < THREE.MathUtils.clamp((0.95 - MT.weldQ) * 2.2 + 0.1, 0.1, 0.75); R.target = null; R.hit = ''; sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
     if (q.ph === 'fly' || q.ph === 'done') mtFly(dt);
     if (q.lines) q.lines = q.lines.filter(([at, k]) => { if (q.t < at) return true; if (k !== 'liftoff' || R.ph === 'boost') mtSay(k, 3); return false; });          // (lines due at a game time)
     if (q.ph === 'done' && q.t >= q.endAt) { mtEnd(true); return; }
