@@ -4485,6 +4485,7 @@ function sprayStep(ac, dt, agl) {
   if (!A.spraying || A.landed) { SPRAYFX.last[key] = null; return; }
   if (A.tank <= 0) { A.spraying = false; SPRAYFX.last[key] = null; toast(P.plane ? 'Hopper empty. Land back at the strip to load up' : 'Tank empty. Land at home to refill', 3); actKey = ''; return; }
   A.tank = Math.max(0, A.tank - P.flow * dt);
+  if (key === 'spray') sprayHurt(ac, dt);
   // mist
   const emit = P.plane ? 7 : 4;
   for (let i = 0; i < emit; i++) {
@@ -4507,6 +4508,25 @@ function sprayStep(ac, dt, agl) {
       covSaveT += dt * 30; if (covSaveT > 60) { covSaveT = 0; saveCoverage(); }
     }
   } else SPRAYFX.last[key] = null;
+}
+// the spray drone's chemical isn't kind to whoever's standing under it: the farmer, the NPCs and your mates all cop it
+function sprayHurt(ac, dt) {
+  const A = ac.st, P = ac.P;
+  if (ac.mp) return;                                       // a mate's flying it: their game does the hurting
+  A.chemT = (A.chemT || 0) + dt; if (A.chemT < 0.3) return; const tick = A.chemT; A.chemT = 0;
+  const R = P.swath / 2 + 0.5, H = P.sprayAgl + 4, DPS = 14;
+  const dose = (x, y, z) => { const dy = A.pos.y - y; if (dy < -0.5 || dy > H) return 0; const r = Math.hypot(x - A.pos.x, z - A.pos.z); if (r > R) return 0;
+    return DPS * tick * (1 - 0.6 * r / R) * (1 - 0.5 * Math.max(0, dy) / H); };
+  const down = new THREE.Vector3(0, -1, 0);
+  // me, on foot (or standing there with the remote)
+  if ((activeName === 'foot' || F.mode === 'pilot') && F.dead <= 0 && !MH.pax) { const k = dose(F.pos.x, F.pos.y, F.pos.z);
+    if (k > 0) { wpnHurt(k, down, 'chem'); if (!(A.chemSaidT > performance.now())) { A.chemSaidT = performance.now() + 8000; toast('You’re in the spray! Get out from under it', 2); } } }
+  // the NPCs
+  if (typeof NPC !== 'undefined' && NPC.list) for (const n of NPC.list) { if (n.st === 'drive' || !npcAlive(n) || (n.root && !n.root.visible)) continue;
+    const k = dose(n.pos.x, n.pos.y, n.pos.z); if (k > 0) npcShot(n, down, k, new THREE.Vector3(n.pos.x, n.pos.y + 1.2, n.pos.z), false, true); }
+  // mates on foot
+  if (MP.on) for (const p of MP.peers.values()) { if (p.veh || !p.av) continue; const Rp = p.av.root.position, k = dose(Rp.x, Rp.y, Rp.z);
+    if (k > 0) mpSend({ k: 'dmg', f: MP.me, to: p.id, dmg: Math.max(1, Math.round(k)), v: [0, -1, 0], chem: 1 }); }
 }
 function saveCoverage() { const c = SPRAYFX.cov; if (!c) return; let s = ''; for (let i = 0; i < c.g.length; i++) s += c.g[i] === 2 ? '2' : '0'; STORE.set('wfy.sprayed', s); }
 function updateMist(dt) {
@@ -9805,7 +9825,7 @@ function wpnSplat(x, y, z, s) { wpnDecal(WMAT.blood, _w3.set(x, y + 0.02, z), _w
 function wpnHurt(dmg, vel, how) {
   if (F.dead > 0 || dmg <= 0) return;
   F.hp = Math.max(0, (F.hp || 100) - dmg); WPN.hurtT = 0.6; WPN.calmT = 0;
-  wpnBloodSpray(_w4.set(F.pos.x, F.pos.y + 1.1, F.pos.z), vel ? _w3.copy(vel).normalize() : _w3.set(0, 0.5, 0), Math.min(30, 6 + dmg * 0.4));
+  if (how !== 'chem') wpnBloodSpray(_w4.set(F.pos.x, F.pos.y + 1.1, F.pos.z), vel ? _w3.copy(vel).normalize() : _w3.set(0, 0.5, 0), Math.min(30, 6 + dmg * 0.4));
   if (F.hp <= 0) { F.dead = 4.5; WPN.fire = false; if (activeName === 'foot' && F.mode !== 'tumble' && !MH.pax) startTumble(vel ? _w3.copy(vel).setY(Math.max(3, vel.y || 0)) : new THREE.Vector3(0, 3, 0)); $('wasted').classList.add('show'); sfx('thud', F.pos, 0.9, 0.6);
     wpnSplat(F.pos.x, F.pos.y, F.pos.z, 1.1); }
 }
@@ -10194,7 +10214,7 @@ function wpnNet(m) {
   if (m.k === 'sh') { const o = new THREE.Vector3(...m.o); for (const e of m.e) wpnTracer(o, new THREE.Vector3(...e)); wpnFlashAt(o); const W = WEAPONS[m.w]; if (W && W.snd) sfx(W.snd, o, 1, 1, 30); faunaScare(o, 40); return; }
   if (m.k === 'dmg') { const v = new THREE.Vector3(...(m.v || [0, 1, 0]));
     if (activeName === 'foot' || F.mode === 'pilot') { if (m.dmg > 28 && (F.mode === 'walk' || F.mode === 'air')) startTumble(v.clone().multiplyScalar(0.6)); }
-    wpnHurt(m.dmg, v, m.fire ? 'fire' : 'bullet'); if (F.hp <= 0 && p) toast(p.name + ' got you', 2); return; }
+    wpnHurt(m.dmg, v, m.chem ? 'chem' : m.fire ? 'fire' : 'bullet'); if (F.hp <= 0 && p) toast(p.name + (m.chem ? ' sprayed you' : ' got you'), 2); return; }
   if (m.k === 'boom') { wpnBoom(new THREE.Vector3(...m.p), m.r, m.pw, true); return; }
   if (m.k === 'fire') { wpnStartFire(new THREE.Vector3(...m.p), m.r, m.life, true); return; }
   if (m.k === 'vdmg') { const v = VEH[m.veh]; if (v) wpnVehDamage(v, m.dmg, _w1.set(0, 1, 0), m.how, true); return; }
@@ -11084,8 +11104,8 @@ const DIMA_L = {
   idle: ["Is good day for lifting, da?", "You look weak. Come, I show you gym.", "In Russia, sauna is one hundred degrees. Here is cute.", "Protein shake is breakfast of champion.", "Madman says I am crazy. Madman has no muscles.",
     "You want to see biceps? Is free today.", "I eat six eggs this morning. Raw.", "In Siberia, we sauna, then roll in snow. Here is no snow. Is problem.", "Cardio is for people who are afraid of barbell.",
     "My grandmother lifts more than these backpackers.", "Today is chest day. Every day is chest day.", "The French boy asked me for protein. I said earn it.", "You stand like small tree. Stand like big tree.",
-    "Sauna tonight? Of course sauna tonight.", "Is hot outside, da? Inside sauna is hotter. Is good."],
-  talk: ["Sauna makes you strong like bear.", "First sweat, then cold water, then vodka. Is the way.", "I do two hundred push-ups before you wake up.", "Steam is good for soul, my friend.",
+    "Sauna tonight? Of course sauna tonight.", "Is hot outside, da? Inside sauna is hotter. Is good.", "Do you know that boiled rocks have good protein?"],
+  talk: ["Do you know that boiled rocks have good protein?", "Sauna makes you strong like bear.", "First sweat, then cold water, then vodka. Is the way.", "I do two hundred push-ups before you wake up.", "Steam is good for soul, my friend.",
     "Real sauna has birch branches. You hit yourself. Is massage.", "Leil is spirit of steam. You must respect.", "My father built sauna with his hands. I built this with my hands. And Madman's drill.",
     "Cold tub is for heart. Makes it strong like tractor.", "Never drink beer in sauna. Drink after. Many.", "You want to be strong? Chop wood. Every day chop wood."],
   bye: ["Do svidaniya, my friend.", "Go. Eat more protein.", "Go, little man. Come back stronger.", "See you in sauna.", "Drink water. Lots of water."],
@@ -11652,8 +11672,8 @@ function npcReset() {
   NPC.list.forEach((n, i) => { if (!n.mm && !n.dima && !n.matt) npcPlace(n, i); });
 }
 // guns and blasts work on them too
-function npcShot(n, d, dmg, P, head) {
-  wpnBloodSpray(P, d, Math.min(26, 5 + dmg * 0.5)); n.hp -= dmg * (head ? 2.6 : 1); n.angry = true; if (n.mm) mmHurt(n, 'shot');
+function npcShot(n, d, dmg, P, head, chem) {
+  if (!chem) wpnBloodSpray(P, d, Math.min(26, 5 + dmg * 0.5)); n.hp -= dmg * (head ? 2.6 : 1); n.angry = true; if (n.mm) mmHurt(n, 'shot');
   if (n.st === 'drive') { if (n.hp <= 0 || Math.random() < 0.35) { if (n.hp <= 0) n.ko = true; npcEject(n, 'kick'); } return; }
   if (n.hp <= 0 && n.st !== 'ko' && n.st !== 'tumble') { n.hp = 0; n.vel.set(d.x * (3 + dmg * 0.05), 2.5, d.z * (3 + dmg * 0.05)); n.st = 'tumble'; n.t = 0; n.ko = true; npcSay(n, npcPick(NPC_L.ko), 3.5); }
   else if (n.st === 'wander' || n.st === 'toVeh') { n.st = 'chase'; n.t = 0; npcSay(n, npcPick(NPC_L.angry), 2.8); }
@@ -14967,9 +14987,9 @@ function sndPick(name) {
 const MM_LOOK = { name: 'Madman', h: 0.62, w: 1, m: 0.3, skin: 2, hair: 'crop', hc: 1, hat: 'cap', hatc: 1, shirt: 'singlet', sc: 7, legs: 'stubbies', lc: 0, shoes: 'thongs', shc: 1, gl: 'sunnies', fh: 3 };
 const MM_DOGS = [{ name: 'Tank', coat: 'brindle', vest: 0xd8561f }, { name: 'Dusty', coat: 'red', vest: 0x2f3a2a }];
 const MM_L = {
-  idle: ["Strewth, she’s a warm one today.", "Could murder a pie right now.", "Saw a boar down the channel last night. Size of a Corolla, fair dinkum.", "Beer o’clock somewhere, mate.", "Bloody flies. Every year.", "Strewth, I’m dry as a dead dingo’s donger."],
+  idle: ["Strewth, she’s a warm one today.", "Could murder a pie right now.", "Saw a boar down the channel last night. Size of a Corolla, fair dinkum.", "Beer o’clock somewhere, mate.", "Bloody flies. Every year.", "Strewth, I’m dry as a dead dingo’s donger.", "Nothing worse than a wet channel bank."],
   greet: ["G’day mate!", "Oi oi! How ya goin’?", "Ow ya goin’, ya mad bastard?"],
-  talk: ["Pigs got into the sorghum again. Rooted half the headland. Little bastards.", "Fuck me dead, mate, the price of diesel. Daylight robbery.", "Don’t touch the ute. That’s rule one. There is no rule two.", "Yeah nah, I don’t do the city. Too many people, not enough pigs.", "Had a sow charge the ute last week. Dented the bullbar. Dented the sow more."],
+  talk: ["Nothing worse than a wet channel bank.", "Pigs got into the sorghum again. Rooted half the headland. Little bastards.", "Fuck me dead, mate, the price of diesel. Daylight robbery.", "Don’t touch the ute. That’s rule one. There is no rule two.", "Yeah nah, I don’t do the city. Too many people, not enough pigs.", "Had a sow charge the ute last week. Dented the bullbar. Dented the sow more."],
   dogs: ["Settle down, ya mongrels!", "Tank! Sit! ...Tank!", "Shut ya traps, the pair of ya!"],
   pigs: ["Look at that! Bloody pigs, bold as brass.", "Fuck me dead, they’re right on the doorstep!", "Cheeky buggers, aren’t they?"],
   touch: ["Oi! Mitts off the ute!", "Get off the bloody ute!", "You scratch her, you’re payin’."],
@@ -16808,7 +16828,7 @@ function mpwOnAct(m) {
 function mpwOnHit(m) {
   const q = plById(m.f); if (!q) return;
   plWith(q, () => {
-    if (m.k === 'wnpc') { const n = npcByName(m.i); if (n) { n.foeId = q.id; npcShot(n, new THREE.Vector3(...m.d), m.dmg, new THREE.Vector3(...m.p), m.head); } }
+    if (m.k === 'wnpc') { const n = npcByName(m.i); if (n) { n.foeId = q.id; npcShot(n, new THREE.Vector3(...m.d), m.dmg, new THREE.Vector3(...m.p), m.head, !!m.chem); } }
     else if (m.k === 'wpig') { const a = FA.pigs.find(a => a.nid === m.id); if (a) wpnPigShot(a, new THREE.Vector3(...m.d), m.dmg, new THREE.Vector3(...m.p)); }
     else if (m.k === 'mel') { const n = m.i ? npcByName(m.i) : null, a = m.id ? FA.pigs.find(a => a.nid === m.id) : null;
       if (n) { n.foeId = q.id; npcHit(n, m.kind, m.M); } else if (a) melHitPig(a, m.kind, m.M); }
@@ -16968,7 +16988,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _mha = mhAct; mhAct = function (id) { if (mpwCli() && id === 'mh:out' && MH.pax) { const moving = Math.abs((VEH.ute.state || { v: 0 }).v) > 2; mhUnseat(moving); mhChip(false); document.body.classList.remove('pax'); mpwSendAct('mh:out'); return; } return asMe(_mha).apply(this, arguments); };
   const _kick = npcKick; npcKick = function () { if (mpwCli()) { const n = npcKickTarget(); if (!n) return; sfx('m_punch', n.veh.state.pos, 0.9, 0.8, 8); camShake = Math.max(camShake, 0.3); mpwSendAct('npc:kick', n.name); return; } return asMe(_kick).apply(this, arguments); };
   // shots and punches on the host's NPCs and pigs
-  const _shot = npcShot; npcShot = function (n, d, dmg, P, head) { if (mpwCli() && !MPW.net) { wpnBloodSpray(P, d, Math.min(26, 5 + dmg * 0.5)); mpSend({ k: 'wnpc', f: MP.me, i: n.name, d: [d.x, d.y, d.z].map(mpR), dmg, p: [P.x, P.y, P.z].map(mpR), head: !!head }); return; }
+  const _shot = npcShot; npcShot = function (n, d, dmg, P, head, chem) { if (mpwCli() && !MPW.net) { if (!chem) wpnBloodSpray(P, d, Math.min(26, 5 + dmg * 0.5)); mpSend({ k: 'wnpc', f: MP.me, i: n.name, d: [d.x, d.y, d.z].map(mpR), dmg, p: [P.x, P.y, P.z].map(mpR), head: !!head, chem: chem ? 1 : 0 }); return; }
     if (!PX.cur && !MPW.net) n.foeId = MP.me; return _shot.apply(this, arguments); };
   const _pig = wpnPigShot; wpnPigShot = function (a, d, dmg, P) { if (mpwCli() && a.mirror) { wpnBloodSpray(P, d, Math.min(26, 4 + dmg * 0.5)); faSay(a.pos, Math.random() < 0.5 ? 'fa_squeal' : 'fa_squeal_b', 1.25, 1 / (a.s || 1), 25); mpSend({ k: 'wpig', f: MP.me, id: a.nid, d: [d.x, d.y, d.z].map(mpR), dmg, p: [P.x, P.y, P.z].map(mpR) }); return; } return _pig.apply(this, arguments); };
   const _mel = melHitAnimal; melHitAnimal = function (a, kind, M) {
