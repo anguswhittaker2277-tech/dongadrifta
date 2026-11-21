@@ -604,7 +604,8 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 
 /* ================================================================
@@ -755,13 +756,31 @@ function makeWheel(R, W, rimR, lugs) {
    its top edge, green weight block 4.05-4.65 m, roof 3.35-3.52 m, cab from just over the rear axle to 1.46 m, exhaust and air
    intake on the right-hand front corner post, duals all round with lemon-yellow rims, black front guards, big green rear
    guards with black liners, green shoulders and black lamp boxes at the back, slow-moving-vehicle triangle, green 3-point
-   linkage and drawbar. Origin = rear-axle centre on the ground; forward = +Z; +X = left. */
-const TR_GREEN = new THREE.MeshLambertMaterial({ color: 0x367c2b });
-const TR_YELLOW = new THREE.MeshLambertMaterial({ color: 0xf2dc26 });
-const TR_GREY = new THREE.MeshLambertMaterial({ color: 0x8d9296 });
-const TR_ENGINE = new THREE.MeshLambertMaterial({ color: 0x1d3d1a });
+   linkage and drawbar. Glossy paint and plastics, rounded edges and smooth shading so it reads like the toy does in the photos.
+   Origin = rear-axle centre on the ground; forward = +Z; +X = left. */
+const TXM = {
+  green: new THREE.MeshPhongMaterial({ color: 0x367c2b, specular: 0x34482f, shininess: 55 }),
+  greenDark: new THREE.MeshPhongMaterial({ color: 0x24561d, specular: 0x1c2a1a, shininess: 30 }),
+  yellow: new THREE.MeshPhongMaterial({ color: 0xf2dc26, specular: 0x55522e, shininess: 50 }),
+  black: new THREE.MeshPhongMaterial({ color: 0x141515, specular: 0x404244, shininess: 45 }),
+  matte: new THREE.MeshLambertMaterial({ color: 0x101111 }),
+  tyre: new THREE.MeshPhongMaterial({ color: 0x1c1c1c, specular: 0x202020, shininess: 14 }),
+  grey: new THREE.MeshPhongMaterial({ color: 0x80878b, specular: 0x2a2a2a, shininess: 18 }),
+  greyDark: new THREE.MeshLambertMaterial({ color: 0x55595c }),
+  engine: new THREE.MeshLambertMaterial({ color: 0x1d3d1a }),
+  steel: new THREE.MeshPhongMaterial({ color: 0x3a3d3f, specular: 0x555555, shininess: 40 }),
+  chrome: new THREE.MeshPhongMaterial({ color: 0xbfc5ca, specular: 0xffffff, shininess: 90 }),
+  lens: new THREE.MeshBasicMaterial({ color: 0xfffbea }),
+  amber: new THREE.MeshBasicMaterial({ color: 0xffa21a }),
+  red: new THREE.MeshPhongMaterial({ color: 0xd8261c, emissive: 0x3a0603, specular: 0x886666, shininess: 70 }),
+  glass: new THREE.MeshPhongMaterial({ color: 0xa9c0cc, specular: 0xffffff, shininess: 110, transparent: true, opacity: 0.34, depthWrite: false }),
+};
+const TR_GREEN = TXM.green;
+// rounded box, and smooth shading that keeps the hard edges (creases sharper than ~40 degrees stay sharp)
+const trRB = (w, h, d, r = 0.04, seg = 2) => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2 - 0.001, h / 2 - 0.001, d / 2 - 0.001));
+const trSmooth = (g, a = 0.7) => toCreasedNormals(g, a);
 // an arc-shaped guard as [z, y] points round a centre: outer radius ro, inner ri, from angle a0 to a1 (0 = forward, PI/2 = up)
-function trArc(ro, ri, a0, a1, cz = 0, cy = 0, n = 18) {
+function trArc(ro, ri, a0, a1, cz = 0, cy = 0, n = 22) {
   const pts = [];
   for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; pts.push([cz + Math.cos(a) * ro, cy + Math.sin(a) * ro]); }
   for (let i = n; i >= 0; i--) { const a = a0 + (a1 - a0) * i / n; pts.push([cz + Math.cos(a) * ri, cy + Math.sin(a) * ri]); }
@@ -772,36 +791,43 @@ function trArc(ro, ri, a0, a1, cz = 0, cy = 0, n = 18) {
 function trBonnet() {
   const sh = new THREE.Shape(); sh.moveTo(-0.6, 1.62); sh.lineTo(0.6, 1.62); sh.lineTo(0.6, 2.27);
   sh.absarc(0.3, 2.27, 0.3, 0, Math.PI / 2, false); sh.lineTo(-0.3, 2.57); sh.absarc(-0.3, 2.27, 0.3, Math.PI / 2, Math.PI, false); sh.lineTo(-0.6, 1.62);
-  const z0 = 1.45, z1 = 4.17, g = new THREE.ExtrudeGeometry(sh, { depth: z1 - z0, steps: 26, bevelEnabled: false, curveSegments: 7 });
+  const z0 = 1.45, z1 = 4.17, g = new THREE.ExtrudeGeometry(sh, { depth: z1 - z0, steps: 30, bevelEnabled: false, curveSegments: 9 });
   const P = g.attributes.position;
   for (let i = 0; i < P.count; i++) { const z = P.getZ(i) + z0, H = trBonnetTop(z); P.setZ(i, z); P.setY(i, 1.62 + (P.getY(i) - 1.62) * (H - 1.62) / 0.95); }
-  g.computeVertexNormals(); return g;
+  return trSmooth(g, 0.75);
 }
 const trBonnetTop = z => z < 3.85 ? 2.57 - 0.12 * (z - 1.45) / 2.4 : 2.45 - 0.27 * Math.pow((z - 3.85) / 0.32, 2);
-// the toy's wheels: deep chevron lugs, a flat lemon-yellow disc with a hub nub at the back, a stepped hub with a bolt ring
-// and a green cap at the front. Axis = X; both faces are dressed so it works either way round, inner or outer dual.
+// the toy's wheels: rounded carcass, chunky chevron lugs running over the shoulders, a flat lemon-yellow disc with a hub nub at
+// the back, a stepped hub with a bolt ring and a green cap at the front. Axis = X; both faces dressed (inner or outer dual).
 function makeToyWheel(R, W, rimR, front) {
-  const spin = new THREE.Group(); const b = Batch(), h = W / 2, Rc = R - 0.04;
-  const prof = [[rimR, -h + 0.04], [Rc - 0.08, -h], [Rc - 0.01, -h + 0.06], [Rc, -h + 0.11], [Rc, h - 0.11], [Rc - 0.01, h - 0.06], [Rc - 0.08, h], [rimR, h - 0.04]].map(([r, y]) => new THREE.Vector2(r, y));
-  b.add(MAT.tyre, new THREE.LatheGeometry(prof, 32), 0, 0, 0, 0, 0, Math.PI / 2);
-  const N = front ? 20 : 24;
+  const spin = new THREE.Group(); const b = Batch(), h = W / 2, Rc = R - 0.045;
+  // carcass: sidewall bulge, a round shoulder and a flat tread band
+  const prof = [];
+  prof.push([rimR - 0.01, -h + 0.05], [rimR + 0.04, -h + 0.01], [(rimR + Rc) / 2, -h - 0.005]);
+  for (let i = 0; i <= 6; i++) { const t = i / 6 * Math.PI / 2, rr = 0.09; prof.push([Rc - rr + Math.sin(t) * rr, -h + rr - Math.cos(t) * rr]); }
+  for (let i = 6; i >= 0; i--) { const t = i / 6 * Math.PI / 2, rr = 0.09; prof.push([Rc - rr + Math.sin(t) * rr, h - rr + Math.cos(t) * rr]); }
+  prof.push([(rimR + Rc) / 2, h + 0.005], [rimR + 0.04, h - 0.01], [rimR - 0.01, h - 0.05]);
+  b.add(TXM.tyre, trSmooth(new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 40), 1.2), 0, 0, 0, 0, 0, Math.PI / 2);
+  const N = front ? 20 : 23;
   for (let i = 0; i < N; i++) {
-    const a = i / N * Math.PI * 2;
-    for (const s of [-1, 1]) {        // a chevron: one bar from each shoulder, leaning in toward the centre line
-      const g = box(h * 0.9, 0.05, 0.1); g.translate(s * h * 0.5, Rc + 0.02, 0); g.rotateY(s * 0.45); g.rotateX(a + (s > 0 ? Math.PI / N : 0)); b.add(MAT.tyre, g);
-      const sh = box(0.04, 0.1, 0.1); sh.translate(s * (h - 0.025), Rc - 0.04, 0); sh.rotateX(a + (s > 0 ? Math.PI / N : 0)); b.add(MAT.tyre, sh);
+    for (const s of [-1, 1]) {        // a chevron: one bar from each shoulder, leaning in past the centre line, the two sides staggered
+      const a = i / N * Math.PI * 2 + (s > 0 ? Math.PI / N : 0);
+      const g = box(h * 1.02, 0.055, 0.13); g.translate(s * h * 0.42, Rc + 0.022, 0); g.rotateY(s * 0.62); g.rotateX(a); b.add(TXM.tyre, g);
+      const sh = box(0.05, 0.13, 0.13); sh.translate(s * (h - 0.01), Rc - 0.055, 0); sh.rotateY(s * 0.25); sh.rotateX(a); b.add(TXM.tyre, sh);   // lug end rolling over the shoulder
     }
   }
-  b.add(TR_YELLOW, cyl(rimR, rimR, W - 0.08, 26), 0, 0, 0, 0, 0, Math.PI / 2);
+  b.add(TXM.yellow, cyl(rimR, rimR, W - 0.1, 30), 0, 0, 0, 0, 0, Math.PI / 2);
   for (const s of [-1, 1]) {
-    const x = s * (h - 0.04);
-    b.add(TR_YELLOW, new THREE.TorusGeometry(rimR - 0.015, 0.022, 6, 32), x, 0, 0, 0, Math.PI / 2, 0);
+    const x = s * (h - 0.05);
+    b.add(TXM.yellow, new THREE.TorusGeometry(rimR - 0.012, 0.024, 8, 36), x, 0, 0, 0, Math.PI / 2, 0);
+    b.add(TXM.yellow, cyl(rimR - 0.03, rimR - 0.03, 0.02, 30), x - s * 0.02, 0, 0, 0, 0, Math.PI / 2);
     if (front) {
-      b.add(TR_YELLOW, cyl(rimR * 0.62, rimR * 0.66, 0.08, 22), x + s * 0.03, 0, 0, 0, 0, Math.PI / 2);
-      for (let k = 0; k < 10; k++) { const t = k / 10 * Math.PI * 2; b.add(TR_YELLOW, cyl(0.022, 0.022, 0.04, 6), x + s * 0.08, Math.cos(t) * rimR * 0.48, Math.sin(t) * rimR * 0.48, 0, 0, Math.PI / 2); }
-      b.add(TR_GREEN, cyl(0.07, 0.075, 0.06, 14), x + s * 0.09, 0, 0, 0, 0, Math.PI / 2);
+      b.add(TXM.yellow, cyl(rimR * 0.62, rimR * 0.68, 0.08, 26), x + s * 0.02, 0, 0, 0, 0, Math.PI / 2);
+      for (let k = 0; k < 10; k++) { const t = k / 10 * Math.PI * 2; b.add(TXM.yellow, new THREE.SphereGeometry(0.022, 6, 4), x + s * 0.065, Math.cos(t) * rimR * 0.48, Math.sin(t) * rimR * 0.48); }
+      b.add(TXM.green, new THREE.SphereGeometry(0.075, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), x + s * 0.06, 0, 0, 0, 0, -s * Math.PI / 2);
     } else {
-      b.add(TR_YELLOW, cyl(0.1, 0.11, 0.1, 14), x + s * 0.05, 0, 0, 0, 0, Math.PI / 2);
+      b.add(TXM.yellow, cyl(0.2, 0.22, 0.03, 20), x + s * 0.005, 0, 0, 0, 0, Math.PI / 2);
+      b.add(TXM.yellow, cyl(0.09, 0.1, 0.11, 16), x + s * 0.05, 0, 0, 0, 0, Math.PI / 2);
     }
   }
   b.build(spin);
@@ -811,109 +837,126 @@ function buildTractor() {
   const root = new THREE.Group();       // origin = rear-axle centre on the ground; forward = +Z; +X = left
   const body = new THREE.Group();       // sprung part (rolls/pitches on its own)
   root.add(body);
-  const b = Batch(), G = TR_GREEN, SEATZ = 0.55;
+  const b = Batch(), G = TXM.green, K = TXM.black, SEATZ = 0.55;
 
   // ---- frame, axles, the engine bay and the box behind the front wheels
-  b.add(MAT.black, box(0.8, 0.5, 4.3), 0, 1.0, 1.9);
-  b.add(MAT.steel, cyl(0.2, 0.2, 2.0, 12), 0, R_FRONT, 3.1, 0, 0, Math.PI / 2);
-  b.add(MAT.steel, cyl(0.26, 0.26, 3.0, 14), 0, R_REAR, 0, 0, 0, Math.PI / 2);
-  b.add(G, box(1.0, 1.1, 1.2), 0, 1.3, -0.1);                                 // transmission housing
-  b.add(TR_ENGINE, box(1.0, 0.62, 1.6), 0, 1.31, 3.05);                       // engine, seen under the bonnet sides
-  b.add(G, box(1.15, 0.6, 0.85), 0, 1.35, 1.85);                              // tank and battery box behind the front wheels
+  b.add(TXM.matte, box(0.8, 0.5, 4.3), 0, 1.0, 1.9);
+  b.add(TXM.steel, cyl(0.2, 0.2, 2.0, 14), 0, R_FRONT, 3.1, 0, 0, Math.PI / 2);
+  b.add(TXM.greenDark, cyl(0.24, 0.28, 0.5, 14), 0, R_FRONT, 3.1, Math.PI / 2, 0, 0);     // front axle centre casting
+  b.add(TXM.steel, cyl(0.26, 0.26, 2.2, 16), 0, R_REAR, 0, 0, 0, Math.PI / 2);
+  for (const s of [-1, 1]) b.add(G, cyl(0.2, 0.3, 0.42, 16), s * 0.62, R_REAR, 0, 0, 0, Math.PI / 2);   // trumpet housings out to the wheels
+  b.add(G, trRB(1.0, 1.1, 1.2, 0.1), 0, 1.3, -0.1);                            // transmission housing
+  b.add(TXM.engine, box(1.0, 0.62, 1.6), 0, 1.31, 3.05);                        // engine, seen under the bonnet sides
+  for (const s of [-1, 1]) for (let i = 0; i < 3; i++) b.add(TXM.matte, cyl(0.035, 0.035, 0.5, 6), s * 0.52, 1.15 + i * 0.12, 2.9, Math.PI / 2, 0, 0);   // pipes and hoses
+  b.add(G, trRB(1.15, 0.6, 0.85, 0.07), 0, 1.35, 1.85);                         // tank and battery box behind the front wheels
 
-  // ---- bonnet: one long rounded piece (the big bevel rounds its top edges and its nose), falling from the cab to the nose
+  // ---- bonnet: one long rounded piece, falling from the cab to the nose
   b.add(G, trBonnet());
-  for (const s of [-1, 1]) b.add(G, box(0.05, 0.4, 0.36), s * 0.585, 1.44, 3.9);          // green cheeks down beside the nose
-  // the black mask: the face under the lamps and the lower nose, with grille slats
-  b.add(MAT.black, box(1.08, 0.38, 0.04), 0, 1.8, 4.19);
-  b.add(MAT.black, box(1.12, 0.38, 0.3), 0, 1.43, 4.03);
-  for (let i = 0; i < 6; i++) b.add(MAT.steel, box(0.9, 0.022, 0.02), 0, 1.3 + i * 0.09, 4.2);
+  for (const s of [-1, 1]) b.add(G, trRB(0.06, 0.4, 0.36, 0.025), s * 0.585, 1.44, 3.9);   // green cheeks down beside the nose
+  // the black mask: the face under the lamps and the lower nose, with a cross-hatched grille
+  b.add(K, trRB(1.08, 0.4, 0.06, 0.02), 0, 1.79, 4.18);
+  b.add(K, trRB(1.12, 0.38, 0.32, 0.04), 0, 1.43, 4.03);
+  for (let i = 0; i < 7; i++) b.add(TXM.greyDark, box(0.86, 0.016, 0.015), 0, 1.3 + i * 0.075, 4.215);
+  for (let i = 0; i < 9; i++) b.add(TXM.greyDark, box(0.014, 0.47, 0.012), -0.4 + i * 0.1, 1.53, 4.222);
   for (const s of [-1, 1]) {
-    // headlamps along the top edge of the mask, wrapping round the corners
-    b.add(MAT.black, box(0.38, 0.14, 0.03), s * 0.33, 1.98, 4.2);
-    b.add(MAT.lamp, box(0.3, 0.08, 0.02), s * 0.33, 1.985, 4.22);
-    b.add(MAT.lamp, box(0.02, 0.08, 0.22), s * 0.607, 1.98, 4.04);
-    b.add(MAT.amber, box(0.02, 0.06, 0.08), s * 0.607, 1.86, 3.88);
+    // headlamps along the top edge of the mask in chrome bezels, wrapping round the corners
+    b.add(K, trRB(0.38, 0.14, 0.04, 0.015), s * 0.33, 1.98, 4.2);
+    b.add(TXM.chrome, trRB(0.32, 0.095, 0.02, 0.01), s * 0.33, 1.985, 4.215);
+    b.add(TXM.lens, box(0.27, 0.06, 0.01), s * 0.33, 1.985, 4.227);
+    b.add(TXM.chrome, box(0.02, 0.09, 0.24), s * 0.604, 1.98, 4.04);
+    b.add(TXM.lens, box(0.01, 0.06, 0.2), s * 0.612, 1.98, 4.04);
+    b.add(TXM.amber, box(0.012, 0.06, 0.08), s * 0.607, 1.86, 3.88);
     // yellow stripe down each side, widening into a swoosh at the front
-    b.add(TR_YELLOW, box(0.012, 0.035, 1.9), s * 0.603, 2.175, 2.65, Math.atan2(0.09, 1.9), 0, 0);
-    b.add(TR_YELLOW, box(0.012, 0.06, 0.42), s * 0.603, 2.07, 3.85, 0.15, 0, 0);
-    b.add(TR_ENGINE, box(0.14, 0.02, 0.07), s * 0.13, trBonnetTop(3.55) + 0.006, 3.55);   // two vent slots on top
+    b.add(TXM.yellow, box(0.012, 0.05, 1.9), s * 0.603, 2.17, 2.65, Math.atan2(0.09, 1.9), 0, 0);
+    b.add(TXM.yellow, box(0.012, 0.075, 0.42), s * 0.603, 2.06, 3.85, 0.15, 0, 0);
+    b.add(TXM.engine, trRB(0.14, 0.03, 0.08, 0.012), s * 0.13, trBonnetTop(3.55) + 0.004, 3.55);   // two vent slots on top
   }
-  b.add(MAT.steel, box(0.5, 0.02, 0.18), 0, trBonnetTop(4.0) + 0.01, 4.0, 0.67, 0, 0);    // mesh up on the nose
+  b.add(TXM.greyDark, trRB(0.5, 0.025, 0.18, 0.01), 0, trBonnetTop(4.0) + 0.01, 4.0, 0.67, 0, 0);   // mesh up on the nose
 
   // ---- front weight block on its bracket
-  b.add(G, box(0.6, 0.18, 0.3), 0, 1.28, 4.05);
-  b.add(G, profileExtrude([[4.08, 1.36], [4.62, 1.36], [4.62, 1.6], [4.5, 1.72], [4.08, 1.72]], 1.16, 0.03));
-  b.add(MAT.black, box(1.0, 0.04, 0.5), 0, 1.32, 4.35);
+  b.add(G, trRB(0.6, 0.18, 0.3, 0.03), 0, 1.28, 4.05);
+  b.add(G, trSmooth(profileExtrude([[4.1, 1.38], [4.6, 1.38], [4.6, 1.6], [4.5, 1.7], [4.1, 1.7]], 1.16, 0.05)));
+  b.add(TXM.matte, box(1.0, 0.04, 0.5), 0, 1.32, 4.35);
 
   // ---- steps: a green ladder under the door (left), a black one on the right
-  for (const [x, m] of [[1.12, G], [-1.12, MAT.black]]) {
-    for (let i = 0; i < 4; i++) b.add(m, box(0.34, 0.05, 0.32), x, 0.6 + i * 0.45, 1.33);
-    for (const z of [1.15, 1.51]) b.add(MAT.black, box(0.05, 1.5, 0.04), x + Math.sign(x) * 0.15, 1.33, z);
+  for (const [x, m] of [[1.12, G], [-1.12, K]]) {
+    for (let i = 0; i < 4; i++) b.add(m, trRB(0.34, 0.05, 0.32, 0.015), x, 0.6 + i * 0.45, 1.33);
+    for (const z of [1.15, 1.51]) b.add(K, trRB(0.05, 1.5, 0.05, 0.015), x + Math.sign(x) * 0.15, 1.33, z);
   }
-  b.add(MAT.black, cyl(0.025, 0.025, 0.9, 8), 1.0, 2.75, 1.36);                  // grab rail on the door side
+  b.add(K, cyl(0.025, 0.025, 0.9, 8), 1.0, 2.75, 1.36);                         // grab rail on the door side
 
-  // ---- cab: black frame, glass all round, green roof that overhangs front and back
-  b.add(G, box(1.9, 0.24, 1.5), 0, 2.12, 0.76);                               // green under the glass, like the toy
-  b.add(MAT.black, box(1.92, 0.04, 1.52), 0, 2.25, 0.76);
-  b.add(G, box(1.9, 0.36, 0.46), 0, 1.82, 1.23);                              // and down in front of the rear guards
-  for (const [x, z] of [[0.9, 0.07], [-0.9, 0.07], [0.9, 1.44], [-0.9, 1.44]]) b.add(MAT.black, box(0.12, 1.16, 0.12), x, 2.8, z);
-  b.add(MAT.black, box(1.94, 0.1, 1.52), 0, 3.3, 0.76);
-  b.add(MAT.greenDark, box(2.24, 0.04, 1.92), 0, 3.33, 0.78);
-  b.add(G, box(2.2, 0.13, 1.88), 0, 3.41, 0.78);
-  b.add(G, box(1.9, 0.06, 1.5), 0, 3.5, 0.76);
-  for (const [x, z] of [[0.75, 1.5], [-0.75, 1.5], [0.75, 0.05], [-0.75, 0.05], [0, 1.45], [0, 0.1]]) b.add(G, cyl(0.04, 0.05, 0.05, 8), x, 3.55, z);   // the bumps on the toy's roof
-  for (const x of [0.62, 0.3, -0.3, -0.62]) b.add(MAT.lamp, box(0.16, 0.06, 0.03), x, 3.41, 1.725);
-  // inside: grey seat, console and steering wheel, like the toy's
-  b.add(TR_GREY, box(0.52, 0.12, 0.5), 0, 2.33, SEATZ);
-  b.add(TR_GREY, box(0.52, 0.66, 0.12), 0, 2.7, SEATZ - 0.3, -0.12, 0, 0);
-  b.add(TR_GREY, box(0.22, 0.28, 0.6), -0.42, 2.38, SEATZ + 0.1);
-  b.add(TR_GREY, cyl(0.035, 0.035, 0.6, 8), 0, 2.6, SEATZ + 0.6, -0.5, 0, 0);
-  b.add(MAT.black, new THREE.TorusGeometry(0.17, 0.022, 6, 20), 0, 2.88, SEATZ + 0.5, -0.9, 0, 0);
+  // ---- cab: green lower body, black frame, glass all round, green roof that overhangs front and back
+  b.add(G, trRB(1.9, 0.14, 1.5, 0.04), 0, 1.93, 0.76);                         // green under the glass, like the toy
+  b.add(K, box(1.92, 0.035, 1.52), 0, 2.0, 0.76);
+  b.add(TXM.greyDark, box(1.7, 0.24, 1.32), 0, 2.13, 0.76);                    // the cab floor, up where the driver climbs in
+  b.add(G, trRB(1.9, 0.3, 0.46, 0.05), 0, 1.72, 1.23);                         // and down in front of the rear guards
+  for (const [x, z] of [[0.9, 0.07], [-0.9, 0.07], [0.9, 1.44], [-0.9, 1.44]]) b.add(K, trRB(0.12, 1.36, 0.12, 0.035), x, 2.67, z);
+  b.add(K, trRB(1.94, 0.1, 1.52, 0.03), 0, 3.3, 0.76);
+  for (const z of [0.05, 1.46]) b.add(K, box(1.7, 0.05, 0.05), 0, 2.03, z);    // bottom rails of the back and front glass
+  b.add(TXM.greenDark, trRB(2.24, 0.05, 1.92, 0.02), 0, 3.335, 0.78);
+  b.add(G, trRB(2.2, 0.14, 1.88, 0.06), 0, 3.41, 0.78);
+  b.add(G, trRB(1.86, 0.07, 1.5, 0.035), 0, 3.5, 0.76);
+  for (const z of [0.25, 0.76, 1.27]) b.add(G, trRB(1.6, 0.025, 0.06, 0.01), 0, 3.545, z);   // the ribs moulded in the toy's roof
+  for (const [x, z] of [[0.75, 1.5], [-0.75, 1.5], [0.75, 0.05], [-0.75, 0.05], [0, 1.45], [0, 0.1]]) b.add(G, new THREE.SphereGeometry(0.05, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), x, 3.53, z);   // the bumps
+  for (const x of [0.62, 0.3, -0.3, -0.62]) { b.add(K, trRB(0.2, 0.08, 0.03, 0.01), x, 3.41, 1.72); b.add(TXM.lens, box(0.15, 0.05, 0.01), x, 3.41, 1.737); }
+  // inside: grey floor, seat with armrest console and joystick, steering column, wheel and dash pod, like the toy's
+  b.add(TXM.grey, trRB(0.52, 0.13, 0.5, 0.05), 0, 2.33, SEATZ);
+  b.add(TXM.grey, trRB(0.52, 0.66, 0.13, 0.05), 0, 2.7, SEATZ - 0.3, -0.12, 0, 0);
+  b.add(TXM.grey, trRB(0.36, 0.16, 0.1, 0.04), 0, 3.08, SEATZ - 0.36, -0.12, 0, 0);
+  b.add(TXM.grey, trRB(0.18, 0.3, 0.62, 0.04), -0.42, 2.4, SEATZ + 0.12);
+  b.add(K, cyl(0.02, 0.025, 0.14, 8), -0.42, 2.6, SEATZ + 0.3);
+  b.add(TXM.grey, trRB(0.3, 0.5, 0.22, 0.05), 0, 2.5, SEATZ + 0.78, -0.35, 0, 0);
+  b.add(K, cyl(0.035, 0.035, 0.45, 8), 0, 2.72, SEATZ + 0.62, -0.75, 0, 0);
+  b.add(K, new THREE.TorusGeometry(0.17, 0.022, 8, 24), 0, 2.88, SEATZ + 0.5, -0.9, 0, 0);
 
-  // ---- rear guards over the inner duals: green on top, a black liner under them, a black flap at the back end
+  // ---- rear guards over the inner duals: green crown, a black liner under it, a black flap at the back end
   for (const s of [-1, 1]) {
-    b.add(G, profileExtrude(trArc(1.36, 1.24, 0.72, 2.32, 0.15, 1.0), 0.5, 0.02), s * 1.13, 0, 0);
-    b.add(MAT.black, profileExtrude(trArc(1.24, 1.16, 0.7, 2.36, 0.15, 1.0), 0.54, 0.01), s * 1.13, 0, 0);
-    b.add(MAT.black, profileExtrude(trArc(1.36, 1.16, 2.32, 2.62, 0.15, 1.0, 4), 0.54, 0.01), s * 1.13, 0, 0);
-    // green shoulder behind the cab with a black lamp box under it
-    b.add(G, box(0.78, 0.36, 0.55), s * 0.9, 2.2, -0.3);
-    b.add(MAT.black, box(0.82, 0.2, 0.62), s * 0.9, 1.92, -0.33);
-    b.add(MAT.red, box(0.16, 0.08, 0.02), s * 1.15, 1.92, -0.645);
-    b.add(MAT.amber, box(0.12, 0.08, 0.02), s * 0.7, 1.92, -0.645);
+    b.add(G, trSmooth(profileExtrude(trArc(1.34, 1.26, 0.72, 2.32, 0.15, 1.0), 0.5, 0.035)), s * 1.13, 0, 0);
+    b.add(K, trSmooth(profileExtrude(trArc(1.25, 1.17, 0.7, 2.36, 0.15, 1.0), 0.53, 0.012)), s * 1.13, 0, 0);
+    b.add(K, trSmooth(profileExtrude(trArc(1.34, 1.18, 2.32, 2.62, 0.15, 1.0, 5), 0.52, 0.02)), s * 1.13, 0, 0);
+    // green shoulder behind the cab with its moulded handle, and the black lamp box under it
+    b.add(G, trRB(0.78, 0.36, 0.55, 0.09, 3), s * 0.9, 2.2, -0.3);
+    b.add(G, new THREE.TorusGeometry(0.07, 0.016, 6, 12, Math.PI), s * 0.9, 2.3, -0.578);
+    b.add(K, trRB(0.82, 0.2, 0.62, 0.05), s * 0.9, 1.92, -0.33);
+    b.add(TXM.red, trRB(0.17, 0.09, 0.02, 0.008), s * 1.15, 1.92, -0.645);
+    b.add(TXM.amber, box(0.12, 0.08, 0.02), s * 0.7, 1.92, -0.645);
   }
-  // ---- the back: green panel with the triangle, 3-point linkage, drawbar
-  b.add(G, box(0.95, 0.65, 0.15), 0, 1.8, -0.58);
-  b.add(MAT.red, cyl(0.15, 0.15, 0.02, 3), 0, 1.82, -0.665, -Math.PI / 2, 0, 0);
-  b.add(G, box(0.6, 0.35, 0.3), 0, 0.85, -0.62);
+  // ---- the back: green panel with the triangle, 3-point linkage with ball ends, drawbar
+  b.add(G, trRB(0.95, 0.65, 0.15, 0.04), 0, 1.8, -0.58);
+  b.add(TXM.red, cyl(0.2, 0.2, 0.025, 3), 0, 1.84, -0.67, -Math.PI / 2, 0, 0);
+  b.add(TXM.chrome, cyl(0.225, 0.225, 0.012, 3), 0, 1.84, -0.66, -Math.PI / 2, 0, 0);
+  b.add(G, trRB(0.6, 0.35, 0.3, 0.05), 0, 0.85, -0.62);
   for (const s of [-1, 1]) {
-    b.add(G, box(0.08, 0.1, 0.8), s * 0.355, 0.7, -0.92, -0.26, 0, 0);          // lower links
-    b.add(G, box(0.07, 0.6, 0.07), s * 0.25, 1.2, -0.66);                       // lift rods
+    b.add(G, trRB(0.08, 0.11, 0.8, 0.025), s * 0.355, 0.7, -0.92, -0.26, 0, 0);   // lower links
+    b.add(G, new THREE.SphereGeometry(0.06, 10, 8), s * 0.34, 0.6, -1.3);          // their ball ends
+    b.add(G, cyl(0.035, 0.035, 0.6, 8), s * 0.25, 1.2, -0.66);                     // lift rods
+    b.add(G, trRB(0.1, 0.18, 0.22, 0.03), s * 0.25, 1.52, -0.66);                  // lift arms
   }
-  b.add(G, box(0.09, 0.09, 0.6), 0, 1.35, -0.9, 0.2, 0, 0);                     // top link
-  b.add(G, box(0.24, 0.1, 1.2), 0, 0.58, -1.05);                                // drawbar
-  b.add(MAT.black, cyl(0.05, 0.05, 0.11, 10), 0, 0.58, -1.55);                  // the pin hole near its end
+  b.add(G, cyl(0.045, 0.045, 0.62, 10), 0, 1.35, -0.9, Math.PI / 2 + 0.2, 0, 0);  // top link
+  b.add(G, trRB(0.24, 0.1, 1.2, 0.03), 0, 0.58, -1.05);                          // drawbar
+  b.add(TXM.matte, cyl(0.05, 0.05, 0.11, 12), 0, 0.58, -1.55);                    // the pin hole near its end
   // ---- exhaust stack and air intake up the right-hand front corner of the cab
-  b.add(MAT.black, box(0.24, 1.5, 0.42), -0.95, 2.2, 1.62);
-  b.add(MAT.black, cyl(0.075, 0.075, 1.05, 10), -0.95, 2.62, 1.88);
-  b.add(MAT.black, cyl(0.075, 0.075, 0.16, 10), -0.95, 3.18, 1.84, -0.6, 0, 0);
+  b.add(K, trRB(0.24, 1.5, 0.42, 0.06), -0.95, 2.2, 1.62);
+  b.add(K, cyl(0.075, 0.075, 1.05, 12), -0.95, 2.62, 1.88);
+  b.add(K, cyl(0.075, 0.075, 0.16, 12), -0.95, 3.18, 1.84, -0.6, 0, 0);
+  for (const y of [2.2, 2.75]) b.add(TXM.steel, cyl(0.085, 0.085, 0.03, 12), -0.95, y, 1.88);   // stack clamps
   b.build(body);
 
   // cab glass (separate: transparent), no left (+X) face: that's the door
-  const gg = box(1.8, 1.08, 1.4); gg.setIndex(Array.from(gg.index.array).slice(6));
-  const glass = new THREE.Mesh(gg, MAT.glass); glass.position.set(0, 2.79, 0.76); body.add(glass);
+  const gg = box(1.8, 1.28, 1.4); gg.setIndex(Array.from(gg.index.array).slice(6));
+  const glass = new THREE.Mesh(gg, TXM.glass); glass.position.set(0, 2.66, 0.76); body.add(glass);
   // cab door (left side), hinged on the rear post; its front edge swings out
   const door = new THREE.Group(); door.position.set(0.93, 0, 0.1); body.add(door);
-  const dg = new THREE.Mesh(box(0.02, 1.06, 1.3), MAT.glass); dg.position.set(0, 2.79, 0.67); door.add(dg);
+  const dg = new THREE.Mesh(box(0.02, 1.26, 1.3), TXM.glass); dg.position.set(0, 2.66, 0.67); door.add(dg);
   const db = Batch();
-  for (const y of [2.26, 3.32]) db.add(MAT.black, box(0.04, 0.05, 1.32), 0, y, 0.67);
-  db.add(MAT.black, box(0.04, 1.1, 0.05), 0, 2.79, 1.31);
-  db.add(MAT.steel, box(0.05, 0.2, 0.04), 0.04, 2.74, 1.2);
+  for (const y of [2.03, 3.3]) db.add(K, trRB(0.045, 0.05, 1.32, 0.015), 0, y, 0.67);
+  db.add(K, trRB(0.045, 1.3, 0.05, 0.015), 0, 2.66, 1.31);
+  db.add(TXM.chrome, trRB(0.05, 0.2, 0.04, 0.015), 0.04, 2.74, 1.2);
   db.build(door);
 
   // beacon: amber dome + rotating halo, at the back of the roof
   const beacon = new THREE.Group(); beacon.position.set(0.7, 3.53, 0.25); body.add(beacon);
-  const base = new THREE.Mesh(cyl(0.09, 0.1, 0.06, 12), MAT.black); beacon.add(base);
+  const base = new THREE.Mesh(cyl(0.09, 0.1, 0.06, 12), K); beacon.add(base);
   const dome = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffa21a, transparent: true, opacity: 0.95 }));
   dome.position.y = 0.03; beacon.add(dome);
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([255, 170, 40]), color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }));
@@ -929,7 +972,7 @@ function buildTractor() {
     const pivot = new THREE.Group(); pivot.position.set(s * 1.05, R_FRONT, 3.1); root.add(pivot);
     for (const x of [0, s * 0.6]) { const w = makeToyWheel(R_FRONT, 0.5, 0.41, true); w.position.x = x; pivot.add(w); wheels.push({ spin: w, r: R_FRONT }); }
     // black guard over the inner wheel, turning with it
-    const f = new THREE.Mesh(profileExtrude(trArc(0.97, 0.91, 0.8, 2.7), 0.56, 0.012), MAT.black); pivot.add(f);
+    const f = new THREE.Mesh(trSmooth(profileExtrude(trArc(0.97, 0.92, 1.0, 2.7), 0.54, 0.018)), K); pivot.add(f);
     steerPivots.push(pivot);
   }
   return { root, body, wheels, steerPivots, halo, dome, door, exhaustTip: new THREE.Vector3(-0.95, 3.25, 1.8) };
