@@ -7945,7 +7945,7 @@ function frame() {
   } else if (!collider) {
     camera.position.set(0, 60, 120); camera.lookAt(0, 0, 0);
   }
-  if (collider) { slodStep(); dtlStep(raw); }
+  if (collider) { slodStep(); dtlStep(raw); mtTvRender(dt); }
   fmxCine(raw); renderer.render(scene, camera); bubDom();
   // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down
   ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05;
@@ -14260,9 +14260,10 @@ function bpSpotArms(p, k, help, P) { p.torsoX = 0.42 - 0.12 * k; p.kneeL = p.kne
    After the parts run he'll patch up any machine you bring to the shed, and after the first launch it's launch day
    whenever you like (he prints spares). The host runs it all; a mate's phone mirrors it.
    ================================================================ */
-const MT = { ready: false, n: null, ws: null, talkT: 14, spotT: 20, spot: 'bench', stage: 0, launches: 0, best: 0, weldQ: 0.8, q: null, qid: 0, ui: false, held: false, w: null, R: null, rk: null, path: null, sayT: 0, hintT: 0, chipTxt: '', board: -1 };
-function mtLoad() { try { const s = JSON.parse(localStorage.getItem('wfy.matt') || 'null'); MT.stage = s ? s.stage | 0 : 0; MT.launches = s ? s.launches | 0 : 0; MT.best = s ? s.best || 0 : 0; MT.weldQ = s && s.weldQ != null ? s.weldQ : 0.8; } catch (_) {} }
-function mtSave() { try { localStorage.setItem('wfy.matt', JSON.stringify({ stage: MT.stage, launches: MT.launches, best: MT.best, weldQ: MT.weldQ })); } catch (_) {} }
+const MT = { welded: false, sinceParts: 0, ready: false, n: null, ws: null, talkT: 14, spotT: 20, spot: 'bench', stage: 0, launches: 0, best: 0, weldQ: 0.8, q: null, qid: 0, ui: false, held: false, w: null, R: null, rk: null, path: null, sayT: 0, hintT: 0, chipTxt: '', board: -1 };
+function mtLoad() { try { const s = JSON.parse(localStorage.getItem('wfy.matt') || 'null'); MT.stage = s ? s.stage | 0 : 0; MT.launches = s ? s.launches | 0 : 0; MT.best = s ? s.best || 0 : 0; MT.weldQ = s && s.weldQ != null ? s.weldQ : 0.8;
+  MT.welded = s && s.welded != null ? !!s.welded : MT.stage === 2; MT.sinceParts = s && s.sinceParts != null ? s.sinceParts | 0 : MT.launches % 5; } catch (_) {} }      // (an older save: weld before the next launch)
+function mtSave() { try { localStorage.setItem('wfy.matt', JSON.stringify({ stage: MT.stage, launches: MT.launches, best: MT.best, weldQ: MT.weldQ, welded: MT.welded, sinceParts: MT.sinceParts })); } catch (_) {} }
 mtLoad();
 const MATT_LOOK = { name: 'Matt', h: 0.72, w: 0.15, m: 0, skin: 1, hair: 'curls', hc: 1, hat: 'none', hatc: 0, shirt: 'tee', sc: 7, legs: 'shorts', lc: 0, shoes: 'boots', shc: 1, gl: 'reading', fh: 1 };
 const MATT_L = {
@@ -14454,7 +14455,7 @@ function mtWorkshop() {
   { const g = new THREE.Group(); root.add(g); MT.benchParts = g; const y = MT.benchY;
     const pump = new THREE.Group(); box(0.22, 0.14, 0.14, M.grey, 0, 0.07, 0, 0, pump); cyl(0.05, 0.05, 0.2, M.dark, 0.16, 0.07, 0, 10, pump).rotation.z = Math.PI / 2; pump.position.set(-7.6, y, -15.1); g.add(pump);
     const bot = cyl(0.09, 0.09, 0.55, M.bottle, -1.6, y + 0.28, -15.25, 12, g); bot.rotation.z = 0.05; }
-  MT.benchParts.visible = MT.stage >= 1;
+  MT.benchParts.visible = MT.stage >= 1 && MT.sinceParts < MT_PARTS_EVERY;
   // the launch pad out past the lean-to, its rail, the blast plate, the control box and a warning sign
   { const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), py = groundAt(px, pz, 30, 0), pad = new THREE.Group(); pad.position.set(px, py, pz); pad.rotation.y = -t; scene.add(pad); MT.pad = pad; MT.padY = py;
     const gp = { id: 'mtPad', root: pad, parts: [], ctr: new THREE.Vector3(px, py + 1, pz), rad: 5, gy: py, fixed: true, keep: true }; STRUCTS.groups.push(gp);
@@ -14467,7 +14468,7 @@ function mtWorkshop() {
     for (let k = 0; k < 3; k++) { const a = k * 2.094, l = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.0, 0.03), M.dark); l.position.set(Math.cos(a) * 0.18, 0.48, Math.sin(a) * 0.18); l.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35); cb.add(l); }
     box(0.4, 0.22, 0.3, M.yellow, 0, 1.02, 0, 0, cb); const btn = cyl(0.07, 0.07, 0.05, M.red, 0, 1.15, 0.04, 14, cb); MT.btn = btn; box(0.05, 0.03, 0.05, M.chrome, 0.13, 1.14, 0.08, 0, cb);
     const gb = { id: 'mtBox', root: cb, parts: [], ctr: new THREE.Vector3(bx, by + 0.6, bz), rad: 1, gy: by, fixed: true, keep: true }; STRUCTS.groups.push(gb); const bp = addPart(gb, { kind: 'donga', obj: cb, fixed: true }); boxPart(bp, new THREE.Vector3(bx, by + 0.6, bz), eU, eY, eV, 0.25, 0.6, 0.25); }
-  mtRocketBuild(); mtPartsBuild();
+  mtRocketBuild(); mtPartsBuild(); mtTvBuild();
   const refs = objRefs([MT, STRUCTS.parts]); weldKids(root, refs); weldKids(MT.pad, refs); weldKids(MT.boxG, refs);
 }
 function mtBoardDraw() {
@@ -14488,6 +14489,92 @@ function mtBoardDraw() {
   if (MT.boardTx) MT.boardTx.needsUpdate = true;
 }
 // ---- the rocket: on its trolley in the shed, rolled out to the pad, then up (MT.R is where it's at; the model follows it) ----
+/* ---------- the launch telly: a TV on a trolley beside the control box, showing the pad camera ----------
+   A camera on a tripod next to it tracks the rocket the whole way (wheeled out, on the pad, lift-off, up to the top, the chute, down
+   to wherever she lands), zooming to keep her in frame, with LIVE, the mission clock and her height over the picture. It only draws
+   while the rocket's out and you're close enough to see the screen, about 12 times a second into a small picture; otherwise it shows
+   a standby card and costs nothing. Everyone in a multiplayer game sees it on their own phone (the rocket's mirrored). */
+const MTTV = { tf: -1, ready: false, rt: null, cam: null, scr: null, osd: null, osdC: null, osdT: null, aim: new THREE.Vector3(), fov: 40, t: 0, osdKey: '', t0: 0, ph: '', live: false, _f: new THREE.Frustum(), _m: new THREE.Matrix4(), _v: new THREE.Vector3(), _c: new THREE.Vector3(), _s: new THREE.Vector3() };
+function mtTvBuild() {
+  if (MTTV.ready) return; const M = mtMats();
+  const [tx, tz] = mtW(MT_BOX[0] + 1.35, MT_BOX[1] + 0.5), ty = groundAt(tx, tz, 30, 0), tv = new THREE.Group();
+  tv.position.set(tx, ty, tz); tv.rotation.y = mtYaw(-1.35, -2.4); scene.add(tv); MTTV.root = tv;           // facing where you stand at the button
+  const bx = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); tv.add(o); return o; };
+  for (const sx of [-0.3, 0.3]) for (const sz of [-0.18, 0.18]) bx(0.035, 0.86, 0.035, M.dark, sx, 0.43, sz);       // the trolley
+  bx(0.7, 0.03, 0.44, M.steel, 0, 0.3, 0); bx(0.7, 0.03, 0.44, M.steel, 0, 0.86, 0);
+  bx(1.0, 0.62, 0.36, M.dark, 0, 1.2, 0.02);                                                                         // the telly
+  bx(0.06, 0.03, 0.03, M.red, 0.42, 0.93, 0.205);
+  const W = 0.88, H = 0.495;
+  MTTV.rt = new THREE.WebGLRenderTarget(384, 216, { depthBuffer: true }); MTTV.rt.texture.generateMipmaps = false; MTTV.rt.texture.minFilter = THREE.LinearFilter;
+  MTTV.scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: MTTV.rt.texture })); MTTV.scr.position.set(0, 1.22, 0.202); tv.add(MTTV.scr);
+  const c = document.createElement('canvas'); c.width = 512; c.height = 288; MTTV.osdC = c; MTTV.osdT = new THREE.CanvasTexture(c); MTTV.osdT.colorSpace = THREE.SRGBColorSpace;
+  MTTV.osd = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: MTTV.osdT, transparent: true, toneMapped: false })); MTTV.osd.position.set(0, 1.22, 0.205); tv.add(MTTV.osd);
+  const [cx, cz] = mtW(MT_BOX[0] + 2.35, MT_BOX[1] + 0.35), cy = groundAt(cx, cz, 30, 0);                              // the tripod and its camera (beside the telly, out of your way)
+  const tri = new THREE.Group(); tri.position.set(cx, cy, cz); scene.add(tri);
+  for (let k = 0; k < 3; k++) { const a = k * 2.094, l = new THREE.Mesh(new THREE.BoxGeometry(0.025, 1.5, 0.025), M.dark); l.position.set(Math.cos(a) * 0.2, 0.72, Math.sin(a) * 0.2); l.rotation.set(Math.sin(a) * 0.27, 0, -Math.cos(a) * 0.27); tri.add(l); }
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.3), M.dark); head.position.y = 1.52; tri.add(head); MTTV.head = head;
+  MTTV.cam = new THREE.PerspectiveCamera(40, 16 / 9, 0.2, 3000); MTTV.cam.position.set(cx, cy + 1.55, cz);
+  const gt = { id: 'mtTv', root: tv, parts: [], ctr: new THREE.Vector3(tx, ty + 0.6, tz), rad: 1, gy: ty, fixed: true, keep: true }; STRUCTS.groups.push(gt);
+  const tp = addPart(gt, { kind: 'donga', obj: tv, fixed: true }); boxPart(tp, new THREE.Vector3(tx, ty + 0.75, tz), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), 0.5, 0.75, 0.3);
+  MTTV.ready = true; mtTvOsd(false, 'STANDBY', '', '');
+}
+// what's written over the picture (or the standby card)
+function mtTvOsd(live, what, alt, clock, camName = 'PAD CAM') {
+  const key = live + what + alt + clock + camName; if (key === MTTV.osdKey) return; MTTV.osdKey = key;
+  const c = MTTV.osdC, x = c.getContext('2d'), W = c.width, H = c.height; x.clearRect(0, 0, W, H);
+  if (!live) {
+    x.fillStyle = '#10243a'; x.fillRect(0, 0, W, H); x.fillStyle = '#f2c14e'; x.font = '800 40px system-ui,sans-serif'; x.textAlign = 'center'; x.fillText('MATT ROCKET LABS', W / 2, H / 2 - 10);
+    x.fillStyle = '#cfe3f5'; x.font = '700 24px system-ui,sans-serif'; x.fillText('PAD CAM · ' + what, W / 2, H / 2 + 34);
+  } else {
+    x.font = '800 22px system-ui,sans-serif'; x.textAlign = 'left'; const tl = 'LIVE  ' + camName; x.fillStyle = 'rgba(0,0,0,.45)'; x.fillRect(10, 10, x.measureText(tl).width + 46, 34); x.fillStyle = '#ff3b30'; x.beginPath(); x.arc(28, 27, 7, 0, 6.3); x.fill();
+    x.fillStyle = '#fff'; x.fillText(tl, 42, 35);
+    x.fillStyle = 'rgba(0,0,0,.45)'; x.fillRect(10, H - 46, W - 20, 36); x.fillStyle = '#fff'; x.fillText(what, 22, H - 20);
+    x.textAlign = 'right'; x.fillText([alt, clock].filter(Boolean).join('   '), W - 22, H - 20);
+  }
+  MTTV.osdT.needsUpdate = true;
+}
+// each frame, before the main picture: track her, and draw the pad camera if anyone can see the telly
+function mtTvRender(dt) {
+  if (!MTTV.ready || !MT.R || !MT.rk) return; const R = MT.R, live = R.ph !== 'shed';
+  if (R.ph !== MTTV.ph) { if (R.ph === 'boost') MTTV.tf = 0; if (R.ph === 'shed' || R.ph === 'roll') MTTV.tf = -1; MTTV.ph = R.ph; }
+  if (MTTV.tf >= 0) MTTV.tf += dt;                          // the mission clock, in game time from ignition
+  const scr = MTTV.root.getWorldPosition(MTTV._s).setY(MTTV._s.y + 1.2), dCam = scr.distanceTo(camera.position);
+  if (!live) { mtTvOsd(false, MT.stage >= 2 ? 'STANDBY' : 'NO SIGNAL', '', ''); return; }
+  // aim and zoom: the middle of the rocket, a touch ahead of her, about a third of the picture tall (bigger under the chute)
+  const C = MT.rk.r.localToWorld(MTTV._c.set(0, 1.5, 0)); C.addScaledVector(R.vel, 0.04);
+  const k = 1 - Math.exp(-12 * dt); MTTV.aim.lerp(C, MTTV.aimSet ? k : 1); MTTV.aimSet = true;
+  // how big she looks: from underneath, going straight up, she's mostly end-on, so it zooms in further to keep her the same size on screen
+  const cam = MTTV.cam, d = cam.position.distanceTo(MTTV.aim), ax = MTTV._c.set(0, 1, 0).applyQuaternion(MT.rk.r.quaternion), vw = MTTV._v.copy(MTTV.aim).sub(cam.position).normalize();
+  const side = Math.sqrt(Math.max(0, 1 - ax.dot(vw) ** 2)), size = R.ph === 'chute' || (R.ph === 'landed' && R.t < 3) ? 4 : Math.max(0.9, 3.2 * side + 0.35);
+  const fov = THREE.MathUtils.clamp(2 * Math.atan(size / 0.34 / 2 / Math.max(1, d)) * 180 / Math.PI, 2.5, 50); MTTV.fov += (fov - MTTV.fov) * (1 - Math.exp(-4 * dt));
+  if (MTTV.head) MTTV.head.lookAt(MTTV.aim);
+  // the words: what she's doing, how high, how long since lift-off
+  const alt = Math.max(0, R.pos.y - (R.alt0 || MT.padY || R.pos.y)), up = ['boost', 'coast', 'chute', 'tumble'].includes(R.ph) || (R.ph === 'landed' || R.ph === 'crash');
+  const what = { roll: 'ROLL-OUT', pad: 'ON THE PAD', count: 'COUNTDOWN', boost: 'LIFT-OFF', coast: 'COASTING', chute: 'CHUTE OUT', tumble: 'SHE’S LOST A FIN', landed: 'TOUCHDOWN', crash: 'RAPID UNSCHEDULED DISASSEMBLY' }[R.ph] || R.ph.toUpperCase();
+  const tsec = up && MTTV.tf >= 0 ? MTTV.tf : -1, clock = tsec >= 0 ? 'T+' + String(Math.floor(tsec / 60)).padStart(2, '0') + ':' + String(Math.floor(tsec % 60)).padStart(2, '0') : '';
+  // only draw when the telly's close, facing you and on screen
+  MTTV.t -= dt; if (MTTV.t > 0) return;
+  if (!MTTV.force) { if (dCam > 28) return; MTTV.root.getWorldDirection(MTTV._c); if (MTTV._c.dot(MTTV._v.copy(camera.position).sub(scr)) < 0) return;
+    MTTV._m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); MTTV._f.setFromProjectionMatrix(MTTV._m); if (!MTTV._f.containsPoint(scr)) return; }
+  MTTV.t = 1 / 12;
+  cam.fov = MTTV.fov; cam.lookAt(MTTV.aim); cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+  // something in the way (she's come down behind the shed, or a tree): cut to a recovery camera a few metres off her, from whichever
+  // side has a clear view, and back to the pad camera once it can see her again
+  let view = cam, camName = 'PAD CAM'; const dir = MTTV._v.copy(MTTV.aim).sub(cam.position), dist = dir.length(); dir.normalize();
+  const blocked = dist > 4 && !!castHit(cam.position, dir, dist - 2.5); MTTV.blk = blocked ? 1.2 : Math.max(0, (MTTV.blk || 0) - 1 / 12);
+  if (MTTV.blk > 0) {
+    const r2 = MTTV.cam2 || (MTTV.cam2 = new THREE.PerspectiveCamera(48, 16 / 9, 0.2, 3000)), A = MTTV.aim;
+    const clear = (p) => { const dd = MTTV._c.copy(A).sub(p), l = dd.length(); return !castHit(p, dd.normalize(), l - 1); };
+    if (!MTTV.rcp || MTTV.rcp.distanceTo(A) > 12 || !clear(MTTV.rcp)) {
+      MTTV.rcp = MTTV.rcp || new THREE.Vector3(); const a0 = Math.atan2(-dir.x, -dir.z);
+      for (let k = 0; k < 8; k++) { const a = a0 + k * Math.PI / 4, x = A.x + Math.sin(a) * 7, z = A.z + Math.cos(a) * 7, y = Math.max(A.y + 2.5, groundAt(x, z, A.y + 20, A.y - 20) + 1.8);
+        MTTV.rcp.set(x, y, z); if (clear(MTTV.rcp)) break; } }
+    r2.position.copy(MTTV.rcp); r2.lookAt(A); r2.updateMatrixWorld(); view = r2; camName = 'RECOVERY CAM'; }
+  mtTvOsd(true, what, up || R.ph === 'pad' || R.ph === 'count' ? 'ALT ' + Math.round(alt) + ' m' : '', clock, camName);
+  MTTV.scr.visible = MTTV.osd.visible = false; const was = renderer.getRenderTarget();
+  renderer.setRenderTarget(MTTV.rt); renderer.render(scene, view); renderer.setRenderTarget(was);
+  MTTV.scr.visible = MTTV.osd.visible = true;
+}
 function mtRocketBuild() {
   const M = mtMats(), r = new THREE.Group(); scene.add(r);
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 2.45, 16), M.white); body.position.y = 1.375; r.add(body);
@@ -14567,7 +14654,7 @@ function mtRocketVis(dt) {
   K.r.position.copy(R.pos); K.r.quaternion.copy(R.q);
   K.tr.position.copy(R.tr); if (R.ph === 'shed' || R.ph === 'roll') K.tr.rotation.y = mtYaw(0, 1);
   const st = MT.stage, burn = R.ph === 'boost' || (R.ph === 'tumble' && R.t < 2.6) || (R.ph === 'ign');
-  K.nose.visible = st >= 1 || R.ph !== 'shed'; K.fins.forEach((f, i) => { f.visible = st >= 2 && !(R.ph === 'tumble' && i === 0) && R.ph !== 'crash'; });
+  K.nose.visible = st >= 1 || R.ph !== 'shed'; K.fins.forEach((f, i) => { f.visible = (MT.welded || (st >= 2 && R.ph !== 'shed')) && !(R.ph === 'tumble' && i === 0) && R.ph !== 'crash'; });       // (back in the shed after a launch, they're off till welded again)
   K.body.material = R.ph === 'crash' ? WMAT.wreck : mtMats().white;
   K.flame.visible = K.glow.visible = burn; if (burn) { const fl = 0.8 + Math.random() * 0.45; K.flame.scale.set(fl, 0.9 + Math.random() * 0.5, fl); }
   const chuteOn = R.ph === 'chute' || (R.ph === 'landed' && R.t < 3); K.chute.visible = chuteOn;
@@ -14745,11 +14832,20 @@ function mtUI() {
   sh.addEventListener('click', e => { if (e.target === sh || e.target.id === 'mtX') { sh.classList.remove('show'); if (mpwCli()) mpwSendAct('mt:close'); return; } const b = e.target.closest('[data-mt]'); if (b && b.getAttribute('aria-disabled') !== 'true') mtChoose(b.dataset.mt); });
 }
 function mtTalkable() { const n = MT.n; return !!n && activeName === 'foot' && (F.mode === 'walk' || F.mode === 'air') && F.dead <= 0 && !n.veh && !n.angry && !n.ko && npcAlive(n) && !['mtPush', 'chase', 'fight', 'flee'].includes(n.st) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 3.2; }
-const MT_JOB = [['Parts run', 'Three bits for the rocket from round the farm. They glow'], ['The fins', 'Weld the fins on. Keep the puddle in the green'], ['Launch day', 'Wheel it out to the pad and hit the big red button'], ['Launch day', 'Another launch (he printed spares)']];
+// the round of jobs: the parts, the fins, launch day; then the fins welded on again before every launch, and a fresh set of parts every 5 launches
+const MT_PARTS_EVERY = 5;
+function mtNextJob() { if (MT.stage < 1 || MT.sinceParts >= MT_PARTS_EVERY) return 'parts'; if (MT.stage < 2 || !MT.welded) return 'weld'; return 'launch'; }
+function mtJobText() {
+  const j = mtNextJob(), again = MT.launches > 0;
+  if (j === 'parts') return again ? ['Parts run', MT_PARTS_EVERY + ' launches on, she needs a new fuel pump, O₂ bottle and nose cone. They glow'] : ['Parts run', 'Three bits for the rocket from round the farm. They glow'];
+  if (j === 'weld') return again ? ['The fins', 'Weld the fins back on for the next launch. Keep the puddle in the green'] : ['The fins', 'Weld the fins on. Keep the puddle in the green'];
+  return again ? ['Launch day', 'Another launch. Wheel her out and hit the big red button'] : ['Launch day', 'Wheel it out to the pad and hit the big red button'];
+}
 function mtMenuOpen() {
   mtUI(); if (!mtTalkable()) return; const n = MT.n, q = MT.q, st = Math.min(3, MT.stage), mine = q && q.who === MP.me;
-  $('mtMood').textContent = 'Aussie mechatronics nerd, builds rockets in the shed. ' + (MT.launches ? 'Launches: ' + MT.launches + (MT.best ? ' · best ' + Math.round(MT.best) + ' m' : '') : st ? 'The rocket’s coming along.' : 'He’s short a few parts.');
-  const b = MT.sheet.querySelector('[data-mt="job"]'), [ttl, sub] = MT_JOB[st]; b.querySelector('b').textContent = ttl;
+  const left = MT_PARTS_EVERY - MT.sinceParts;
+  $('mtMood').textContent = 'Aussie mechatronics nerd, builds rockets in the shed. ' + (MT.launches ? 'Launches: ' + MT.launches + (MT.best ? ' · best ' + Math.round(MT.best) + ' m' : '') + (left > 0 ? ' · new parts due in ' + left + (left === 1 ? ' launch' : ' launches') : ' · due for new parts') : st ? 'The rocket’s coming along.' : 'He’s short a few parts.');
+  const b = MT.sheet.querySelector('[data-mt="job"]'), [ttl, sub] = mtJobText(); b.querySelector('b').textContent = ttl;
   b.querySelector('span').textContent = q ? (mine ? 'Already on: ' + mtStepText(q) : 'He’s at it with ' + ((plById(q.who) || {}).name || 'your mate')) : sub; b.setAttribute('aria-disabled', q ? 'true' : 'false');
   const f = MT.sheet.querySelector('[data-mt="fix"]'), ok = MT.stage >= 1; f.setAttribute('aria-disabled', ok ? 'false' : 'true'); f.querySelector('span').textContent = ok ? 'Bring a machine to the shed: dents, tyres, even a wreck' : 'Help him with the parts run first';
   MT.sheet.classList.add('show'); npcFace(n, F.pos.x, F.pos.z, 99, 1); if (mpwCli()) mpwSendAct('mt:open'); else { MT.talkId = MP.me; MT.talkUntil = NPC.t + 25; }
@@ -14771,26 +14867,26 @@ function mtFixLocal() {
   if (!best) return null; if (best.name === 'ute') return 'ute';
   wpnUnwreck(best.name); delete WPN.VD[best.name]; WPN.hops = WPN.hops.filter(h => h.v !== best); dmgReset(best.name); toast((best.label || 'Your machine') + ': fixed up by Matt', 2.2); sfx('g_reload', best.state.pos, 0.6, 0.85, 8); return best.name;
 }
-function mtStepText(q) {
+function mtStepText(q) {          // (what's shown while a job's on)
   if (q.kind === 'parts') { const got = q.got.filter(Boolean).length; return got < 3 ? got + ' of 3 parts found' : 'bring them back'; }
   if (q.kind === 'weld') return 'fin ' + Math.min(4, q.seams + 1) + ' of 4'; return q.ph === 'fetch' || q.ph === 'roll' ? 'rolling out' : q.ph === 'pad' ? 'hit the button' : 'launched';
 }
 // ---- the jobs (on the host) ----
 function mtStart() {
-  const n = MT.n, who = PX.cur ? PX.cur.id : MP.me, st = Math.min(3, MT.stage); if (!n || MT.q) return;
-  MT.qid++;
-  if (st === 0) { MT.q = { kind: 'parts', who, ph: 'find', got: [0, 0, 0], t: 0, qid: MT.qid }; mtSay('partsStart', 7); }
-  else if (st === 1) { MT.q = { kind: 'weld', who, ph: 'go', seams: 0, holes: 0, qs: 0, t: 0, qid: MT.qid }; mtSay('weldStart', 6); }
+  const n = MT.n, who = PX.cur ? PX.cur.id : MP.me, job = mtNextJob(); if (!n || MT.q) return;
+  MT.qid++; if (job !== 'launch' && MT.R.ph !== 'shed') mtRocketHome();          // (she comes back in to be worked on)
+  if (job === 'parts') { MT.q = { kind: 'parts', who, ph: 'find', got: [0, 0, 0], t: 0, qid: MT.qid }; mtSay('partsStart', 7); }
+  else if (job === 'weld') { MT.q = { kind: 'weld', who, ph: 'go', seams: 0, holes: 0, qs: 0, t: 0, qid: MT.qid }; mtSay('weldStart', 6); }
   else { if (MT.R.ph !== 'shed') { mtRocketHome(); mtSay('spare', 2.4); } MT.q = { kind: 'launch', who, ph: 'fetch', t: 0, cd: 0, qid: MT.qid, lines: [[MT.R.ph === 'shed' ? 0.2 : 2.6, 'launchStart']] }; }
 }
 function mtEnd(win, why) {
   const q = MT.q; if (!q) return; const P = plById(q.who);
-  if (q.kind === 'parts') { if (win) { MT.stage = Math.max(MT.stage, 1); mtSay('partsDone', 3); } }
-  if (q.kind === 'weld') { if (win) { MT.stage = Math.max(MT.stage, 2); MT.weldQ = THREE.MathUtils.clamp(q.qs / Math.max(1, q.seams), 0.3, 1); mtSay('weldWin', 3.5); } else if (why === 'holes') mtSay('weldFail', 3.5); }
-  if (q.kind === 'launch' && win) { MT.stage = Math.max(MT.stage, 3); MT.launches++; MT.best = Math.max(MT.best, MT.R.apo || 0); }
-  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? 'Parts run done! Matt will patch up any machine you bring to the shed' : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.hit === 'tank' ? 'She lost a fin and came down on the fuel tank' : MT.R.hit === 'ute' ? 'She lost a fin and came down on Madman’s ute' : MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute'))
+  if (q.kind === 'parts') { if (win) { MT.stage = Math.max(MT.stage, 1); MT.sinceParts = 0; mtSay('partsDone', 3); } }
+  if (q.kind === 'weld') { if (win) { MT.stage = Math.max(MT.stage, 2); MT.welded = true; MT.weldQ = THREE.MathUtils.clamp(q.qs / Math.max(1, q.seams), 0.3, 1); mtSay('weldWin', 3.5); } else if (why === 'holes') mtSay('weldFail', 3.5); }
+  if (q.kind === 'launch' && win) { MT.stage = Math.max(MT.stage, 3); MT.launches++; MT.best = Math.max(MT.best, MT.R.apo || 0); MT.welded = false; MT.sinceParts++; }      // the fins come off again; another launch on the parts
+  if (P) plWith(P, () => toast(win ? (q.kind === 'parts' ? (MT.launches ? 'New parts in! The fins are next' : 'Parts run done! Matt will patch up any machine you bring to the shed') : q.kind === 'weld' ? 'Fins welded! ' + mtQualTxt() + '. Launch day’s next' : 'Launch day! ' + (MT.R.hit === 'tank' ? 'She lost a fin and came down on the fuel tank' : MT.R.hit === 'ute' ? 'She lost a fin and came down on Madman’s ute' : MT.R.ph === 'crash' ? 'She came apart, but that’s rocketry' : 'Up to ' + Math.round(MT.R.apo) + ' m and down on the chute') + (MT.sinceParts >= MT_PARTS_EVERY ? '. She’s due for new parts' : '. Weld the fins on again for the next one'))
     : why === 'holes' ? 'Too many holes: the fins are ruined. Talk to Matt to try again' : why === 'angry' ? 'Matt’s not doing jobs with you right now' : 'Job’s off', 3.4));
-  if (win && q.who !== MP.me) mpSend({ k: 'qdone', f: MP.me, to: q.who, q: 'matt', stage: MT.stage, best: MT.best, launches: MT.launches, weldQ: MT.weldQ });
+  if (win && q.who !== MP.me) mpSend({ k: 'qdone', f: MP.me, to: q.who, q: 'matt', stage: MT.stage, best: MT.best, launches: MT.launches, weldQ: MT.weldQ, welded: MT.welded, since: MT.sinceParts });
   MT.q = null; mtSave(); if (MT.partG) for (const p of MT.partG) p.g.visible = false;
 }
 function mtQualTxt() { const qv = MT.weldQ; return qv >= 0.95 ? 'Perfect welds: she’ll hold' : qv > 0.8 ? 'Decent welds (she might let go)' : 'Ugly welds (she probably won’t hold)'; }
@@ -14890,8 +14986,8 @@ function mtWeldStep(dt) {
 }
 // the beads on the jig, and the jig turned to the fin being welded (for everyone watching too)
 function mtJigStep(dt) {
-  if (!MT.jig) return; const q = MT.q, W = MT.w, weld = q && q.kind === 'weld', done = weld ? q.seams : (MT.stage >= 2 ? 4 : 0), cur = W ? W.seam : done;
-  MT.can.visible = MT.stage < 2 || weld;
+  if (!MT.jig) return; const q = MT.q, W = MT.w, weld = q && q.kind === 'weld', done = weld ? q.seams : (MT.welded ? 4 : 0), cur = W ? W.seam : done;
+  MT.can.visible = !MT.welded || weld;
   const want = Math.min(3, cur) * Math.PI / 2 - Math.PI; MT.jig.rotation.y += faAng(want - MT.jig.rotation.y) * Math.min(1, dt * 4);
   MT.beads.forEach((b, k) => { const p = k < done ? 1 : (W && k === W.seam ? W.prog : 0); b.visible = p > 0.001; b.scale.y = Math.max(0.0001, p * 0.45); b.material = k < done ? MT.mats.beadC : MT.mats.bead; });
 }
@@ -14933,7 +15029,7 @@ function mtStep(dt) {
   if (MT.R && (MT.R.ph === 'landed' || MT.R.ph === 'crash')) MT.R.t += dt;
   const q = MT.q;
   if (MT.partG) MT.partG.forEach((p, i) => { const on = !!q && q.kind === 'parts' && !q.got[i]; p.g.visible = on; if (on) { p.it.rotation.y += dt * 1.5; p.it.position.y = 0.15 + Math.sin(NPC.t * 2 + i) * 0.08; p.halo.material.opacity = 0.6 + 0.4 * Math.sin(NPC.t * 4 + i); } });
-  if (MT.benchParts) MT.benchParts.visible = MT.stage >= 1;
+  if (MT.benchParts) MT.benchParts.visible = MT.stage >= 1 && MT.sinceParts < MT_PARTS_EVERY;
   if (MT.arm) { const A = MT.arm, t = NPC.t; A.yawG.rotation.y = Math.sin(t * 0.37) * 1.3; A.sh.rotation.x = -0.35 + Math.sin(t * 0.53) * 0.45; A.el.rotation.x = 0.9 + Math.sin(t * 0.71 + 1) * 0.5; A.hd.rotation.y = t * 0.8; }      // the robot arm, doing its rounds
   mtWeldStep(dt); mtJigStep(dt); mtRocketVis(dt); mtBoardDraw(); mtChip(); mtPunchLabel();
   if (MT.sheet && MT.sheet.classList.contains('show') && !mtTalkable()) MT.sheet.classList.remove('show');
@@ -14942,15 +15038,15 @@ function mtStep(dt) {
 function mtNetOut() {
   const q = MT.q, R = MT.R; if (!R) return 0;
   const qq = q ? [q.kind, q.who, q.ph, q.kind === 'parts' ? q.got.map(g => g ? 1 : 0).join('') : '', q.seams || 0, q.holes || 0, r1(q.cd || 0), q.qid] : 0;
-  return [MT.stage, MT.launches, Math.round(MT.best), qq, [R.ph, mpR(R.pos.x), mpR(R.pos.y), mpR(R.pos.z), r2(R.q.x), r2(R.q.y), r2(R.q.z), r2(R.q.w), mpR(R.tr.x), mpR(R.tr.y), mpR(R.tr.z), Math.round(R.apo), mpR(R.alt0)]];
+  return [MT.stage, MT.launches, Math.round(MT.best), qq, [R.ph, mpR(R.pos.x), mpR(R.pos.y), mpR(R.pos.z), r2(R.q.x), r2(R.q.y), r2(R.q.z), r2(R.q.w), mpR(R.tr.x), mpR(R.tr.y), mpR(R.tr.z), Math.round(R.apo), mpR(R.alt0)], MT.welded ? 1 : 0, MT.sinceParts];
 }
 function mtNetIn(m) {
-  if (!m || !MT.R) return; MT.net = true; MT.stage = m[0]; MT.launches = m[1]; MT.best = m[2];
+  if (!m || !MT.R) return; MT.net = true; MT.stage = m[0]; MT.launches = m[1]; MT.best = m[2]; if (m.length > 5) { MT.welded = !!m[5]; MT.sinceParts = m[6] | 0; }
   const a = m[3]; if (!a) MT.q = null; else { const old = MT.q && MT.q.qid === a[7] ? MT.q : null; MT.q = { kind: a[0], who: a[1], ph: a[2], got: a[3] ? [...a[3]].map(Number) : [0, 0, 0], seams: a[4], holes: a[5], cd: a[6], qid: a[7], mirror: true }; if (old && old.t) MT.q.t = old.t; }
   const r = m[4], R = MT.R, ph0 = R.ph; R.ph = r[0]; if (R.ph !== ph0 && (R.ph === 'boost' || R.ph === 'chute' || R.ph === 'landed' || R.ph === 'crash')) R.t = 0;
   R.tp = R.tp || new THREE.Vector3(); R.tq = R.tq || new THREE.Quaternion(); R.tp.set(r[1], r[2], r[3]); R.tq.set(r[4], r[5], r[6], r[7]).normalize(); if (R.ph === 'shed' || R.ph === 'pad' || R.ph === 'landed' || R.ph === 'crash') { R.pos.copy(R.tp); R.q.copy(R.tq); } R.tr.set(r[8], r[9], r[10]); R.apo = r[11]; R.alt0 = r[12];
 }
-function mtGuestDone(m) { MT.net = false; mtLoad(); MT.stage = Math.max(MT.stage, m.stage | 0); MT.best = Math.max(MT.best, m.best || 0); MT.launches = Math.max(MT.launches, m.launches | 0); if (m.weldQ != null) MT.weldQ = m.weldQ; mtSave(); MT.net = true; }
+function mtGuestDone(m) { MT.net = false; mtLoad(); MT.stage = Math.max(MT.stage, m.stage | 0); MT.best = Math.max(MT.best, m.best || 0); MT.launches = Math.max(MT.launches, m.launches | 0); if (m.weldQ != null) MT.weldQ = m.weldQ; if (m.welded != null) MT.welded = !!m.welded; if (m.since != null) MT.sinceParts = m.since | 0; mtSave(); MT.net = true; }
 // WELD is held, not tapped: the PUNCH button (or Q) down
 (() => { const b = $('mPunch'); if (b) { b.addEventListener('pointerdown', () => { MT.held = true; }); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { MT.held = false; }); }
   addEventListener('keydown', e => { if (e.key && e.key.toLowerCase() === 'q') MT.held = true; }); addEventListener('keyup', e => { if (e.key && e.key.toLowerCase() === 'q') MT.held = false; }); addEventListener('blur', () => { MT.held = false; }); })();
@@ -17614,8 +17710,8 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
-  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
+Object.assign(window.__game, { mtNextJob, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
