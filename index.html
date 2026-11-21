@@ -7945,7 +7945,7 @@ function frame() {
   } else if (!collider) {
     camera.position.set(0, 60, 120); camera.lookAt(0, 0, 0);
   }
-  if (collider) { slodStep(); dtlStep(raw); }
+  if (collider) { slodStep(); dtlStep(raw); mtTvRender(dt); }
   fmxCine(raw); renderer.render(scene, camera); bubDom();
   // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down
   ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05;
@@ -14467,7 +14467,7 @@ function mtWorkshop() {
     for (let k = 0; k < 3; k++) { const a = k * 2.094, l = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.0, 0.03), M.dark); l.position.set(Math.cos(a) * 0.18, 0.48, Math.sin(a) * 0.18); l.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35); cb.add(l); }
     box(0.4, 0.22, 0.3, M.yellow, 0, 1.02, 0, 0, cb); const btn = cyl(0.07, 0.07, 0.05, M.red, 0, 1.15, 0.04, 14, cb); MT.btn = btn; box(0.05, 0.03, 0.05, M.chrome, 0.13, 1.14, 0.08, 0, cb);
     const gb = { id: 'mtBox', root: cb, parts: [], ctr: new THREE.Vector3(bx, by + 0.6, bz), rad: 1, gy: by, fixed: true, keep: true }; STRUCTS.groups.push(gb); const bp = addPart(gb, { kind: 'donga', obj: cb, fixed: true }); boxPart(bp, new THREE.Vector3(bx, by + 0.6, bz), eU, eY, eV, 0.25, 0.6, 0.25); }
-  mtRocketBuild(); mtPartsBuild();
+  mtRocketBuild(); mtPartsBuild(); mtTvBuild();
   const refs = objRefs([MT, STRUCTS.parts]); weldKids(root, refs); weldKids(MT.pad, refs); weldKids(MT.boxG, refs);
 }
 function mtBoardDraw() {
@@ -14488,6 +14488,92 @@ function mtBoardDraw() {
   if (MT.boardTx) MT.boardTx.needsUpdate = true;
 }
 // ---- the rocket: on its trolley in the shed, rolled out to the pad, then up (MT.R is where it's at; the model follows it) ----
+/* ---------- the launch telly: a TV on a trolley beside the control box, showing the pad camera ----------
+   A camera on a tripod next to it tracks the rocket the whole way (wheeled out, on the pad, lift-off, up to the top, the chute, down
+   to wherever she lands), zooming to keep her in frame, with LIVE, the mission clock and her height over the picture. It only draws
+   while the rocket's out and you're close enough to see the screen, about 12 times a second into a small picture; otherwise it shows
+   a standby card and costs nothing. Everyone in a multiplayer game sees it on their own phone (the rocket's mirrored). */
+const MTTV = { tf: -1, ready: false, rt: null, cam: null, scr: null, osd: null, osdC: null, osdT: null, aim: new THREE.Vector3(), fov: 40, t: 0, osdKey: '', t0: 0, ph: '', live: false, _f: new THREE.Frustum(), _m: new THREE.Matrix4(), _v: new THREE.Vector3(), _c: new THREE.Vector3(), _s: new THREE.Vector3() };
+function mtTvBuild() {
+  if (MTTV.ready) return; const M = mtMats();
+  const [tx, tz] = mtW(MT_BOX[0] + 1.35, MT_BOX[1] + 0.5), ty = groundAt(tx, tz, 30, 0), tv = new THREE.Group();
+  tv.position.set(tx, ty, tz); tv.rotation.y = mtYaw(-1.35, -2.4); scene.add(tv); MTTV.root = tv;           // facing where you stand at the button
+  const bx = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); tv.add(o); return o; };
+  for (const sx of [-0.3, 0.3]) for (const sz of [-0.18, 0.18]) bx(0.035, 0.86, 0.035, M.dark, sx, 0.43, sz);       // the trolley
+  bx(0.7, 0.03, 0.44, M.steel, 0, 0.3, 0); bx(0.7, 0.03, 0.44, M.steel, 0, 0.86, 0);
+  bx(1.0, 0.62, 0.36, M.dark, 0, 1.2, 0.02);                                                                         // the telly
+  bx(0.06, 0.03, 0.03, M.red, 0.42, 0.93, 0.205);
+  const W = 0.88, H = 0.495;
+  MTTV.rt = new THREE.WebGLRenderTarget(384, 216, { depthBuffer: true }); MTTV.rt.texture.generateMipmaps = false; MTTV.rt.texture.minFilter = THREE.LinearFilter;
+  MTTV.scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: MTTV.rt.texture })); MTTV.scr.position.set(0, 1.22, 0.202); tv.add(MTTV.scr);
+  const c = document.createElement('canvas'); c.width = 512; c.height = 288; MTTV.osdC = c; MTTV.osdT = new THREE.CanvasTexture(c); MTTV.osdT.colorSpace = THREE.SRGBColorSpace;
+  MTTV.osd = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: MTTV.osdT, transparent: true, toneMapped: false })); MTTV.osd.position.set(0, 1.22, 0.205); tv.add(MTTV.osd);
+  const [cx, cz] = mtW(MT_BOX[0] + 2.35, MT_BOX[1] + 0.35), cy = groundAt(cx, cz, 30, 0);                              // the tripod and its camera (beside the telly, out of your way)
+  const tri = new THREE.Group(); tri.position.set(cx, cy, cz); scene.add(tri);
+  for (let k = 0; k < 3; k++) { const a = k * 2.094, l = new THREE.Mesh(new THREE.BoxGeometry(0.025, 1.5, 0.025), M.dark); l.position.set(Math.cos(a) * 0.2, 0.72, Math.sin(a) * 0.2); l.rotation.set(Math.sin(a) * 0.27, 0, -Math.cos(a) * 0.27); tri.add(l); }
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.3), M.dark); head.position.y = 1.52; tri.add(head); MTTV.head = head;
+  MTTV.cam = new THREE.PerspectiveCamera(40, 16 / 9, 0.2, 3000); MTTV.cam.position.set(cx, cy + 1.55, cz);
+  const gt = { id: 'mtTv', root: tv, parts: [], ctr: new THREE.Vector3(tx, ty + 0.6, tz), rad: 1, gy: ty, fixed: true, keep: true }; STRUCTS.groups.push(gt);
+  const tp = addPart(gt, { kind: 'donga', obj: tv, fixed: true }); boxPart(tp, new THREE.Vector3(tx, ty + 0.75, tz), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), 0.5, 0.75, 0.3);
+  MTTV.ready = true; mtTvOsd(false, 'STANDBY', '', '');
+}
+// what's written over the picture (or the standby card)
+function mtTvOsd(live, what, alt, clock, camName = 'PAD CAM') {
+  const key = live + what + alt + clock + camName; if (key === MTTV.osdKey) return; MTTV.osdKey = key;
+  const c = MTTV.osdC, x = c.getContext('2d'), W = c.width, H = c.height; x.clearRect(0, 0, W, H);
+  if (!live) {
+    x.fillStyle = '#10243a'; x.fillRect(0, 0, W, H); x.fillStyle = '#f2c14e'; x.font = '800 40px system-ui,sans-serif'; x.textAlign = 'center'; x.fillText('MATT ROCKET LABS', W / 2, H / 2 - 10);
+    x.fillStyle = '#cfe3f5'; x.font = '700 24px system-ui,sans-serif'; x.fillText('PAD CAM · ' + what, W / 2, H / 2 + 34);
+  } else {
+    x.font = '800 22px system-ui,sans-serif'; x.textAlign = 'left'; const tl = 'LIVE  ' + camName; x.fillStyle = 'rgba(0,0,0,.45)'; x.fillRect(10, 10, x.measureText(tl).width + 46, 34); x.fillStyle = '#ff3b30'; x.beginPath(); x.arc(28, 27, 7, 0, 6.3); x.fill();
+    x.fillStyle = '#fff'; x.fillText(tl, 42, 35);
+    x.fillStyle = 'rgba(0,0,0,.45)'; x.fillRect(10, H - 46, W - 20, 36); x.fillStyle = '#fff'; x.fillText(what, 22, H - 20);
+    x.textAlign = 'right'; x.fillText([alt, clock].filter(Boolean).join('   '), W - 22, H - 20);
+  }
+  MTTV.osdT.needsUpdate = true;
+}
+// each frame, before the main picture: track her, and draw the pad camera if anyone can see the telly
+function mtTvRender(dt) {
+  if (!MTTV.ready || !MT.R || !MT.rk) return; const R = MT.R, live = R.ph !== 'shed';
+  if (R.ph !== MTTV.ph) { if (R.ph === 'boost') MTTV.tf = 0; if (R.ph === 'shed' || R.ph === 'roll') MTTV.tf = -1; MTTV.ph = R.ph; }
+  if (MTTV.tf >= 0) MTTV.tf += dt;                          // the mission clock, in game time from ignition
+  const scr = MTTV.root.getWorldPosition(MTTV._s).setY(MTTV._s.y + 1.2), dCam = scr.distanceTo(camera.position);
+  if (!live) { mtTvOsd(false, MT.stage >= 2 ? 'STANDBY' : 'NO SIGNAL', '', ''); return; }
+  // aim and zoom: the middle of the rocket, a touch ahead of her, about a third of the picture tall (bigger under the chute)
+  const C = MT.rk.r.localToWorld(MTTV._c.set(0, 1.5, 0)); C.addScaledVector(R.vel, 0.04);
+  const k = 1 - Math.exp(-12 * dt); MTTV.aim.lerp(C, MTTV.aimSet ? k : 1); MTTV.aimSet = true;
+  // how big she looks: from underneath, going straight up, she's mostly end-on, so it zooms in further to keep her the same size on screen
+  const cam = MTTV.cam, d = cam.position.distanceTo(MTTV.aim), ax = MTTV._c.set(0, 1, 0).applyQuaternion(MT.rk.r.quaternion), vw = MTTV._v.copy(MTTV.aim).sub(cam.position).normalize();
+  const side = Math.sqrt(Math.max(0, 1 - ax.dot(vw) ** 2)), size = R.ph === 'chute' || (R.ph === 'landed' && R.t < 3) ? 4 : Math.max(0.9, 3.2 * side + 0.35);
+  const fov = THREE.MathUtils.clamp(2 * Math.atan(size / 0.34 / 2 / Math.max(1, d)) * 180 / Math.PI, 2.5, 50); MTTV.fov += (fov - MTTV.fov) * (1 - Math.exp(-4 * dt));
+  if (MTTV.head) MTTV.head.lookAt(MTTV.aim);
+  // the words: what she's doing, how high, how long since lift-off
+  const alt = Math.max(0, R.pos.y - (R.alt0 || MT.padY || R.pos.y)), up = ['boost', 'coast', 'chute', 'tumble'].includes(R.ph) || (R.ph === 'landed' || R.ph === 'crash');
+  const what = { roll: 'ROLL-OUT', pad: 'ON THE PAD', count: 'COUNTDOWN', boost: 'LIFT-OFF', coast: 'COASTING', chute: 'CHUTE OUT', tumble: 'SHE’S LOST A FIN', landed: 'TOUCHDOWN', crash: 'RAPID UNSCHEDULED DISASSEMBLY' }[R.ph] || R.ph.toUpperCase();
+  const tsec = up && MTTV.tf >= 0 ? MTTV.tf : -1, clock = tsec >= 0 ? 'T+' + String(Math.floor(tsec / 60)).padStart(2, '0') + ':' + String(Math.floor(tsec % 60)).padStart(2, '0') : '';
+  // only draw when the telly's close, facing you and on screen
+  MTTV.t -= dt; if (MTTV.t > 0) return;
+  if (!MTTV.force) { if (dCam > 28) return; MTTV.root.getWorldDirection(MTTV._c); if (MTTV._c.dot(MTTV._v.copy(camera.position).sub(scr)) < 0) return;
+    MTTV._m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); MTTV._f.setFromProjectionMatrix(MTTV._m); if (!MTTV._f.containsPoint(scr)) return; }
+  MTTV.t = 1 / 12;
+  cam.fov = MTTV.fov; cam.lookAt(MTTV.aim); cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+  // something in the way (she's come down behind the shed, or a tree): cut to a recovery camera a few metres off her, from whichever
+  // side has a clear view, and back to the pad camera once it can see her again
+  let view = cam, camName = 'PAD CAM'; const dir = MTTV._v.copy(MTTV.aim).sub(cam.position), dist = dir.length(); dir.normalize();
+  const blocked = dist > 4 && !!castHit(cam.position, dir, dist - 2.5); MTTV.blk = blocked ? 1.2 : Math.max(0, (MTTV.blk || 0) - 1 / 12);
+  if (MTTV.blk > 0) {
+    const r2 = MTTV.cam2 || (MTTV.cam2 = new THREE.PerspectiveCamera(48, 16 / 9, 0.2, 3000)), A = MTTV.aim;
+    const clear = (p) => { const dd = MTTV._c.copy(A).sub(p), l = dd.length(); return !castHit(p, dd.normalize(), l - 1); };
+    if (!MTTV.rcp || MTTV.rcp.distanceTo(A) > 12 || !clear(MTTV.rcp)) {
+      MTTV.rcp = MTTV.rcp || new THREE.Vector3(); const a0 = Math.atan2(-dir.x, -dir.z);
+      for (let k = 0; k < 8; k++) { const a = a0 + k * Math.PI / 4, x = A.x + Math.sin(a) * 7, z = A.z + Math.cos(a) * 7, y = Math.max(A.y + 2.5, groundAt(x, z, A.y + 20, A.y - 20) + 1.8);
+        MTTV.rcp.set(x, y, z); if (clear(MTTV.rcp)) break; } }
+    r2.position.copy(MTTV.rcp); r2.lookAt(A); r2.updateMatrixWorld(); view = r2; camName = 'RECOVERY CAM'; }
+  mtTvOsd(true, what, up || R.ph === 'pad' || R.ph === 'count' ? 'ALT ' + Math.round(alt) + ' m' : '', clock, camName);
+  MTTV.scr.visible = MTTV.osd.visible = false; const was = renderer.getRenderTarget();
+  renderer.setRenderTarget(MTTV.rt); renderer.render(scene, view); renderer.setRenderTarget(was);
+  MTTV.scr.visible = MTTV.osd.visible = true;
+}
 function mtRocketBuild() {
   const M = mtMats(), r = new THREE.Group(); scene.add(r);
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 2.45, 16), M.white); body.position.y = 1.375; r.add(body);
@@ -17614,8 +17700,8 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
-  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
+Object.assign(window.__game, { MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
