@@ -59,6 +59,7 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
   - the dirt bike and the buggy: Motocross bike starting and ticking over (175964) by **kristian321**;
   - the gyrocopter: Engine, motor (loopable) (398675) by **Dominik_W**.
 - The rest, also from Freesound:
+  - the pigs' dying squeals: Pig - Scream 2, 3 and 4 (233152, 233153, 233149) by **JarredGibb** and Pig Scream Loud Oink (365141) by **gibarroule**, softened, sagging in pitch and trailing off into grunts;
   - Madman's dogs: Agressive_Dog_Barks (332173) by **ivolipa** (Tank) and Small dog barking (635877) by **Wax_vibe** (Dusty);
   - casings: Brass bullet shell casing drop onto concrete, multiple takes (210102) by **GrayJoy**;
   - the rocket launcher: Rocket Launch (840511) by **qubodup**;

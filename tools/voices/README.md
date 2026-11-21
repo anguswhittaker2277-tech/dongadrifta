@@ -42,4 +42,4 @@ and the line. They're recorded in Voicebox off Matt's voice profile: save each a
 `rec_mt/`, then `python3 add_rec.py ../../voices-v1.bin` (from this folder) puts them in the pack without touching anyone
 else's clips (a full `python3 pack.py voices-v1.bin` rebuild takes them too). The `game_key` column is the line exactly as the
 game looks it up; until a line has a recording, Matt just says it in his speech bubble.
-`matt-lines-to-record.csv` lists just the lines that don't have a recording yet (`mt_071` ... `mt_094`), in the same columns.
+`matt-lines-to-record.csv` lists just the lines that don't have a recording yet (`mt_095` ... `mt_102`), in the same columns.
