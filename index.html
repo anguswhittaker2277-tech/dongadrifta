@@ -749,63 +749,84 @@ function makeWheel(R, W, rimR, lugs) {
   return spin;
 }
 
+const TR_GREEN = new THREE.MeshLambertMaterial({ color: 0x367c2b });   // the toy's brighter green
 function buildTractor() {
   const root = new THREE.Group();       // origin = rear-axle centre on the ground; forward = +Z; +X = left
   const body = new THREE.Group();       // sprung part (rolls/pitches on its own)
   root.add(body);
   const b = Batch();
 
-  // chassis, axles, weights
+  // Modelled on the owner's toy: a big row-crop tractor (generic, unbadged) with a long sloping bonnet, black nose with
+  // lamp strips up in its corners, a green front weight block, duals front and rear, black front guards, black cab posts,
+  // the exhaust and air intake up the right-hand front post, a 3-point linkage and a slow-moving-vehicle triangle at the back
+  const G = TR_GREEN;
+  // chassis, axles
   b.add(MAT.steel, box(0.82, 0.62, 5.0), 0, 1.05, 2.05);
   b.add(MAT.steel, cyl(0.2, 0.2, 2.1, 12), 0, R_FRONT, 3.1, 0, 0, Math.PI / 2);
   b.add(MAT.steel, cyl(0.26, 0.26, 3.1, 14), 0, R_REAR, 0, 0, 0, Math.PI / 2);
   b.add(MAT.steel, cyl(0.42, 0.42, 1.0, 16), 0, R_REAR, 0, 0, 0, Math.PI / 2);
-  for (let i = 0; i < 5; i++) b.add(MAT.black, box(1.05, 0.62, 0.07), 0, 1.0, 4.75 + i * 0.08);
-  b.add(MAT.steel, box(1.2, 0.18, 0.5), 0, 0.72, 4.85);
+  b.add(MAT.black, box(0.96, 0.5, 3.1), 0, 1.12, 2.95);                       // black engine sides under the bonnet
+  // front weight block on its bracket
+  b.add(G, box(0.5, 0.26, 0.42), 0, 1.2, 4.62);
+  b.add(G, box(1.02, 0.5, 0.52), 0, 1.02, 4.82);
+  b.add(MAT.black, box(1.04, 0.04, 0.54), 0, 0.79, 4.82);
 
-  // bonnet: main block + sloped top + grille
-  b.add(MAT.green, box(1.12, 0.9, 3.55), 0, 1.86, 2.85);
-  const top = new THREE.CylinderGeometry(0.56, 0.56, 3.55, 16, 1, false, -Math.PI / 2, Math.PI);
-  b.add(MAT.green, top, 0, 2.31, 2.85, Math.PI / 2, 0, 0);
-  b.add(MAT.black, box(1.0, 0.95, 0.05), 0, 1.88, 4.64);
-  for (let i = 0; i < 6; i++) b.add(MAT.steel, box(0.98, 0.04, 0.06), 0, 1.5 + i * 0.15, 4.66);
-  b.add(MAT.lamp, box(0.26, 0.12, 0.05), 0.33, 2.42, 4.6);
-  b.add(MAT.lamp, box(0.26, 0.12, 0.05), -0.33, 2.42, 4.6);
-  b.add(MAT.amber, box(0.08, 0.1, 0.12), 0.58, 2.05, 4.45);
-  b.add(MAT.amber, box(0.08, 0.1, 0.12), -0.58, 2.05, 4.45);
-  for (const s of [-1, 1]) for (let i = 0; i < 4; i++) b.add(MAT.black, box(0.03, 0.08, 0.7), s * 0.565, 1.65 + i * 0.13, 3.6);
+  // bonnet: one long piece, falling from the cab to a blunt nose
+  b.add(G, profileExtrude([[1.2, 1.35], [4.5, 1.35], [4.72, 1.55], [4.72, 2.0], [4.58, 2.3], [4.25, 2.42], [2.4, 2.58], [1.2, 2.63]], 1.12, 0.07));
+  // the black nose: grille, a black lip underneath, and the lamp strips in the top corners
+  b.add(MAT.black, box(0.98, 0.58, 0.03), 0, 1.74, 4.805);
+  b.add(MAT.black, box(1.04, 0.16, 0.3), 0, 1.38, 4.66);
+  for (let i = 0; i < 5; i++) b.add(MAT.steel, box(0.86, 0.025, 0.02), 0, 1.54 + i * 0.1, 4.825);
+  for (const s of [-1, 1]) {
+    b.add(MAT.black, box(0.42, 0.22, 0.04), s * 0.27, 2.19, 4.735, -0.44, 0, 0);       // on the sloping face above the grille
+    b.add(MAT.lamp, box(0.32, 0.07, 0.02), s * 0.27, 2.2, 4.76, -0.44, 0, 0);
+    b.add(MAT.amber, box(0.04, 0.09, 0.14), s * 0.565, 1.9, 4.55);
+    b.add(MAT.lamp, box(0.02, 0.07, 0.2), s * 0.565, 2.12, 4.3);              // side lamp on the bonnet, up near the nose
+    // yellow stripe down each side of the bonnet
+    b.add(MAT.yellow, box(0.012, 0.05, 3.15), s * 0.566, 2.27, 2.85, Math.atan2(0.3, 3.1), 0, 0);
+    // vents on top, up front
+    b.add(MAT.steel, box(0.3, 0.025, 0.55), s * 0.22, 2.455, 3.95, Math.atan2(0.16, 1.85), 0, 0);
+  }
 
-  // fuel tank + steps (left side)
-  b.add(MAT.green, box(0.5, 0.75, 1.3), 0.66, 1.45, 1.3);
+  // fuel tank (left side)
+  b.add(G, box(0.5, 0.75, 1.3), 0.66, 1.45, 1.3);
   // cab steps: four treads in front of the rear tyre, up to the door, with a grab rail on the front post
   for (let i = 0; i < 4; i++) b.add(MAT.steel, box(0.34, 0.05, 0.32), 1.12, 0.6 + i * 0.45, 1.33);
   for (const z of [1.15, 1.51]) b.add(MAT.black, box(0.05, 1.5, 0.04), 1.27, 1.33, z);
   b.add(MAT.black, cyl(0.025, 0.025, 0.95, 8), 1.0, 2.75, 1.27);
 
-  // cab
+  // cab: black floor pan and posts, green roof with a darker lip
   b.add(MAT.black, box(1.9, 0.25, 2.0), 0, 2.12, 0.25);
   const posts = [[0.9, 1.2], [-0.9, 1.2], [0.9, -0.7], [-0.9, -0.7]];
-  for (const [x, z] of posts) b.add(MAT.green, box(0.1, 1.25, 0.1), x, 2.85, z);
-  b.add(MAT.green, box(2.1, 0.18, 2.3), 0, 3.56, 0.22);
-  b.add(MAT.green, box(1.94, 0.12, 2.06), 0, 3.43, 0.25);
-  b.add(MAT.lamp, box(0.18, 0.08, 0.05), 0.55, 3.55, 1.38);
-  b.add(MAT.lamp, box(0.18, 0.08, 0.05), -0.55, 3.55, 1.38);
-  b.add(MAT.lamp, box(0.18, 0.08, 0.05), 0.55, 3.55, -0.94);
-  b.add(MAT.lamp, box(0.18, 0.08, 0.05), -0.55, 3.55, -0.94);
+  for (const [x, z] of posts) b.add(MAT.black, box(0.1, 1.25, 0.1), x, 2.85, z);
+  b.add(G, box(2.1, 0.16, 2.3), 0, 3.57, 0.22);
+  b.add(MAT.greenDark, box(2.14, 0.06, 2.34), 0, 3.47, 0.22);
+  b.add(G, box(1.4, 0.06, 1.2), 0, 3.67, 0.15);
+  b.add(MAT.black, box(1.94, 0.12, 2.06), 0, 3.41, 0.25);
+  for (const [x, z] of [[0.55, 1.38], [-0.55, 1.38], [0.55, -0.94], [-0.55, -0.94]]) b.add(MAT.lamp, box(0.18, 0.07, 0.05), x, 3.55, z);
   // mirrors
   for (const s of [-1, 1]) { b.add(MAT.black, box(0.6, 0.04, 0.04), s * 1.22, 3.15, 1.15); b.add(MAT.black, box(0.06, 0.38, 0.22), s * 1.52, 3.0, 1.15); }
 
-  // rear fenders over inner duals
+  // rear guards over the inner duals: green on top, black round the back edge, a green shoulder with a lamp box behind the cab
   for (const s of [-1, 1]) {
-    const f = new THREE.CylinderGeometry(R_REAR + 0.14, R_REAR + 0.14, 0.78, 20, 1, true, 0.3, 2.0);
-    b.add(MAT.green, f, s * 1.0, R_REAR, 0.05, 0, 0, Math.PI / 2);
-    b.add(MAT.red, box(0.06, 0.1, 0.05), s * 1.3, 1.95, -1.05);
+    b.add(G, new THREE.CylinderGeometry(R_REAR + 0.14, R_REAR + 0.14, 0.78, 20, 1, true, 0.3, 2.0), s * 1.0, R_REAR, 0.05, 0, 0, Math.PI / 2);
+    b.add(MAT.black, new THREE.CylinderGeometry(R_REAR + 0.16, R_REAR + 0.16, 0.8, 8, 1, true, 2.3, 0.6), s * 1.0, R_REAR, 0.05, 0, 0, Math.PI / 2);
+    b.add(G, box(0.62, 0.26, 0.55), s * 0.9, 2.22, -0.92);
+    b.add(MAT.black, box(0.58, 0.2, 0.12), s * 0.9, 2.0, -1.2);
+    b.add(MAT.red, box(0.14, 0.08, 0.03), s * 1.08, 2.0, -1.27);
+    b.add(MAT.amber, box(0.1, 0.08, 0.03), s * 0.78, 2.0, -1.27);
   }
-  // hitch + rear panel + exhaust stack
-  b.add(MAT.steel, box(1.0, 0.3, 0.6), 0, 0.85, -1.15);
-  b.add(MAT.steel, box(0.2, 0.12, 0.7), 0, 0.6, -1.55);
+  // back panel, slow-moving-vehicle triangle, 3-point linkage and drawbar (all green, like the toy)
+  b.add(G, box(1.3, 0.75, 0.16), 0, 1.6, -1.06);
+  b.add(MAT.red, cyl(0.15, 0.15, 0.02, 3), 0, 1.68, -1.15, -Math.PI / 2, 0, 0);
+  b.add(G, box(1.0, 0.3, 0.6), 0, 0.85, -1.15);
+  for (const s of [-1, 1]) b.add(G, box(0.09, 0.12, 0.85), s * 0.38, 0.7, -1.5, 0.25, s * 0.12, 0);
+  b.add(G, box(0.1, 0.1, 0.6), 0, 1.3, -1.35, -0.2, 0, 0);
+  b.add(G, box(0.2, 0.12, 0.7), 0, 0.6, -1.55);
+  // exhaust stack and air intake up the right-hand front post
   b.add(MAT.black, cyl(0.1, 0.1, 1.75, 10), -0.72, 2.95, 1.42);
   b.add(MAT.steel, cyl(0.12, 0.1, 0.12, 10), -0.72, 3.85, 1.42);
+  b.add(MAT.black, box(0.16, 1.1, 0.16), -0.86, 2.75, 1.3);
   b.build(body);
 
   // cab glass (separate: transparent)
@@ -837,8 +858,9 @@ function buildTractor() {
   for (const s of [-1, 1]) {
     const pivot = new THREE.Group(); pivot.position.set(s * 1.05, R_FRONT, 3.1); root.add(pivot);
     const w = makeWheel(R_FRONT, 0.5, 0.5, 18); pivot.add(w); wheels.push({ spin: w, r: R_FRONT });
+    const w2 = makeWheel(R_FRONT, 0.5, 0.5, 18); w2.position.x = s * 0.56; pivot.add(w2); wheels.push({ spin: w2, r: R_FRONT });   // front duals
     const fg = new THREE.CylinderGeometry(R_FRONT + 0.1, R_FRONT + 0.1, 0.56, 16, 1, true, 0.55, 1.75);
-    const f = new THREE.Mesh(fg, MAT.green); f.rotation.z = Math.PI / 2; pivot.add(f);
+    const f = new THREE.Mesh(fg, MAT.black); f.rotation.z = Math.PI / 2; pivot.add(f);
     steerPivots.push(pivot);
   }
   return { root, body, wheels, steerPivots, halo, dome, door, exhaustTip: new THREE.Vector3(-0.72, 3.95, 1.42) };
