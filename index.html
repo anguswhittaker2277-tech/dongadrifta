@@ -14335,9 +14335,11 @@ const MATT_L = {
   weldHole: ["Ah, you've blown a hole. Keep going, I'll grind it later.", 'Swiss cheese, mate. Ease off a bit.'],
   seam1: ["That's one fin on."], seam2: ['Two down!'], seam3: ['Three! One to go.'],
   weldWin: ["Mate, that's better than mine. Don't tell anyone.", "Four fins, all on. She's ready to fly.", "Textbook welds. I'd frame them if I could."],
-  weldOk: ["They'll hold. Probably. I'd stand back a bit on launch day.", "Not bad. Not great. She might hold, she might not.", "Bit lumpy, that. We'll find out on the pad, won't we."],
-  weldUgly: ["Mate, that's pigeon poo, not welding. She won't hold, but it's your rocket.", "Those fins are held on with hope. I'll get the fire extinguisher.", "Ugly as sin. If she flies, I'll eat my hat."],
-  crashWeld: ["Told ya those welds were dodgy.", "And that's why we weld properly, kids."],
+  weldOk: ["Hmm. Bit dodgy, mate. I wouldn't park anything near the fuel tank on launch day.", "That's a dodgy bead. If a fin lets go, she's going anywhere but up.", "Dodgy. Real dodgy. Madman might want to move his ute."],
+  weldUgly: ["Mate, that's pigeon poo, not welding. Dodgiest welds I've ever seen.", "Those fins are held on with hope. Dodgy as. I'll get the fire extinguisher.", "Ugly as sin and twice as dodgy. If she flies straight, I'll eat my hat."],
+  crashWeld: ["Told ya those welds were dodgy!", "Dodgy welds, mate! That's what dodgy welds do!"],
+  hitTank: ["The fuel tank! I said those welds were dodgy!", "Right into the diesel. Dodgy welds, mate. Dodgy welds."],
+  hitUte: ["Not Madman's ute! He's gonna kill us. Dodgy welds!", "Well, Madman needs a new ute. Should've welded it properly, not dodgy."],
   weldFail: ["Righto, she's Swiss cheese. We'll grind it back and have another go."],
   launchStart: ["Launch day! I'll wheel her out to the pad.", 'Right, out she goes. Mind your toes.'],
   padReady: ["She's on the rail. Go to the control box and hit the big red button when you're ready."],
@@ -14665,10 +14667,12 @@ function mtFly(dt) {
   const R = MT.R; if (R.ph === 'landed' || R.ph === 'crash') return; R.t += dt; const g = 9.8;
   if (R.ph === 'boost' || R.ph === 'tumble') {
     const ax = _mtV.set(0, 1, 0).applyQuaternion(R.q);
-    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay(Math.random() < 0.6 ? 'crashWeld' : 'crash', 3.2); mtAim(R); }      // (a fin's let go: the welds)
+    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crashWeld', 3.2); mtAim(R); }      // (a fin's let go: the dodgy welds)
     if (R.t < 2.6 && !R.target) R.vel.addScaledVector(ax, 26 * dt);
     R.vel.y -= g * dt; if (!R.target) { R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt; }
-    if (R.target && R.pos.distanceTo(R.target.p) < 2.6) { mtStrike(R); return; }
+    if (R.target) { const tg = R.target; tg.T -= dt; if (tg.kind === 'ute' && VEH.ute && VEH.ute.state) tg.p.copy(VEH.ute.state.pos).setY(VEH.ute.state.pos.y + 0.9);      // (the ute might be moving)
+      if (R.pos.distanceTo(tg.p) < 2.6 || tg.T <= 0.04) { mtStrike(R); return; }
+      const T = Math.max(0.08, tg.T); R.vel.set((tg.p.x - R.pos.x) / T, (tg.p.y - R.pos.y) / T + 0.5 * g * T, (tg.p.z - R.pos.z) / T); }
     if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
     else if (R.vel.lengthSq() > 4) { _mtV2.copy(R.vel).normalize(); _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
     if (R.ph === 'boost' && R.t > 2.6) R.ph = 'coast';
@@ -14680,7 +14684,7 @@ function mtFly(dt) {
     _mtQ.setFromEuler(new THREE.Euler(0.15 * Math.sin(R.t * 1.3), 0, 0.15 * Math.cos(R.t * 1.1))); R.q.slerp(_mtQ, Math.min(1, dt * 1.5));
   }
   R.pos.addScaledVector(R.vel, dt);
-  if (R.ph !== 'landed' && R.ph !== 'crash') { const gy = groundAt(R.pos.x, R.pos.z, R.pos.y + 3, -1e9);
+  if (R.ph !== 'landed' && R.ph !== 'crash' && !R.target) { const gy = groundAt(R.pos.x, R.pos.z, R.pos.y + 3, -1e9);
     if (gy > -1e8 && R.pos.y <= gy && (R.ph !== 'boost' || R.t > 0.5)) { R.pos.y = gy; R.vel.set(0, 0, 0);
       if (R.ph === 'chute') { R.ph = 'landed'; R.t = 0; _mtQ.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2 - 0.2)); R.q.copy(_mtQ); mtFlightDone(true); }
       else { R.ph = 'crash'; R.t = 0; wpnBoom(R.pos.clone().setY(gy + 0.5), 4, 0.6, false); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false); } } }
@@ -14691,7 +14695,7 @@ function mtAim(R) {
   if (T && T.rb && !STRUCTS.blown) opts.push({ kind: 'tank', p: T.rb.pos.clone().setY(T.rb.pos.y + 0.6) });
   if (u && u.state && u.state.pos && !u.wrecked && !(WPN.VD.ute && WPN.VD.ute.wrecked) && !u.mp && activeName !== 'ute') opts.push({ kind: 'ute', p: u.state.pos.clone().setY(u.state.pos.y + 0.9) });
   if (!opts.length) return;
-  const tg = opts[Math.floor(Math.random() * opts.length)], d = Math.hypot(tg.p.x - R.pos.x, tg.p.z - R.pos.z), t = THREE.MathUtils.clamp(d / 32, 2.2, 7); R.target = tg;
+  const tg = opts[Math.floor(Math.random() * opts.length)], d = Math.hypot(tg.p.x - R.pos.x, tg.p.z - R.pos.z), t = THREE.MathUtils.clamp(d / 32, 2.2, 7); R.target = tg; tg.T = t;
   R.vel.set((tg.p.x - R.pos.x) / t, (tg.p.y - R.pos.y) / t + 0.5 * 9.8 * t, (tg.p.z - R.pos.z) / t);
 }
 function mtStrike(R) {
@@ -14700,6 +14704,7 @@ function mtStrike(R) {
   else if (tg.kind === 'ute' && VEH.ute) { wpnVehDamage(VEH.ute, 9999, dir.clone(), 'blast', true); wpnBoom(R.pos.clone(), 4, 0.7, false); }
   else wpnBoom(R.pos.clone(), 4, 0.6, false);
   R.pos.y = groundAt(R.pos.x, R.pos.z, R.pos.y + 2, R.pos.y - 6); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false);
+  const q = MT.q; if (q && q.kind === 'launch' && (tg.kind === 'tank' || tg.kind === 'ute')) (q.lines = q.lines || []).push([q.t + 1.4, tg.kind === 'tank' ? 'hitTank' : 'hitUte']);      // Matt, once the bang's died down
 }
 // the model: where MT.R says, the flame and smoke while it burns, the chute once it's out
 function mtRocketVis(dt) {
@@ -14942,9 +14947,9 @@ function mtEnd(win, why) {
   if (win && q.who !== MP.me) mpSend({ k: 'qdone', f: MP.me, to: q.who, q: 'matt', stage: MT.stage, best: MT.best, launches: MT.launches, weldQ: MT.weldQ, welded: MT.welded, since: MT.sinceParts });
   MT.q = null; mtSave(); if (MT.partG) for (const p of MT.partG) p.g.visible = false;
 }
-// how good the fins are: 2 perfect (she holds), 1 decent (a coin toss on the pad), 0 ugly (she almost certainly lets go)
-function mtWeldTier(qv = MT.weldQ) { return qv >= 0.9 ? 2 : qv >= 0.75 ? 1 : 0; }
-function mtQualTxt() { const t = mtWeldTier(); return t === 2 ? 'Perfect welds: she’ll hold' : t === 1 ? 'Decent welds (she might let go)' : 'Ugly welds (she probably won’t hold)'; }
+// how good the fins are: 2 perfect (she flies), 1 dodgy, 0 very dodgy. Dodgy welds always let a fin go, and she comes down on the fuel tank or Madman's ute
+function mtWeldTier(qv = MT.weldQ) { return qv >= 0.85 ? 2 : qv >= 0.7 ? 1 : 0; }
+function mtQualTxt() { const t = mtWeldTier(); return t === 2 ? 'Perfect welds: she’ll fly' : t === 1 ? 'Dodgy welds: a fin will let go' : 'Very dodgy welds: a fin will let go'; }
 function mtFlightDone(ok) { const q = MT.q; if (q && q.kind === 'launch') { q.ph = 'done'; q.endAt = q.t + (ok ? 3 : 3.5); if (ok) (q.lines = q.lines || []).push([q.t + 1.2, 'landed']); } }
 // what a player did, on the host (a mate's comes in over the network as theirs)
 function mtDo(id, pid, x) {
@@ -14973,9 +14978,9 @@ function mtHost(dt) {
     if (q.ph === 'roll' && R.s >= MT_ROLL_L - 0.01) { q.ph = 'pad'; R.ph = 'pad'; const [px, pz] = mtW(MT_PAD[0], MT_PAD[1]), [tx, tz] = mtW(MT_PAD[0] - 1.9, MT_PAD[1] - 0.4); R.tr.set(tx, mtGround(tx, tz), tz); R.pos.set(px, MT.padY + 0.17, pz); mtSay('padReady', 4.5); }
     if (q.ph === 'count') { q.cd += dt; const keys = ['c5', 'c4', 'c3', 'c2', 'c1', 'ign']; while (q.said < keys.length && q.cd >= q.said * 1.0) { SPK.allow = true; try { mtSay(keys[q.said], 0.95); } finally { SPK.allow = false; } q.said++; }
       if (q.cd >= 5.3) { q.ph = 'fly'; R.ph = 'boost'; R.t = 0; R.alt0 = R.pos.y; R.vel.set(0, 0, 0); R.q.identity(); const a = Math.random() * 6.283; R.wind = [Math.cos(a) * 2.8, Math.sin(a) * 2.8];
-        R.fail = Math.random() < [0.9, 0.5, 0][mtWeldTier()]; R.target = null; R.hit = ''; sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
+        R.fail = mtWeldTier() < 2; R.target = null; R.hit = ''; sfx('g_shotgun', R.pos, 0.9, 0.45, 60); (q.lines = q.lines || []).push([q.t + 0.9, 'liftoff']); } }
     if (q.ph === 'fly' || q.ph === 'done') mtFly(dt);
-    if (q.lines) q.lines = q.lines.filter(([at, k]) => { if (q.t < at) return true; if (k !== 'liftoff' || R.ph === 'boost') mtSay(k, 3); return false; });          // (lines due at a game time)
+    if (q.lines) q.lines = q.lines.filter(([at, k]) => { if (q.t < at) return true; if (k !== 'liftoff' || (R.ph === 'boost' && !R.fail)) mtSay(k, 3); return false; });          // (lines due at a game time)
     if (q.ph === 'done' && q.t >= q.endAt) { mtEnd(true); return; }
   }
 }
