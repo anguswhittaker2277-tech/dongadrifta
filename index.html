@@ -11650,7 +11650,7 @@ function bubDom() {
    as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, url: 'voices-v1.bin?v=9beace66', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
+const VOX = { on: true, url: 'voices-v1.bin?v=1d889249', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
 const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
 // the same normalising the recording script used, so the game's text finds its clips
@@ -11683,7 +11683,7 @@ function voxSay(n, text) {
   if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return 0;
   if (!VOX.head) { voxLoad(); return 0; }                     // (the first line kicks off the download; it's said as a bubble)
   const who = voxWho(n); if (!who) return 0;
-  const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = plRealPos(), d = Math.hypot(p.x - me.x, p.z - me.z);
+  const p = npcSpkPos(n), me = plRealPos(), d = Math.hypot(p.x - me.x, p.z - me.z);
   if (d > 32) return 0;
   const now = AU.ctx.currentTime;
   let parts;
@@ -11701,6 +11701,9 @@ function voxSay(n, text) {
   });
   return total;
 }
+// where a voice comes from: the car only while he's actually driving it (a stale link to a ute parked somewhere else had Madman
+// heard right across the farm)
+function npcSpkPos(n) { return n.veh && n.veh.state && (n.st === 'drive' || n.veh.npc === n) ? n.veh.state.pos : n.pos; }
 const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : n.matt ? 'mt' : VOX_WHO[n.name];
 document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
@@ -11789,7 +11792,7 @@ function npcGoTo(n, tx, tz, sp, dt, tol = 1.5) {
   if (R.noWay > 0) { R.noWay -= dt; if (R.noWay <= 0) { n.route = null; return 'fail'; }          // no route: feel the way for a few seconds, then let the caller decide
     npcWalk(n, faSteer(n, Math.atan2(tx - n.pos.x, tz - n.pos.z), 2.5), sp, dt); return 'go'; }
   if (!R.pts) { R.pts = walkLOS(n.pos.x, n.pos.z, tx, tz) ? [[tx, tz]] : walkPath(n.pos.x, n.pos.z, tx, tz); R.i = 0; R.best = 1e9; R.progT = 0;
-    if (!R.pts) { R.noWay = 4; return 'go'; } }
+    if (!R.pts || !R.pts.length) { R.pts = null; R.noWay = 4; return 'go'; } }
   let w = R.pts[Math.min(R.i, R.pts.length - 1)];
   R.losT -= dt; if (R.i < R.pts.length - 1 && (Math.hypot(w[0] - n.pos.x, w[1] - n.pos.z) < 0.8 || (R.losT <= 0 && walkLOS(n.pos.x, n.pos.z, R.pts[R.i + 1][0], R.pts[R.i + 1][1])))) { R.i++; w = R.pts[R.i]; R.best = 1e9; }
   if (R.losT <= 0) R.losT = 0.5;
@@ -12023,7 +12026,7 @@ function npcPose(n, dt) {
     if (n.st === 'tumble' || n.st === 'down' || n.st === 'ko') { shLz = 1.3; shRz = -1.3; shLx = shRx = -0.3; hipL = 0.1; hipR = -0.15; elL = elR = -0.2; if (n.st === 'tumble') { shLx = -2.2 + Math.sin(NPC.t * 15) * 0.5; shRx = -2.2 - Math.sin(NPC.t * 15) * 0.5; hipL = -0.5; hipR = -0.2; kneeL = kneeR = 0.8; } }
     else if (n.st === 'getup') { hipL = hipR = -1.0; kneeL = kneeR = 1.6; shLx = shRx = -0.6; }
     else if (n.st === 'stag') { torsoX = -0.35; shLx = -0.8; shRx = -0.6; elL = elR = -1.2; headX = -0.25; }
-    else if (n.st === 'fight' || (n.st === 'chase' && sp < 2) || (n.st === 'defend' && sp < 2)) {
+    else if (n.st === 'fight' || (n.st === 'chase' && sp < 2) || ((n.st === 'defend' || n.st === 'brawl' || n.st === 'mtBrace') && sp < 2)) {
       shLx = -1.15; shRx = -1.0; shLz = 0.25; shRz = -0.25; elL = -1.8; elR = -1.7; torsoX = 0.12; hipL = -0.15; hipR = 0.15; kneeL = 0.2; kneeR = 0.25;
       const bob = Math.sin(NPC.t * 6 + n.ph) * 0.06; bodyY += bob * 0.5; torsoY = Math.sin(NPC.t * 3 + n.ph) * 0.1;
       if (n.atkPh === 'wind') { const k = Math.min(1, n.t / 0.4); shRx = -0.6 + k * 0.9; elR = -1.9; torsoY = 0.5 * k; }
@@ -14379,7 +14382,7 @@ function mtYaw(du, dv) { const D = mtD(), t = D.ang * Math.PI / 180, c = Math.co
 function mtFloor(x, z) { const f = shedFloorAt(x, z); return f !== null ? f : groundAt(x, z, 30, 0); }
 function mtGround(x, z) { const sk = STRUCTS.skip; STRUCTS.skip = MT.rk ? MT.rk.gr : sk; try { return mtFloor(x, z); } finally { STRUCTS.skip = sk; } }      // (under the rocket: not its own box)
 // where Matt works ([u, v, facing du, dv]), the welding spot, the trolley's way out to the pad and the control box
-const MT_SPOT = { bench: [-5, -14.35, 0, -1], board: [14.3, -10, 1, 0], lathe: [4.8, -14.3, 0, -1], rocket: [1.25, -8, -1, 0], watch: [9.9, -12.5, -0.5, 1], box: [6.4, 18.8, -0.8, 0.6], trolley: [0, -9.2, 0, 1] };
+const MT_SPOT = { meet: [-4, 21, 0, 1], bench: [-5, -14.35, 0, -1], board: [14.3, -10, 1, 0], lathe: [4.8, -14.3, 0, -1], rocket: [1.25, -8, -1, 0], watch: [9.9, -12.5, -0.5, 1], box: [6.4, 18.8, -0.8, 0.6], trolley: [0, -9.2, 0, 1] };
 const MT_AISLE = -12.9, MT_WELD = [8, -12.15], MT_TABLE = [8, -11], MT_ROCK = [0, -8], MT_PAD = [0, 30], MT_BOX = [5, 18];
 const MT_ROLL = [[0, -8], [0, 3], [0, 17], [0, 30]];
 const MT_PARTS = [
@@ -14679,13 +14682,15 @@ function mtFly(dt) {
   const R = MT.R; if (R.ph === 'landed' || R.ph === 'crash') return; R.t += dt; const g = 9.8;
   if (R.ph === 'boost' || R.ph === 'tumble') {
     const ax = _mtV.set(0, 1, 0).applyQuaternion(R.q);
-    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crashWeld', 3.2); mtAim(R); }      // (a fin's let go: the dodgy welds)
+    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 1.6, 0, 1.4 + Math.random() * 0.8); R.roll = 0; mtSay('crashWeld', 3.2); mtAim(R); }      // (a fin's let go: the dodgy welds)
     if (R.t < 2.6 && !R.target) R.vel.addScaledVector(ax, 26 * dt);
     R.vel.y -= g * dt; if (!R.target) { R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt; }
     if (R.target) { const tg = R.target; tg.T -= dt; if (tg.kind === 'ute' && VEH.ute && VEH.ute.state) tg.p.copy(VEH.ute.state.pos).setY(VEH.ute.state.pos.y + 0.9);      // (the ute might be moving)
       if (R.pos.distanceTo(tg.p) < 2.6 || tg.T <= 0.04) { mtStrike(R); return; }
       const T = Math.max(0.08, tg.T); R.vel.set((tg.p.x - R.pos.x) / T, (tg.p.y - R.pos.y) / T + 0.5 * g * T, (tg.p.z - R.pos.z) / T); }
-    if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
+    if (R.ph === 'tumble' && R.target && R.vel.lengthSq() > 1) { R.roll = (R.roll || 0) + dt * 1.6;            // nose along her path, rolling round it, wobbling off one side (the missing fin)
+      _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); _mtQ2.setFromEuler(new THREE.Euler(Math.sin(R.t * 2.2) * 0.15, R.roll, Math.cos(R.t * 1.7) * 0.15)); _mtQ.multiply(_mtQ2); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
+    else if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
     else if (R.vel.lengthSq() > 4) { _mtV2.copy(R.vel).normalize(); _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
     if (R.ph === 'boost' && R.t > 2.6) R.ph = 'coast';
   } else if (R.ph === 'coast') {
@@ -14712,15 +14717,19 @@ function mtAim(R) {
 }
 function mtStrike(R) {
   const tg = R.target, dir = _mtV2.copy(R.vel).normalize(); R.ph = 'crash'; R.t = 0; R.hit = tg.kind; R.vel.set(0, 0, 0); R.target = null;
-  if (tg.kind === 'tank' && STRUCTS.boxes.tank && !STRUCTS.blown) explodeTank(STRUCTS.boxes.tank, dir.clone(), R.pos.clone());
-  else if (tg.kind === 'ute' && VEH.ute) { wpnVehDamage(VEH.ute, 9999, dir.clone(), 'blast', true); wpnBoom(R.pos.clone(), 4, 0.7, false); }
-  else wpnBoom(R.pos.clone(), 4, 0.6, false);
+  MM.blastT = MM.t + 4; NPC.calmBlast = true; try { mtStrikeBoom(R, tg, dir); } finally { NPC.calmBlast = false; }      // (whoever it knocks over, nobody blames you: it was Matt's rocket)
   R.pos.y = groundAt(R.pos.x, R.pos.z, R.pos.y + 2, R.pos.y - 6); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false);
   const q = MT.q; if (q && q.kind === 'launch' && (tg.kind === 'tank' || tg.kind === 'ute')) (q.lines = q.lines || []).push([q.t + 1.4, tg.kind === 'tank' ? 'hitTank' : 'hitUte']);      // Matt, once the bang's died down
+}
+function mtStrikeBoom(R, tg, dir) {
+  if (tg.kind === 'tank' && STRUCTS.boxes.tank && !STRUCTS.blown) explodeTank(STRUCTS.boxes.tank, dir.clone(), R.pos.clone());
+  else if (tg.kind === 'ute' && VEH.ute) { MM.rocketBy = 'matt'; wpnVehDamage(VEH.ute, 9999, dir.clone(), 'blast', true); wpnBoom(R.pos.clone(), 4, 0.7, false); }      // (Madman knows whose rocket it was)
+  else wpnBoom(R.pos.clone(), 4, 0.6, false);
 }
 // the model: where MT.R says, the flame and smoke while it burns, the chute once it's out
 function mtRocketVis(dt) {
   const K = MT.rk, R = MT.R; if (!K || !R) return;
+  K.r.visible = R.ph !== 'crash';                  // (blown to bits: nothing left of her to see)
   K.r.position.copy(R.pos); K.r.quaternion.copy(R.q);
   K.tr.position.copy(R.tr); if (R.ph === 'shed' || R.ph === 'roll') K.tr.rotation.y = mtYaw(0, 1);
   const st = MT.stage, burn = R.ph === 'boost' || (R.ph === 'tumble' && R.t < 2.6) || (R.ph === 'ign');
@@ -14814,10 +14823,36 @@ function mtWalk(n, dt) {        // true while still walking
 }
 function mtCalm(n) {
   if (n.veh) { if (n.st === 'drive' || n.veh.npc === n) npcEject(n, 'kick'); if (n.veh && n.veh.npc === n) n.veh.npc = null; n.veh = null; }
-  n.st = 'home'; n.t = 0; n.angry = false; n.vehT = 1e9; n.route = null; n.bbPh = null; MT.path = null; mtGo(MT.spot && MT_SPOT[MT.spot] && MT.spot !== 'box' && MT.spot !== 'trolley' ? MT.spot : 'bench');
+  n.st = 'home'; n.t = 0; n.angry = false; n.vehT = 1e9; n.route = null; n.bbPh = null; MT.path = null; mtGo(MT.spot && MT_SPOT[MT.spot] && MT.spot !== 'box' && MT.spot !== 'trolley' && MT.spot !== 'meet' ? MT.spot : 'bench');
+}
+// Madman's come for him over the ute: Matt puts his fists up and has a go back (not much of one)
+function mtBrawl(n, dt) {
+  const R0 = typeof MM !== 'undefined' && MM.rage, mm = MM.n;
+  if (!R0 || !mm || !npcAlive(n) || ['tumble', 'down', 'ko', 'getup', 'stag'].includes(n.st)) return false;
+  if (R0.ph !== 'fight') {                    // he can see Madman coming: out the front to face him, rather than be cornered at the bench
+    if (Math.hypot(mm.pos.x - n.pos.x, mm.pos.z - n.pos.z) > 70 || !npcAlive(mm)) return false;
+    if (MT.spot !== 'meet') mtGo('meet');
+    if (n.st === 'mtWalk' && mtWalk(n, dt)) return true;
+    n.st = 'mtBrace'; npcFace(n, mm.pos.x, mm.pos.z, 6, dt); n.sp *= 0.8; return true; }
+  if (n.veh) mtCalm(n);
+  if (n.st !== 'brawl') { n.st = 'brawl'; n.t = 0; n.atkPh = ''; n.atk = 0.9; MT.path = null; }
+  const dx = mm.pos.x - n.pos.x, dz = mm.pos.z - n.pos.z, d = Math.hypot(dx, dz);
+  npcFace(n, mm.pos.x, mm.pos.z, 10, dt); n.sp *= 0.8;
+  if (!npcAlive(mm) || mm.st === 'stag') { n.atkPh = ''; return true; }
+  if (d > 2.0 && n.atkPh === '') { if (d < 16) npcWalk(n, faSteer(n, Math.atan2(dx, dz), 2), 2.2, dt); return true; }
+  if (n.atkPh === '') { n.atk -= dt; if (n.atk <= 0) { n.atkPh = 'wind'; n.t = 0; } }
+  else if (n.atkPh === 'wind') { if (n.t > 0.45) { n.atkPh = 'hit'; n.t = 0;
+      if (d < 2.2 && Math.random() < 0.7) { const k = 1 / (d || 1); mm.hp = Math.max(Math.min(mm.hp, 30), mm.hp - 6); mm.st = 'stag'; mm.t = 0; mm.vel.set(dx * k * 1.8, 0, dz * k * 1.8);
+        if (typeof sfx === 'function') sfx('m_punch', mm.pos, 0.7, 0.9, 8); if (Math.random() < 0.4) npcSay(mm, npcPick(NPC_L.hurt), 2); }
+      else if (typeof sfx === 'function') sfx('m_swish', n.pos, 0.45, 1.15, 5); } }
+  else if (n.atkPh === 'hit') { if (n.t > 0.3) { n.atkPh = ''; n.atk = 1.0 + Math.random() * 0.8; } }
+  return true;
 }
 function mtThink(n, dt) {
   n.t += dt; n.lineT = (n.lineT || 0) - dt;
+  if (mtBrawl(n, dt)) return;
+  if (n.st === 'brawl' || n.st === 'mtBrace') { n.atkPh = ''; mtCalm(n); return; }
+  if (n.st === 'flee') { n.fleeT = 0; mtCalm(n); return; }
   // calmed down (or never meant to be in the backpackers' other routines: off to nick a car, watching the bunks burn, building): straight back to the shed.
   // Handled here, before the shared code gets a look at 'wander', or he'd go and steal your car and never be talkable again
   if (['wander', 'toVeh', 'drive', 'bbWatch'].includes(n.st) || n.st.startsWith('bb')) { mtCalm(n); return; }
@@ -15735,6 +15770,10 @@ const MM_L = {
   bunkFire: ["Strewth! The bunks are goin’ up!", "Fuck me dead, who shot the gas bottle?"],
   ko: ["Cheap shot...", "Strewth... me head..."],
   wreck: ["ME UTE! You’ve wrecked me bloody ute!", "Fuck me dead... she’s cooked."],
+  rocketUte: ["Was that your bloody rocket?! You’ve blown up me ute!", "ME UTE! Your stupid rocket’s flattened me ute!"],
+  storm: ["Where are ya?! I’m comin’ for ya!", "You and your bloody rockets!", "Nobody touches me ute!"],
+  mattFight: ["Oi, Matt! You owe me a ute!"],
+  beatMatt: ["That’s for me ute, ya rocket nerd!"],
   fixed: ["Mate’s towed her back and patched her up. No thanks to you."],
   ejected: ["Oi! Me own bloody ute!", "Ya mongrel!"],
   bye: ["Catch ya.", "Hooroo!", "Don’t do anything I wouldn’t do."],
@@ -15777,6 +15816,10 @@ const MM_C = {
   win: ["Stay down, ya useless prick."],
   ko: ["Me fuckin’ head..."],
   wreck: ["She’s fucked. She’s completely fucked."],
+  rocketUte: ["Your fuckin’ rocket just cooked me ute! I’m gonna kill ya!"],
+  storm: ["Get back here, ya rocket-buildin’ prick!"],
+  mattFight: ["Oi, Matt! You owe me a fuckin’ ute!"],
+  beatMatt: ["Build a rocket outta that, ya four-eyed prick!"],
   ejected: ["Me own fuckin’ ute!"],
   bye: ["Piss off then. Hooroo."],
   aimed: ["Get that fuckin’ gun off me, ya cunt!"],
@@ -15847,7 +15890,7 @@ function mmPlace() {
 }
 function mmReset() {
   if (!MM.ready) return;
-  Object.assign(MM, { anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, inUteT: 0, touchT: 0, react: null, reactT: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0, npcDriving: false, sayT: 0, pk: null, parkCD: 0 });
+  Object.assign(MM, { rage: null, rocketBy: null, anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, inUteT: 0, touchT: 0, react: null, reactT: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0, npcDriving: false, sayT: 0, pk: null, parkCD: 0 });
   MM.rest = null; mmMenuClose(); if (MM.sub) MM.sub.classList.remove('show'); if (typeof dgReset === 'function') dgReset();
   mmPlace();
 }
@@ -15882,11 +15925,48 @@ const _mmScare0 = faunaScare;
 faunaScare = function (pos, r) { if (MM.ready && MM.n && r >= 30 && activeName === 'foot' && MM.scareT <= 0) { const d = Math.hypot(pos.x - MM.n.pos.x, pos.z - MM.n.pos.z); if (d < 26 && MM.n.st === 'lean') { MM.scareT = 25; mmSay('careful'); for (const dg of MM.dogs) dg.alert = 3; } } return _mmScare0(pos, r); };
 
 /* ---------- brain ---------- */
+// his ute's gone up under Matt's rocket: he storms across the farm to Matt (cutting ahead out of sight if he gets hung up) and
+// they have it out. Matt swings back, but he's a rocket nerd: Madman puts him on the deck, has his last word and goes home
+function mmStorm(n, dt) {
+  const R0 = MM.rage, m = MT.n; R0.t += dt;
+  const end = (k) => { MM.rage = null; n.atkPh = ''; if (k) { SPK.allow = true; try { mmSay(k, 3.2, true); } finally { SPK.allow = false; } } if (n.st === 'mmStorm' || n.st === 'brawl') { n.st = 'home'; n.t = 0; } return false; };
+  if (!m || R0.t > 160) return end();
+  if (!npcAlive(n) || n.st === 'stag') return false;                      // (knocked about: the shared code has him for a moment)
+  if (m.st === 'ko') return end('beatMatt');
+  const dx = m.pos.x - n.pos.x, dz = m.pos.z - n.pos.z, d = Math.hypot(dx, dz);
+  if (R0.ph !== 'fight') {
+    if (!R0.said) { R0.said = true; mmSay('rocketUte', 3.8, true); }          // (up off the deck if the bang floored him: now he says it)
+    if (d < 4.5 && walkLOS(n.pos.x, n.pos.z, m.pos.x, m.pos.z)) { R0.ph = 'fight'; R0.ft = 0; R0.farT = 0; R0.hits = 0; n.atkPh = ''; n.atk = 0.5; n.st = 'brawl'; n.t = 0; SPK.allow = true; try { mmSay('mattFight', 2.6, true); } finally { SPK.allow = false; } return true; }
+    n.st = 'mmStorm'; const sp = d > 30 ? 4.6 : 3.8;
+    if (npcGoTo(n, m.pos.x, m.pos.z, sp, dt, 3) === 'fail') npcWalk(n, faSteer(n, Math.atan2(dx, dz), 2), sp, dt, 8);
+    if (d < (R0.best || 1e9) - 0.5) { R0.best = d; R0.prog = 0; } else R0.prog = (R0.prog || 0) + dt;
+    if (R0.prog > 3) { R0.prog = 0; R0.best = d; n.route = null;
+      if (d > 26 && npcUnseen(n.pos.x, n.pos.z)) for (let k = 20; k < d - 6; k += 3) { const x = m.pos.x - dx * k / d, z = m.pos.z - dz * k / d; if (npcUnseen(x, z) && faFree(x, z, 0.6)) { npcHop(n, x, z); break; } } }
+    R0.sayT -= dt; if (R0.sayT <= 0) { R0.sayT = 7 + Math.random() * 3; mmSay('storm', 2.6, true); }
+    return true;
+  }
+  // the scrap
+  R0.ft += dt; if (R0.ft > 60) return end();
+  n.st = 'brawl';
+  if (['tumble', 'down', 'getup'].includes(m.st)) { npcFace(n, m.pos.x, m.pos.z, 8, dt); n.sp *= 0.85; n.atkPh = ''; return true; }      // Matt on the ground: he stands over him
+  R0.farT = d > 2.2 ? (R0.farT || 0) + dt : 0; if (d > 14 || R0.farT > 2.5) { R0.ph = 'go'; R0.farT = 0; n.route = null; return true; }      // (something between them: back round the long way)
+  if (d > 1.7 && n.atkPh === '') { mmRun(n, m.pos.x, m.pos.z, d > 4 ? 5.6 : 3.2, dt, false); return true; }
+  npcFace(n, m.pos.x, m.pos.z, 12, dt); n.sp *= 0.8;
+  if (n.atkPh === '') { n.atk -= dt; if (n.atk <= 0) { n.atkPh = 'wind'; n.t = 0; } }
+  else if (n.atkPh === 'wind') { if (n.t > 0.35) { n.atkPh = 'hit'; n.t = 0;
+      if (d < 2.1) { const k = 1 / (d || 1), big = ++R0.hits % 3 === 0; NPC.calmBlast = true;          // (Matt's not cross with you for it)
+        try { if (big || m.hp <= 16) npcLaunch(m, dx * k * 4.5, dz * k * 4.5, big ? 24 : 16); else { m.hp -= 16; m.st = 'stag'; m.t = 0; m.vel.set(dx * k * 2.2, 0, dz * k * 2.2); if (Math.random() < 0.5) npcSay(m, npcPick(NPC_L.hurt), 2); } } finally { NPC.calmBlast = false; }
+        if (typeof sfx === 'function') sfx('m_punch', m.pos, 1, 0.75, 9); camShake = Math.max(camShake, 0.2 * Math.max(0, 1 - faCamD(m.pos) / 25)); }
+      else if (typeof sfx === 'function') sfx('m_swish', n.pos, 0.5, 1.0, 5); } }
+  else if (n.atkPh === 'hit') { if (n.t > 0.3) { n.atkPh = ''; n.atk = 0.6 + Math.random() * 0.4; } }
+  return true;
+}
 function mmThink(n, dt) {
   n.t += dt; const v = mmUte();
   if (n.veh && n.veh !== v && n.st !== 'drive') { const st = n.st, t = n.t; mmLeaveRide(n); n.st = st; n.t = t; }      // knocked out of whatever he pinched
   const dP = Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z);
   // fights, tumbles, getting knocked out: the backpackers' code does all that
+  if (MM.rage && mmStorm(n, dt)) return;
   if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) {
     if (n.st === 'getup' && n.fleeT) n.fleeT = 0;
     if (activeName === 'ute' && (n.st === 'chase' || n.st === 'fight')) { n.st = 'toDoor'; n.t = 0; return; }   // drag you out first, then the hiding
@@ -16320,7 +16400,8 @@ function mmStep(dt) {
   }
   // wrecked: furious, and a mate tows it back once you've looked away
   if (v.wrecked) {
-    if (MM.wreckT === 0) { mmSay('wreck', 3.5, true); if (Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 70) mmOffend('wreck', 100, true); for (const d of MM.dogs) mmDogDrop(d); }
+    if (MM.wreckT === 0) { if (MM.rocketBy) { MM.rage = { ph: 'go', t: 0, sayT: 6 }; if (n && n.veh) mmLeaveUte(false); }      // Matt's rocket did it: he's off to sort Matt out
+      else { mmSay('wreck', 3.5, true); if (Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 70) mmOffend('wreck', 100, true); } MM.rocketBy = null; for (const d of MM.dogs) mmDogDrop(d); }
     MM.wreckT += dt;
     const far = faCamD(mmUteSt().pos) > 90 || MM.wreckT > 150;
     if (MM.wreckT > 60 && far && activeName !== 'ute') mmFixUte();
@@ -17342,7 +17423,7 @@ function spkLine(n, kind, line, dur) {
   if (spkMuted(n)) return;                                                   // you're on a quest: the others keep it to themselves
   spkOffer({ n, kind, line, dur: dur || 3, to, at: spkNow() });
 }
-function spkDist(n) { const me = plRealPos(), p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z); }
+function spkDist(n) { const me = plRealPos(), p = npcSpkPos(n); return Math.hypot(p.x - me.x, p.z - me.z); }
 function spkOffer(L) {
   L.pri = L.to && L.to === MP.me ? 2 : 1;
   const F0 = SPK.floor, now = spkNow();

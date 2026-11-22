@@ -31,7 +31,7 @@ Dima is `am_onyx` and `am_fenrir` blended 70/30 at 0.9 speed with a Russian acce
 
 ## Recording Madman yourself
 
-`madman-lines.csv` lists every Madman recording (`mm_001` ... `mm_199`) with the situation, the mood and the
+`madman-lines.csv` lists every Madman recording (`mm_001` ... `mm_210`) with the situation, the mood and the
 line. Record each one to a file of that name (WAV or MP3) and they can replace the Kokoro clips: the
 `game_key` column is the line exactly as the game looks it up.
 
