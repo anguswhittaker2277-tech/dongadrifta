@@ -3379,7 +3379,7 @@ function chClav(cb, ub, lb, eb, T, wgt) {
   const need = a.distanceTo(T) - l * 0.995, r = o.distanceTo(a); if (need <= 0 || r < 1e-5) return;
   _chcW.subVectors(T, a).normalize().multiplyScalar(Math.min(need, r * 0.7)).add(a);                       // where the shoulder would like to be
   _chcq.setFromUnitVectors(_chcU.subVectors(a, o).normalize(), _chcW.sub(o).normalize());
-  const ang = 2 * Math.acos(Math.min(1, Math.abs(_chcq.w))), mx = 0.6; if (ang > mx) _chcq.copy(_chcI.identity().slerp(_chcq, mx / ang));
+  const ang = 2 * Math.acos(Math.min(1, Math.abs(_chcq.w))), mx = 0.35; if (ang > mx) _chcq.copy(_chcI.identity().slerp(_chcq, mx / ang));
   if (wgt < 1) _chcq.copy(_chcI.identity().slerp(_chcq, wgt));
   cb.getWorldQuaternion(_chcC); cb.parent.getWorldQuaternion(_chcP); cb.quaternion.copy(_chcP.invert().multiply(_chcq.multiply(_chcC)));
 }
