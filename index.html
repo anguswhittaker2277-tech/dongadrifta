@@ -605,6 +605,8 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { clone as skelClone } from 'three/addons/utils/SkeletonUtils.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
@@ -2113,7 +2115,7 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 
 let sceneTextures = [], texMap = null;
 async function load() {
-  $('lbar').classList.remove('busy');
+  $('lbar').classList.remove('busy'); try { chLoad(); } catch (_) {}
   let pBase = 0, pSpan = 1;
   const step = (msg, frac) => { $('lmsg').textContent = msg; setProgress(pBase + pSpan * frac); };
   let gltf;
@@ -3004,19 +3006,19 @@ const LK = {
     fh: [['0', 'Clean shaven'], ['1', 'Stubble'], ['2', 'Moustache'], ['3', 'Beard']]
   }
 };
-const LOOK_DEFAULT = { g: 'm', h: 0.5, w: 0.5, m: 0, skin: 0, hair: 'curls', hc: 0, hat: 'none', hatc: 0, shirt: 'drill', sc: 0, legs: 'shorts', lc: 0, shoes: 'clogs', shc: 3, gl: 'reading', fh: 0 };
+const LOOK_DEFAULT = { hd: '', tp: '', lg: '', ft: '', bp: 0, g: 'm', h: 0.5, w: 0.5, m: 0, skin: 0, hair: 'curls', hc: 0, hat: 'none', hatc: 0, shirt: 'drill', sc: 0, legs: 'shorts', lc: 0, shoes: 'clogs', shc: 3, gl: 'reading', fh: 0 };
 const lookH = L => (0.88 + 0.24 * (L.h == null ? 0.5 : L.h)) * (L.g === 'f' ? 0.95 : 1);
 const lookFix = o => { const L = Object.assign({}, LOOK_DEFAULT); if (o && typeof o === 'object') for (const k of Object.keys(LOOK_DEFAULT)) if (o[k] !== undefined && typeof o[k] === typeof LOOK_DEFAULT[k]) L[k] = o[k];
   for (const k of ['h', 'w', 'm']) L[k] = Math.max(0, Math.min(1, L[k]));
   const ok = (k, arr) => { if (!arr.some(a => a[0] === L[k])) L[k] = LOOK_DEFAULT[k]; };
   ok('g', LK.styles.g); ok('hair', LK.styles.hair); ok('hat', LK.styles.hat.concat([['beret']])); ok('shirt', LK.styles.shirt.concat([['breton']])); ok('legs', LK.styles.legs); ok('shoes', LK.styles.shoes); ok('gl', LK.styles.gl);
   for (const [k, a] of [['skin', LK.skin], ['hc', LK.hair], ['sc', LK.shirt], ['lc', LK.legs], ['shc', LK.shoe], ['hatc', LK.hat]]) L[k] = Math.max(0, Math.min(a.length - 1, Math.round(L[k])));
-  L.fh = Math.max(0, Math.min(3, Math.round(L.fh))); return L; };
+  L.fh = Math.max(0, Math.min(3, Math.round(L.fh))); for (const k of ['hd', 'tp', 'lg', 'ft']) L[k] = String(L[k]).replace(/[^A-Za-z0-9_]/g, '').slice(0, 24); L.bp = L.bp ? 1 : 0; return L; };
 let LOOK = LOOK_DEFAULT;
 try { const s = localStorage.getItem('wfy.look'); if (s) LOOK = lookFix(JSON.parse(s)); } catch (_) {}
-const lookCode = L => [Math.round(L.h * 20), Math.round(L.w * 20), Math.round(L.m * 20), L.skin, L.hc, L.hatc, L.sc, L.lc, L.shc, L.fh, L.hair, L.hat, L.shirt, L.legs, L.shoes, L.gl, L.g].join(',');
-const lookFromCode = s => { try { const a = String(s).split(','); if (a.length !== 16 && a.length !== 17) return null; const n = i => +a[i];         // (16: from before there was a choice of body)
-  return lookFix({ h: n(0) / 20, w: n(1) / 20, m: n(2) / 20, skin: n(3), hc: n(4), hatc: n(5), sc: n(6), lc: n(7), shc: n(8), fh: n(9), hair: a[10], hat: a[11], shirt: a[12], legs: a[13], shoes: a[14], gl: a[15], g: a[16] || 'm' }); } catch (_) { return null; } };
+const lookCode = L => [Math.round(L.h * 20), Math.round(L.w * 20), Math.round(L.m * 20), L.skin, L.hc, L.hatc, L.sc, L.lc, L.shc, L.fh, L.hair, L.hat, L.shirt, L.legs, L.shoes, L.gl, L.g, L.hd, L.tp, L.lg, L.ft, L.bp].join(',');
+const lookFromCode = s => { try { const a = String(s).split(','); if (![16, 17, 22].includes(a.length)) return null; const n = i => +a[i];         // (16: from before there was a choice of body; 17: before the models)
+  return lookFix({ h: n(0) / 20, w: n(1) / 20, m: n(2) / 20, skin: n(3), hc: n(4), hatc: n(5), sc: n(6), lc: n(7), shc: n(8), fh: n(9), hair: a[10], hat: a[11], shirt: a[12], legs: a[13], shoes: a[14], gl: a[15], g: a[16] || 'm', hd: a[17] || '', tp: a[18] || '', lg: a[19] || '', ft: a[20] || '', bp: +(a[21] || 0) }); } catch (_) { return null; } };
 const lookName = L => (L || LOOK).g === 'f' ? 'Shazza' : 'Dazza';
 
 const LK_CACHE = new Map();
@@ -3199,7 +3201,142 @@ function lookApply(P, look) {
   P.belly = P.vest = N.belly; P.waist = N.waist; P.look = L; lookScales(P, L); return L;
 }
 
+
+/* ================================================================
+   CHARACTER MODELS (Nov 2026): Quaternius' CC0 Ultimate Modular Men and Women (head, top, legs and feet you can mix, on one
+   skeleton, with their own walk / run / idle / punch clips) and, for Dima, a Universal Base superhero body. assets/chars/.
+   The old blocky rig still runs underneath (invisible): every hand-made pose in the game (driving, the bench, welding, the
+   sauna, fights, the dances) moves its pivots, and each frame those rotations are copied onto the new skeleton's bones, so
+   all of that keeps working. Plain walking, running and standing about play the pack's own clips instead, blended in and out.
+   Until the files arrive (or if they can't be fetched) everyone stays as they were.
+   ================================================================ */
+const CH = { packs: {}, ready: false, list: new Set(), loading: null };
+const CH_FILES = { m: 'assets/chars/chars_m.glb', w: 'assets/chars/chars_w.glb', hero: 'assets/chars/hero.glb' };
+const CH_DEF = { m: ['Farmer_Head', 'Farmer_Body', 'Farmer_Pants', 'Farmer_Feet'], w: ['Casual_Head', 'Casual_Body', 'Casual_Legs', 'Casual_Feet'] };
+const CH_BONES = { mod: { body: 'Hips', sp: ['Abdomen', 'Torso', 'Chest'], neck: 'Neck', head: 'Head', clav: ['ShoulderL', 'ShoulderR'], ua: ['UpperArmL', 'UpperArmR'], la: ['LowerArmL', 'LowerArmR'], hd: ['WristL', 'WristR'], ul: ['UpperLegL', 'UpperLegR'], ll: ['LowerLegL', 'LowerLegR'], ft: ['FootL', 'FootR'] },
+  hero: { body: 'pelvis', sp: ['spine_01', 'spine_02', 'spine_03'], neck: 'neck_01', head: 'Head', clav: ['clavicle_l', 'clavicle_r'], ua: ['upperarm_l', 'upperarm_r'], la: ['lowerarm_l', 'lowerarm_r'], hd: ['hand_l', 'hand_r'], ul: ['thigh_l', 'thigh_r'], ll: ['calf_l', 'calf_r'], ft: ['foot_l', 'foot_r'] } };
+const chSlot = n => /_Head$/.test(n) ? 'hd' : /_Body$/.test(n) ? 'tp' : /_(Legs|Pants)$/.test(n) ? 'lg' : /_Feet$/.test(n) ? 'ft' : 'x';
+function chLoad() {
+  if (CH.loading) return CH.loading;
+  const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  CH.loading = Promise.all(Object.entries(CH_FILES).map(([k, url]) => new Promise((ok) => gl.load(url, g => ok([k, g]), undefined, () => ok([k, null]))))).then(res => {
+    for (const [k, g] of res) { if (!g) continue;
+      const parts = { hd: [], tp: [], lg: [], ft: [], x: [] }, mats = {};
+      if (k !== 'hero') for (const c of g.scene.children) if (c.isMesh || (c.type === 'Group' && c.children.some(m => m.isMesh))) parts[chSlot(c.name)].push(c.name);      // (a part of several colours loads as a group of meshes)
+      g.scene.traverse(m => { if (!m.isMesh) return; m.frustumCulled = false;
+        const conv = q => mats[q.uuid] || (mats[q.uuid] = new THREE.MeshLambertMaterial({ name: q.name, color: q.color ? q.color.clone() : 0xffffff, map: q.map || null, vertexColors: !!q.vertexColors }));
+        m.material = Array.isArray(m.material) ? m.material.map(conv) : conv(m.material); });
+      const clips = {}; for (const c of g.animations) { c.tracks = c.tracks.filter(t => !t.name.endsWith('.scale')); clips[c.name] = c; }
+      // its standing height (the default outfit, or the whole thing for the hero), so everyone comes out the old rig's size
+      const bb = new THREE.Box3(); g.scene.updateMatrixWorld(true); if (k === 'hero') bb.setFromObject(g.scene); else for (const c of g.scene.children) if (CH_DEF[k].includes(c.name)) bb.expandByObject(c);
+      CH.packs[k] = { k, scene: g.scene, parts, clips, h: Math.max(0.1, bb.max.y - bb.min.y), y0: bb.min.y }; }
+    CH.ready = !!(CH.packs.m && CH.packs.w);
+    if (CH.ready) for (const P of [...CH.list]) if (P.chWant) chAttach(P, P.chWant);
+    if (typeof LKUI !== 'undefined' && LKUI.built) lookUIRebuild();
+  });
+  return CH.loading;
+}
+// which parts a look wears (blank or unknown: that body's default outfit)
+function chParts(L) {
+  const k = L.g === 'f' ? 'w' : 'm', pk = CH.packs[k], D = CH_DEF[k], out = { k };
+  [['hd', 0], ['tp', 1], ['lg', 2], ['ft', 3]].forEach(([s, i]) => { const v = L[s]; out[s] = pk && pk.parts[s].includes(v) ? v : D[i]; });
+  out.bp = !!L.bp; return out;
+}
+// put the model on a character (P from buildFarmer); look as in LOOK, or { hero: true } for Dima
+function chAttach(P, look) {
+  CH.list.add(P); P.chWant = look; if (!CH.ready) return false;
+  const hero = !!(look && look.hero), want = hero ? { k: 'hero' } : chParts(lookFix(look || {})), pk = CH.packs[want.k]; if (!pk) return false;
+  if (P.ch) { P.root.remove(P.ch.root); P.ch = null; }
+  const root = skelClone(pk.scene), keep = new Set(hero ? [] : [want.hd, want.tp, want.lg, want.ft].concat(want.bp ? ['Backpack'] : []));
+  const L = hero ? null : lookFix(look), skin = L ? new THREE.Color(LK.skin[L.skin]) : null, hair = L ? new THREE.Color(LK.hair[L.hc]) : null;
+  const tint = (q) => { if (!L) return q; if (q.name === 'Skin') { const c = q.clone(); c.color.copy(skin); return c; } if (q.name === 'Hair') { const c = q.clone(); c.color.copy(hair); return c; } return q; };
+  if (!hero) for (const c of root.children.slice()) if ((c.isMesh || (c.type === 'Group' && c.children.some(m => m.isMesh))) && !keep.has(c.name)) root.remove(c);
+  root.traverse(m => { if (m.isMesh) m.material = Array.isArray(m.material) ? m.material.map(tint) : tint(m.material); });
+  const k = 2.0 / pk.h; root.scale.setScalar(k); root.position.y = -pk.y0 * k; P.root.add(root); root.updateMatrixWorld(true);
+  const B = {}; root.traverse(b => { if (b.isBone) B[b.name] = b; });
+  const map = CH_BONES[hero ? 'hero' : 'mod'], rootInv = new THREE.Matrix4().copy(P.root.matrixWorld).invert(), rel = (o) => new THREE.Matrix4().multiplyMatrices(rootInv, o.matrixWorld);
+  const relQ = (o) => { const q = new THREE.Quaternion(); rel(o).decompose(new THREE.Vector3(), q, new THREE.Vector3()); return q; }, relP = (o) => new THREE.Vector3().setFromMatrixPosition(rel(o));
+  let sides = [0, 1]; if (B[map.ua[0]] && relP(B[map.ua[0]]).x < 0) sides = [1, 0];      // (the left arm is the one on +x, where the old rig's left is)
+  const J = []; const add = (name, seg, corrFrom, extra) => { const b = B[name]; if (!b) return; J.push(Object.assign({ b, seg, W0: relQ(b), C: new THREE.Quaternion(), q0: b.quaternion.clone(), p0: b.position.clone() }, extra || {})); };
+  add(map.body, 'body'); map.sp.forEach((n, i) => add(n, 'spine', null, { t: (i + 1) / map.sp.length })); add(map.neck, 'neck'); add(map.head, 'head');
+  for (const [si, side] of [[0, 'L'], [1, 'R']]) { const ix = sides[si];
+    add(map.clav[ix], 'torso'); add(map.ua[ix], 'sh' + side); add(map.la[ix], 'el' + side); add(map.hd[ix], 'el' + side); add(map.ul[ix], 'hip' + side); add(map.ll[ix], 'knee' + side); add(map.ft[ix], 'knee' + side); }
+  // limbs: the old rig's rest pose has arms and legs hanging straight down; turn each bone from its bind direction to that
+  const down = new THREE.Vector3(0, -1, 0); const dirOf = (a, b) => b && a ? relP(b).sub(relP(a)).normalize() : null;
+  for (const side of [0, 1]) { const ix = sides[side];
+    const ca = dirOf(B[map.ua[ix]], B[map.la[ix]]), cl = dirOf(B[map.la[ix]], B[map.hd[ix]]), cu = dirOf(B[map.ul[ix]], B[map.ll[ix]]), ck = dirOf(B[map.ll[ix]], B[map.ft[ix]]);
+    for (const j of J) { if (j.b.name === map.ua[ix] && ca) j.C.setFromUnitVectors(ca, down); if ((j.b.name === map.la[ix] || j.b.name === map.hd[ix]) && cl) j.C.setFromUnitVectors(cl, down);
+      if (j.b.name === map.ul[ix] && cu) j.C.setFromUnitVectors(cu, down); if ((j.b.name === map.ll[ix] || j.b.name === map.ft[ix]) && ck) j.C.setFromUnitVectors(ck, down); } }
+  // every bone between the model's root and these, in order, so world rotations can be worked out top-down without matrices
+  const ord = []; const seen = new Set(); const up = (b) => { if (!b || !b.isBone || seen.has(b)) return; up(b.parent); seen.add(b); ord.push(b); }; J.forEach(j => up(j.b));
+  const top = ord[0] && ord[0].parent, topQ = top ? relQ(top) : new THREE.Quaternion();
+  const jb = new Map(J.map(j => [j.b, j])); const hips = J.find(j => j.seg === 'body');
+  const hipsParentScale = hips ? new THREE.Vector3().setFromMatrixScale(rel(hips.b.parent)).x : 1;
+  const mixer = new THREE.AnimationMixer(root);
+  // relaxed hands for the hand-made poses (the fingers aren't posed by them): the idle clip's fingers
+  const relax = []; if (pk.clips.Idle) { const keepQ = new Map(); root.traverse(b => { if (b.isBone) keepQ.set(b, b.quaternion.clone()); });
+    const a = mixer.clipAction(pk.clips.Idle); a.play(); mixer.update(0.05); root.traverse(b => { if (b.isBone && !jb.has(b) && /Thumb|Index|Middle|Ring|Pinky/.test(b.name)) relax.push([b, b.quaternion.clone()]); });
+    a.stop(); mixer.uncacheAction(pk.clips.Idle); for (const [b, q] of keepQ) b.quaternion.copy(q); }
+  P.ch = { root, B, J, ord, jb, topQ, hips, hipsParentScale, mixer, pk, act: null, clip: null, w: 1, hero, relax, hand: B[map.hd[sides[1]]] };
+  chBuild(P, L); chHideOld(P); return true;
+}
+// weight and muscle: the belly, the arms and the legs thicken (each bone across its length, never along it)
+function chBuild(P, L) {
+  const C = P.ch; if (!C || !L) return; const w = L.w, m = L.m, set = (b, s, inv) => { if (!b || !b.children[0]) return; const d = b.children.find(c => c.isBone); if (!d) return; const a = d.position.clone(), ax = Math.abs(a.x) > Math.abs(a.y) ? (Math.abs(a.x) > Math.abs(a.z) ? 'x' : 'z') : (Math.abs(a.y) > Math.abs(a.z) ? 'y' : 'z');
+    b.scale.set(ax === 'x' ? 1 : s, ax === 'y' ? 1 : s, ax === 'z' ? 1 : s); if (inv) d.scale.set(ax === 'x' ? 1 : 1 / s, ax === 'y' ? 1 : 1 / s, ax === 'z' ? 1 : 1 / s); };
+  const B = C.B; set(B.Abdomen, 0.88 + 0.3 * w, true); set(B.UpperArmL, 0.9 + 0.12 * w + 0.32 * m); set(B.UpperArmR, 0.9 + 0.12 * w + 0.32 * m); set(B.UpperLegL, 0.92 + 0.14 * w + 0.18 * m); set(B.UpperLegR, 0.92 + 0.14 * w + 0.18 * m);
+}
+// the blocky body hides (its pivots stay, invisible, to be posed); what's held in a hand (a tinnie, a gun) and the drone remote stay
+function chHideOld(P) {
+  if (!P.ch) return;
+  for (const k of ['body', 'torso', 'head', 'glasses', 'hat', 'shL', 'shR', 'elL', 'elR', 'hipL', 'hipR', 'kneeL', 'kneeR']) { const o = P[k]; if (!o) continue;
+    for (const c of o.children) { if (c === P.can || c === P.remote || c === P.ch.root) continue; if (c.isMesh || (c.userData && c.userData.chHide)) c.traverse(m => { if (m.isMesh) m.visible = false; }); } }
+}
+// a character's walk / run / idle clip (or null for the hand-made pose); rate scales the clip's speed
+const chSnapOf = (P, out) => { const r = [P.shL.rotation.x, P.shL.rotation.z, P.shR.rotation.x, P.shR.rotation.z, P.elL.rotation.x, P.elR.rotation.x, P.hipL.rotation.x, P.hipR.rotation.x, P.kneeL.rotation.x, P.kneeR.rotation.x, P.torso.rotation.x, P.torso.rotation.y, P.head.rotation.x];
+  if (!out) return r; for (let i = 0; i < r.length; i++) out[i] = r[i]; return out; };
+function chClip(P, name, rate) { P.chClip = name; P.chRate = rate || 1; P.chSnap = chSnapOf(P, P.chSnap); }
+const _chQ = new THREE.Quaternion(), _chQ2 = new THREE.Quaternion(), _chQ3 = new THREE.Quaternion(), _chV = new THREE.Vector3(), _chV2 = new THREE.Vector3();
+const _chSeg = {}; for (const k of ['body', 'torso', 'head', 'shL', 'shR', 'elL', 'elR', 'hipL', 'hipR', 'kneeL', 'kneeR']) _chSeg[k] = new THREE.Quaternion();
+const _chWR = new Map();
+function chSync(P, dt) {
+  const C = P.ch; if (!C || !P.root.visible) return;
+  // the clip side
+  let want = CH.ready && P.chClip && C.pk.clips[P.chClip] ? P.chClip : null;
+  if (want && P.chSnap) { const now = chSnapOf(P); for (let i = 0; i < now.length; i++) if (Math.abs(now[i] - P.chSnap[i]) > 0.02) { want = null; break; } }      // (posed by something else since: that pose wins)
+  if (want && want !== C.clip) { const a = C.mixer.clipAction(C.pk.clips[want]); a.reset(); a.enabled = true; a.setEffectiveWeight(1);
+    const once = /Punch|Kick|HitRecieve|Death|Wave|Interact|Roll/.test(want); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat); a.clampWhenFinished = once;
+    if (C.act && C.act !== a) a.crossFadeFrom(C.act, 0.18, false); a.play(); C.act = a; }
+  C.clip = want; if (C.act) C.act.timeScale = P.chRate || 1;
+  C.w += ((want ? 0 : 1) - C.w) * Math.min(1, dt * 9); if (!want && C.w > 0.995) C.w = 1; if (want && C.w < 0.005) C.w = 0;
+  if (C.w < 1) C.mixer.update(dt);
+  if (C.w <= 0) return;
+  // the hand-made side: the old pivots' rotations, relative to the character
+  const S = _chSeg; S.body.copy(P.body.quaternion); S.torso.multiplyQuaternions(S.body, P.torso.quaternion); S.head.multiplyQuaternions(S.torso, P.head.quaternion);
+  S.shL.multiplyQuaternions(S.torso, P.shL.quaternion); S.elL.multiplyQuaternions(S.shL, P.elL.quaternion); S.shR.multiplyQuaternions(S.torso, P.shR.quaternion); S.elR.multiplyQuaternions(S.shR, P.elR.quaternion);
+  S.hipL.multiplyQuaternions(S.body, P.hipL.quaternion); S.kneeL.multiplyQuaternions(S.hipL, P.kneeL.quaternion); S.hipR.multiplyQuaternions(S.body, P.hipR.quaternion); S.kneeR.multiplyQuaternions(S.hipR, P.kneeR.quaternion);
+  const WR = _chWR; WR.clear(); const w = C.w;
+  for (const [b, q] of C.relax) if (w >= 1) b.quaternion.copy(q); else b.quaternion.slerp(q, w);
+  for (const b of C.ord) { const pq = WR.get(b.parent) || C.topQ, j = C.jb.get(b);
+    if (j) { const seg = j.seg === 'spine' ? _chQ.slerpQuaternions(S.body, S.torso, j.t) : j.seg === 'neck' ? _chQ.slerpQuaternions(S.torso, S.head, 0.45) : S[j.seg];
+      _chQ2.multiplyQuaternions(seg, j.C).multiply(j.W0);                       // where it should point, relative to the character
+      _chQ3.copy(pq).invert().multiply(_chQ2);                                  // as its own local rotation
+      if (w >= 1) b.quaternion.copy(_chQ3); else b.quaternion.slerp(_chQ3, w);
+      if (j === C.hips) { _chV.set(P.body.position.x, P.body.position.y - 0.78, P.body.position.z); _chQ.copy(pq).invert(); _chV.applyQuaternion(_chQ).divideScalar(C.hipsParentScale);
+        _chV2.copy(j.p0).add(_chV); if (w >= 1) b.position.copy(_chV2); else b.position.lerp(_chV2, w); } }
+    WR.set(b, (WR.get(b) || new THREE.Quaternion()).multiplyQuaternions(pq, b.quaternion)); }
+}
+// every frame, after all the posing: every character's model follows its pivots (or its clip); a held tinnie sits in the new hand
+function chStep(dt) {
+  if (!CH.ready) return;
+  CH.hideT = (CH.hideT || 0) - dt; if (CH.hideT <= 0) { CH.hideT = 1; for (const P of CH.list) chHideOld(P); }      // (bits added to the old bodies after the model went on: Madman's gut, the backpackers' packs)
+  for (const P of CH.list) { if (!P.ch) continue; chSync(P, dt);
+    if (P.ch.hand && P.root.visible) { let done = false; for (const c of P.elR.children) if (c === P.can || (c.userData && c.userData.chHand)) {
+        if (!done) { P.ch.root.updateMatrixWorld(true); P.ch.hand.getWorldPosition(_chV); P.elR.updateMatrixWorld(true); P.elR.worldToLocal(_chV); done = true; } c.position.copy(_chV); } } }
+}
+
 const DAZZA = buildFarmer(LOOK);
+chAttach(DAZZA, LOOK);
 let FSCALE = 0.9 * lookH(LOOK);
 scene.add(DAZZA.root);
 DAZZA.root.visible = false;
@@ -3316,6 +3453,8 @@ function animateFarmer(dt) {
   lerpRot(P.torso, 'x', torsoX); lerpRot(P.torso, 'y', torsoY); lerpRot(P.body, 'z', bodyRz); lerpRot(P.head, 'x', headX); lerpRot(P.head, 'y', headY); lerpRot(P.body, 'x', bodyX); lerpRot(P.body, 'y', bodyRy);
   P.body.position.y += (0.78 + bodyY - F.squash * 0.25 - P.body.position.y) * L;
   P.belly.scale.y = 0.95 * bellyK; P.vest.scale.y = 0.95 * bellyK;
+  const plain = F.mode === 'walk' && !fastK && !F.act && !(typeof WPN !== 'undefined' && WPN.cur) && !(typeof MEL !== 'undefined' && MEL.cur) && !(typeof wlDragPose === 'function' && wlDragPose());
+  chClip(P, plain ? (sp > 3.3 ? 'Run' : sp > 0.15 ? 'Walk' : 'Idle') : null, sp > 3.3 ? THREE.MathUtils.clamp(sp / 4.4, 0.75, 1.6) : sp > 0.15 ? THREE.MathUtils.clamp(sp / 1.7, 0.6, 1.7) : 1);
   F.squash = Math.max(0, F.squash - dt * 2);
 }
 
@@ -7965,7 +8104,7 @@ function frame() {
     camera.position.set(0, 60, 120); camera.lookAt(0, 0, 0);
   }
   if (collider) { slodStep(); dtlStep(raw); mtTvRender(dt); }
-  fmxCine(raw); renderer.render(scene, camera); bubDom();
+  fmxCine(raw); chStep(dt); renderer.render(scene, camera); bubDom();
   // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down
   ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05;
   if (collider && ftAvg > 20 && pixelRatio > PR_MIN) { lowFor += raw; highFor = 0; if (lowFor > 2) { pixelRatio = Math.max(PR_MIN, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); lowFor = 0; } }
@@ -9472,7 +9611,7 @@ function mpRecv(m) {
 function mpPeer(id) {
   let p = MP.peers.get(id); if (p) return p;
   const r = MP.roster.find(r => r.id === id) || { slot: 2, name: 'Mate' };
-  const av = buildFarmer(); scene.add(av.root); av.root.matrixAutoUpdate = true;
+  const av = buildFarmer(); scene.add(av.root); av.root.matrixAutoUpdate = true; chAttach(av, {});
   p = { id, slot: r.slot, name: r.name, av, buf: [], offs: [], off: 0, last: MP.clock, veh: null, tag: null, wheelT: 0 };
   MP.peers.set(id, p); mpTint(p); return p;
 }
@@ -9490,6 +9629,7 @@ function mpTint(p) {
   p.tag.scale.set(0.12, 0.03, 1); p.tag.position.set(0, 2.35, 0); p.tag.renderOrder = 10; p.av.root.add(p.tag);
 }
 function mpDrop(p) {
+  CH.list.delete(p.av);
   if (p.veh) mpRelease(p, p.veh);
   scene.remove(p.av.root);
 }
@@ -9838,7 +9978,7 @@ function wpnHold(av, id, cache) {
   // the gun lives in the right hand; its barrel runs along the forearm
   if (cache.id === id) return; if (cache.g) cache.g.parent && cache.g.parent.remove(cache.g); cache.g = null; cache.id = id; if (!id) return;
   const g = wpnGunModel(id); const holder = new THREE.Group(); holder.add(g); holder.rotation.x = Math.PI / 2; holder.position.set(0.0, -0.26, 0.0);
-  g.position.set(0, 0, 0.04); av.elR.add(holder); cache.g = holder;
+  g.position.set(0, 0, 0.04); holder.userData.chHand = true; av.elR.add(holder); cache.g = holder;      // (chHand: with the new models it's moved into the model's hand)
 }
 function buildLocker() {
   wpnMats(); const gy = rawGround(LOCKER.x, LOCKER.z, 20);
@@ -11298,13 +11438,13 @@ const LKUI = { on: false, ang: 0.5, built: false };
 let LOOKC = lookCode(LOOK);
 function lookSave() { try { localStorage.setItem('wfy.look', JSON.stringify(LOOK)); } catch (_) {} }
 function lookSet(patch, save) {
-  LOOK = lookFix(Object.assign({}, LOOK, patch)); lookApply(DAZZA, LOOK); FSCALE = 0.9 * lookH(LOOK); LOOKC = lookCode(LOOK);
+  LOOK = lookFix(Object.assign({}, LOOK, patch)); lookApply(DAZZA, LOOK); chAttach(DAZZA, LOOK); FSCALE = 0.9 * lookH(LOOK); LOOKC = lookCode(LOOK);
   if (DAZZA.root.parent === scene) DAZZA.root.scale.setScalar(FSCALE);
   if (save) lookSave();
 }
 function mpPeerLook(p, code) {
   const L = lookFromCode(code); if (!L) { p.lk = code; return; }
-  lookApply(p.av, L); p.av.root.scale.setScalar(0.9 * lookH(L)); p.lk = code; p.mats = null; mpTint(p);
+  lookApply(p.av, L); chAttach(p.av, L); p.av.root.scale.setScalar(0.9 * lookH(L)); p.lk = code; p.mats = null; mpTint(p);
 }
 const LKROWS = [
   ['ch', 'g', 'Body', LK.styles.g], ['sl', 'h', 'Height', 'Short', 'Tall'], ['sl', 'w', 'Weight', 'Lean', 'Heavy'], ['sl', 'm', 'Muscle', 'Skinny', 'Jacked'],
@@ -11313,6 +11453,16 @@ const LKROWS = [
   ['ch', 'shirt', 'Top', LK.styles.shirt], ['sw', 'sc', 'Top colour', LK.shirt], ['ch', 'legs', 'Legs', LK.styles.legs], ['sw', 'lc', 'Legs colour', LK.legs],
   ['ch', 'shoes', 'Shoes', LK.styles.shoes], ['sw', 'shc', 'Shoe colour', LK.shoe]
 ];
+// with the models in: the body, every head (face, hair and any hat), top, legs and feet of that body, a backpack, skin and hair colour, build
+const chLabel = n => n.replace(/_(Head|Body|Legs|Pants|Feet)$/, '').replace('Casual2', 'Casual 2').replace('SpaceSuit', 'Space suit').replace('SciFi', 'Sci-fi').replace('Formad', 'Formal').replace('_', ' ');
+function lkRows() {
+  if (!CH.ready) return LKROWS;
+  const pk = CH.packs[LOOK.g === 'f' ? 'w' : 'm'], P = chParts(LOOK), opts = s => pk.parts[s].slice().sort().map(n => [n, chLabel(n)]);
+  return [['ch', 'g', 'Body', LK.styles.g], ['pt', 'hd', 'Head', opts('hd'), P.hd], ['pt', 'tp', 'Top', opts('tp'), P.tp], ['pt', 'lg', 'Legs', opts('lg'), P.lg], ['pt', 'ft', 'Feet', opts('ft'), P.ft],
+    ...(pk.parts.x.includes('Backpack') ? [['ch', 'bp', 'Backpack', [[0, 'No'], [1, 'Yes']]]] : []),
+    ['sw', 'skin', 'Skin', LK.skin], ['sw', 'hc', 'Hair colour', LK.hair], ['sl', 'h', 'Height', 'Short', 'Tall'], ['sl', 'w', 'Weight', 'Lean', 'Heavy'], ['sl', 'm', 'Muscle', 'Skinny', 'Jacked']];
+}
+function lookUIRebuild() { const body = $('lookBody'); if (!body) return; body.innerHTML = ''; lookUIRows(body); lookUIFill(); }
 function lookUIBuild() {
   if (LKUI.built) return; LKUI.built = true;
   const st = document.createElement('style');
@@ -11329,8 +11479,11 @@ function lookUIBuild() {
   const sh = document.createElement('div'); sh.id = 'lookSheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-label', 'Customise Dazza');
   sh.innerHTML = '<div class="lh"><h2>Customise Dazza</h2><button id="lookX" type="button" aria-label="Close">&times;</button></div><div class="lb" id="lookBody"></div><div class="lf"><button type="button" id="lookRnd">Surprise me</button><button type="button" id="lookRst">Reset</button><button type="button" id="lookOk" class="pri">Done</button></div>';
   document.body.appendChild(sh);
-  const body = sh.querySelector('#lookBody');
-  for (const r of LKROWS) {
+  const body = sh.querySelector('#lookBody'); lookUIRows(body);
+  lookUIButtons();
+}
+function lookUIRows(body) {
+  for (const r of lkRows()) {
     const row = document.createElement('div'); row.className = 'lr'; row.dataset.k = r[1];
     const lab = document.createElement('div'); lab.className = 'll'; lab.textContent = r[2]; row.appendChild(lab);
     if (r[0] === 'sl') {
@@ -11340,14 +11493,16 @@ function lookUIBuild() {
     } else {
       const c = document.createElement('div'); c.className = 'lc';
       const opts = r[0] === 'sw' ? r[3].map((h, i) => [i, LK.names[r[1] === 'skin' ? 'skin' : r[1] === 'hc' ? 'hair' : r[1] === 'hatc' ? 'hat' : r[1] === 'sc' ? 'shirt' : r[1] === 'lc' ? 'legs' : 'shoe'][i], h]) : r[3];
+      if (r[0] === 'pt') row.dataset.cur = r[4];
       for (const o of opts) {
         const b = document.createElement('button'); b.type = 'button'; b.dataset.v = o[0];
         if (r[0] === 'sw') { b.className = 'sw'; b.style.background = '#' + o[2].toString(16).padStart(6, '0'); b.setAttribute('aria-label', o[1]); b.title = o[1]; } else b.textContent = o[1];
         b.addEventListener('click', () => {
-          const v = r[1] === 'fh' || r[0] === 'sw' ? +o[0] : o[0], p = { [r[1]]: v };
+          const v = r[1] === 'fh' || r[1] === 'bp' || r[0] === 'sw' ? +o[0] : o[0], p = { [r[1]]: v };
           if (r[1] === 'shoes' && v === 'boots' && LOOK.shc === 3) p.shc = 0;
           if (r[1] === 'g' && v !== LOOK.g) { if (v === 'f') { p.fh = 0; if (['curls', 'crop', 'buzz', 'bald', 'mullet'].includes(LOOK.hair)) p.hair = 'pony'; if (LOOK.gl === 'reading') p.gl = 'none'; } else if (['pony', 'bob', 'long'].includes(LOOK.hair)) p.hair = 'crop'; }
-          lookSet(p, true); lookUIFill();
+          if (r[1] === 'g' && v !== LOOK.g) Object.assign(p, { hd: '', tp: '', lg: '', ft: '', bp: 0 });       // (the other body's own outfit to start from)
+          lookSet(p, true); if (r[1] === 'g' && CH.ready) lookUIRebuild(); else lookUIFill();
         });
         c.appendChild(b);
       }
@@ -11355,14 +11510,17 @@ function lookUIBuild() {
     }
     body.appendChild(row);
   }
+}
+function lookUIButtons() {
   const close = () => { if (CRE.on) creatorDone(); else lookUIOpen(false); };
   $('lookX').addEventListener('click', close); $('lookOk').addEventListener('click', close);
-  $('lookRst').addEventListener('click', () => { lookSet(Object.assign({}, LOOK_DEFAULT), true); lookUIFill(); });
+  $('lookRst').addEventListener('click', () => { lookSet(Object.assign({}, LOOK_DEFAULT), true); if (CH.ready) lookUIRebuild(); else lookUIFill(); });
   $('lookRnd').addEventListener('click', () => {
     const g = Math.random() < 0.5 ? 'f' : 'm', pk = a => a[Math.floor(Math.random() * a.length)], p = { g, h: Math.random(), w: Math.random(), m: Math.random() * 0.8, skin: Math.floor(Math.random() * 5), hair: pk(LK.styles.hair)[0], hc: Math.floor(Math.random() * 5), fh: Math.floor(Math.random() * 4),
       hat: pk(LK.styles.hat)[0], hatc: Math.floor(Math.random() * 5), gl: pk(LK.styles.gl)[0], shirt: pk(LK.styles.shirt)[0], sc: Math.floor(Math.random() * 8), legs: pk(LK.styles.legs)[0], lc: Math.floor(Math.random() * 6), shoes: pk(LK.styles.shoes)[0], shc: Math.floor(Math.random() * 3) };
     if (g === 'f') { p.fh = 0; p.hair = pk(['long', 'pony', 'bob', 'crop', 'curls']); p.m = Math.random() * 0.4; }
-    lookSet(p, true); lookUIFill();
+    if (CH.ready) { const pp = CH.packs[g === 'f' ? 'w' : 'm'].parts, sane = a => a.filter(n => !/Horse|SpaceSuit|Swat|SciFi|King|Witch/.test(n)); p.hd = pk(sane(pp.hd)); p.tp = pk(sane(pp.tp)); p.lg = pk(sane(pp.lg)); p.ft = pk(sane(pp.ft)); p.bp = Math.random() < 0.2 ? 1 : 0; }
+    lookSet(p, true); if (CH.ready) lookUIRebuild(); else lookUIFill();
   });
 }
 function lookUIFill() {
@@ -11370,6 +11528,7 @@ function lookUIFill() {
   for (const row of $('lookBody').children) {
     const k = row.dataset.k, v = LOOK[k], inp = row.querySelector('input');
     if (k === 'fh') row.style.display = LOOK.g === 'f' ? 'none' : '';
+    if (row.dataset.cur !== undefined && CH.ready) { const cur = chParts(LOOK)[k]; for (const b of row.querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === cur); continue; }
     if (inp) inp.value = Math.round(v * 100);
     for (const b of row.querySelectorAll('button')) b.classList.toggle('on', String(b.dataset.v) === String(v));
   }
@@ -11729,7 +11888,9 @@ function npcBuild() {
   NPC.home = [165.5, 47.2];                       // the backpackers live in the bunks at the dongas now (the shed keeps its pigs and wallabies)
   NPC_LOOKS.forEach((L, i) => {
     const P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
-    const pack = new THREE.Group(); P.torso.add(pack);
+    chAttach(P, Object.assign({}, L, ({ Mathieu: { hd: 'Casual2_Head', tp: 'Casual_Body', lg: 'Casual2_Legs', ft: 'Casual_Feet' }, Alexandre: { hd: 'Adventurer_Head', tp: 'Adventurer_Body', lg: 'Adventurer_Legs', ft: 'Adventurer_Feet', bp: 1 },
+      'Chloé': { hd: 'Adventurer_Head', tp: 'Adventurer_Body', lg: 'Adventurer_Legs', ft: 'Adventurer_Feet' } })[L.name] || {}));
+    const pack = new THREE.Group(); pack.userData.chHide = true; P.torso.add(pack);
     const bm = new THREE.MeshLambertMaterial({ color: [0x5f6b45, 0xb8574a, 0x2f5f8a][i] });
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.5, 0.22), bm); body.position.set(0, 0.32, -0.27); pack.add(body);
     const top = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.4, 10), new THREE.MeshLambertMaterial({ color: 0xd9c37a })); top.rotation.z = Math.PI / 2; top.position.set(0, 0.62, -0.27); pack.add(top);
@@ -12045,11 +12206,16 @@ function npcPose(n, dt) {
       shLx = s * (0.45 + run * 0.6); shRx = -s * (0.45 + run * 0.6); elL = elR = -0.3 - run * 0.9; bodyY += Math.abs(c) * (0.035 + run * 0.06); torsoX = 0.05 + run * 0.2; torsoY = -s * 0.12;
     } else { headY = Math.sin(NPC.t * 0.4 + n.ph) * 0.3; }
   }
-  if (n.mm || n.dima || n.matt || n.sniper || n.st.startsWith('bb')) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }; (n.st === 'bbWatch' || n.st === 'mmWatch' || n.st === 'dmWatch' ? bbWatchPose(n, Q) : n.mm ? mmPoseHook(n, Q, dt) : n.dima ? dmPoseHook(n, Q) : n.matt ? mtPoseHook(n, Q) : n.sniper ? snPoseHook(n, Q) : bbPoseHook(n, Q)); ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
+  const gen = (n.st === 'drive' || n.st === 'saSit' || n.st === 'saTub') ? null : ['tumble', 'down', 'ko', 'getup'].includes(n.st) ? null : n.st === 'stag' ? 'HitRecieve'
+    : (n.st === 'fight' || n.st === 'brawl' || n.st === 'defend') && (n.atkPh === 'wind' || n.atkPh === 'hit') ? 'Punch_Right' : (n.st === 'fight' || (n.st === 'chase' && n.sp < 2) || ((n.st === 'defend' || n.st === 'brawl' || n.st === 'mtBrace') && n.sp < 2)) ? null
+    : n.sp > 3.2 ? 'Run' : n.sp > 0.15 ? 'Walk' : 'Idle';
+  let hooked = false;
+  if (n.mm || n.dima || n.matt || n.sniper || n.st.startsWith('bb')) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }, Q0 = Object.assign({}, Q); (n.st === 'bbWatch' || n.st === 'mmWatch' || n.st === 'dmWatch' ? bbWatchPose(n, Q) : n.mm ? mmPoseHook(n, Q, dt) : n.dima ? dmPoseHook(n, Q) : n.matt ? mtPoseHook(n, Q) : n.sniper ? snPoseHook(n, Q) : bbPoseHook(n, Q)); for (const k in Q) if (Math.abs(Q[k] - Q0[k]) > 1e-4) { hooked = true; break; } ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
   const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
   lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
   lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
   P.body.position.y += (bodyY - P.body.position.y) * L;
+  chClip(P, hooked ? null : gen, gen === 'Run' ? THREE.MathUtils.clamp(n.sp / 4.4, 0.75, 1.6) : gen === 'Walk' ? THREE.MathUtils.clamp(n.sp / 1.7, 0.6, 1.7) : 1);
   if (n.st !== 'drive') {
     R.position.copy(n.pos); _fe.set(n.tilt, n.yaw, 0, 'YXZ'); R.quaternion.setFromEuler(_fe);
     if (n.tilt < -0.2) R.position.y = n.pos.y + Math.min(0.2, -n.tilt * 0.14);
@@ -13986,7 +14152,7 @@ const DIMA_LOOK = { name: 'Dima', h: 0.95, w: 0.35, m: 1, skin: 1, hair: 'buzz',
 const dmUnit = () => DG_UNITS.find(U => U.kind === 'dima');
 const dmHome = () => dgW(DG.du + 0.9, DG.W / 2 + 1.1, dmUnit());
 function dmBuild() {
-  DM.ready = true; const L = lookFix(DIMA_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
+  DM.ready = true; const L = lookFix(DIMA_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root); chAttach(P, { hero: true });
   const n = { npc: true, dima: true, name: 'Dima', P, root: P.root, pack: new THREE.Group(), look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'home', t: 0, hp: 160, max: 160, tilt: 0, gy: 0, gT: 0, ph: 0, side: 1, stuck: 0, tgt: null,
     veh: null, vehT: 1e9, driveT: 1e9, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null, lookH: 0, angry: false };
   npcBubble(n); DM.n = n; NPC.list.push(n); dmPlace();
@@ -14774,11 +14940,11 @@ function mtPartsBuild() {
 }
 // ---- Matt himself ----
 function mtBuild() {
-  MT.ready = true; const L = lookFix(MATT_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
+  MT.ready = true; const L = lookFix(MATT_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root); chAttach(P, Object.assign({}, L, { hd: 'Suit_Head', tp: 'Casual2_Body', lg: 'Worker_Legs', ft: 'Worker_Feet' }));
   // ear muffs round his neck and a tape measure on his belt
   const M = mtMats(); const muff = new THREE.Group(); for (const d of [-1, 1]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.04, 12), M.yellow); c.rotation.z = Math.PI / 2; c.position.set(d * 0.12, 0, 0.02); muff.add(c); }
-  const band = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 6, 14, Math.PI), M.dark); band.rotation.x = Math.PI / 2 + 0.6; band.position.z = -0.02; muff.add(band); muff.position.set(0, 0.5, 0.02); (P.torso || P.body).add(muff);
-  const tape = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.035), M.yellow); tape.position.set(0.19, 0.05, 0.02); (P.body || P.root).add(tape);
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 6, 14, Math.PI), M.dark); band.rotation.x = Math.PI / 2 + 0.6; band.position.z = -0.02; muff.add(band); muff.position.set(0, 0.5, 0.02); muff.userData.chHide = true; (P.torso || P.body).add(muff);
+  const tape = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.035), M.yellow); tape.position.set(0.19, 0.05, 0.02); tape.userData.chHide = true; (P.body || P.root).add(tape); chHideOld(P);
   const n = { npc: true, matt: true, name: 'Matt', P, root: P.root, pack: new THREE.Group(), look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'home', t: 0, hp: 110, max: 110, tilt: 0, gy: 0, gT: 0, ph: 0, side: 1, stuck: 0, tgt: null,
     veh: null, vehT: 1e9, driveT: 1e9, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null, lookH: 0, angry: false };
   npcBubble(n); MT.n = n; NPC.list.push(n); mtPlace();
@@ -15870,7 +16036,7 @@ function mmUteHome() { const st = mmUteSt(), h = HOME.ute; if (!st || !h) return
 /* ---------- build ---------- */
 function mmBuild() {
   MM.ready = true;
-  const L = lookFix(MM_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root);
+  const L = lookFix(MM_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root); chAttach(P, Object.assign({}, L, { hd: 'Adventurer_Head', tp: 'Beach_Body', lg: 'Casual_Legs', ft: 'Beach_Feet' }));
   // the tinnie: plain green can, no label
   const can = new THREE.Group(); P.can.add(can); can.rotation.x = Math.PI / 2;
   const cm = new THREE.MeshLambertMaterial({ color: 0x2f7a3d }), tm = new THREE.MeshLambertMaterial({ color: 0xc9cdd0 });
@@ -17871,8 +18037,8 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
 window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
-  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+  sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); chStep(n / 60); renderer.render(scene, camera); bubDom(); } };
+Object.assign(window.__game, { CH, chAttach, chParts, chLoad, lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
