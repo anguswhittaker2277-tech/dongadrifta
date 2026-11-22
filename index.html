@@ -11650,7 +11650,7 @@ function bubDom() {
    as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, url: 'voices-v1.bin?v=9beace66', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
+const VOX = { on: true, url: 'voices-v1.bin?v=22d76bf0', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
 const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
 // the same normalising the recording script used, so the game's text finds its clips
@@ -11683,7 +11683,7 @@ function voxSay(n, text) {
   if (!VOX.on || !text || typeof AU === 'undefined' || !AU.ctx || AU.on === false || document.hidden) return 0;
   if (!VOX.head) { voxLoad(); return 0; }                     // (the first line kicks off the download; it's said as a bubble)
   const who = voxWho(n); if (!who) return 0;
-  const p = n.veh && n.veh.state ? n.veh.state.pos : n.pos, me = plRealPos(), d = Math.hypot(p.x - me.x, p.z - me.z);
+  const p = npcSpkPos(n), me = plRealPos(), d = Math.hypot(p.x - me.x, p.z - me.z);
   if (d > 32) return 0;
   const now = AU.ctx.currentTime;
   let parts;
@@ -11701,6 +11701,9 @@ function voxSay(n, text) {
   });
   return total;
 }
+// where a voice comes from: the car only while he's actually driving it (a stale link to a ute parked somewhere else had Madman
+// heard right across the farm)
+function npcSpkPos(n) { return n.veh && n.veh.state && (n.st === 'drive' || n.veh.npc === n) ? n.veh.state.pos : n.pos; }
 const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : n.matt ? 'mt' : VOX_WHO[n.name];
 document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
@@ -14679,13 +14682,15 @@ function mtFly(dt) {
   const R = MT.R; if (R.ph === 'landed' || R.ph === 'crash') return; R.t += dt; const g = 9.8;
   if (R.ph === 'boost' || R.ph === 'tumble') {
     const ax = _mtV.set(0, 1, 0).applyQuaternion(R.q);
-    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 9, 0, 5 + Math.random() * 4); mtSay('crashWeld', 3.2); mtAim(R); }      // (a fin's let go: the dodgy welds)
+    if (R.ph === 'boost' && R.fail && R.t > 0.95) { R.ph = 'tumble'; R.spin.set((Math.random() - 0.5) * 1.6, 0, 1.4 + Math.random() * 0.8); R.roll = 0; mtSay('crashWeld', 3.2); mtAim(R); }      // (a fin's let go: the dodgy welds)
     if (R.t < 2.6 && !R.target) R.vel.addScaledVector(ax, 26 * dt);
     R.vel.y -= g * dt; if (!R.target) { R.vel.x += (R.wind[0] - R.vel.x) * 0.02 * dt; R.vel.z += (R.wind[1] - R.vel.z) * 0.02 * dt; }
     if (R.target) { const tg = R.target; tg.T -= dt; if (tg.kind === 'ute' && VEH.ute && VEH.ute.state) tg.p.copy(VEH.ute.state.pos).setY(VEH.ute.state.pos.y + 0.9);      // (the ute might be moving)
       if (R.pos.distanceTo(tg.p) < 2.6 || tg.T <= 0.04) { mtStrike(R); return; }
       const T = Math.max(0.08, tg.T); R.vel.set((tg.p.x - R.pos.x) / T, (tg.p.y - R.pos.y) / T + 0.5 * g * T, (tg.p.z - R.pos.z) / T); }
-    if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
+    if (R.ph === 'tumble' && R.target && R.vel.lengthSq() > 1) { R.roll = (R.roll || 0) + dt * 1.6;            // nose along her path, rolling round it, wobbling off one side (the missing fin)
+      _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); _mtQ2.setFromEuler(new THREE.Euler(Math.sin(R.t * 2.2) * 0.15, R.roll, Math.cos(R.t * 1.7) * 0.15)); _mtQ.multiply(_mtQ2); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
+    else if (R.ph === 'tumble') { _mtQ.setFromEuler(new THREE.Euler(R.spin.x * dt, 0, R.spin.z * dt)); R.q.multiply(_mtQ); }
     else if (R.vel.lengthSq() > 4) { _mtV2.copy(R.vel).normalize(); _mtQ.setFromUnitVectors(_mtV2.set(0, 1, 0), _mtV.copy(R.vel).normalize()); R.q.slerp(_mtQ, Math.min(1, dt * 3)); }
     if (R.ph === 'boost' && R.t > 2.6) R.ph = 'coast';
   } else if (R.ph === 'coast') {
@@ -14713,7 +14718,7 @@ function mtAim(R) {
 function mtStrike(R) {
   const tg = R.target, dir = _mtV2.copy(R.vel).normalize(); R.ph = 'crash'; R.t = 0; R.hit = tg.kind; R.vel.set(0, 0, 0); R.target = null;
   if (tg.kind === 'tank' && STRUCTS.boxes.tank && !STRUCTS.blown) explodeTank(STRUCTS.boxes.tank, dir.clone(), R.pos.clone());
-  else if (tg.kind === 'ute' && VEH.ute) { wpnVehDamage(VEH.ute, 9999, dir.clone(), 'blast', true); wpnBoom(R.pos.clone(), 4, 0.7, false); }
+  else if (tg.kind === 'ute' && VEH.ute) { MM.rocketBy = (MT.q && MT.q.who) || MP.me; MM.blastT = 0; wpnVehDamage(VEH.ute, 9999, dir.clone(), 'blast', true); wpnBoom(R.pos.clone(), 4, 0.7, false); }      // (Madman knows whose rocket it was)
   else wpnBoom(R.pos.clone(), 4, 0.6, false);
   R.pos.y = groundAt(R.pos.x, R.pos.z, R.pos.y + 2, R.pos.y - 6); R.q.setFromEuler(new THREE.Euler(0, Math.random() * 6, Math.PI / 2)); mtFlightDone(false);
   const q = MT.q; if (q && q.kind === 'launch' && (tg.kind === 'tank' || tg.kind === 'ute')) (q.lines = q.lines || []).push([q.t + 1.4, tg.kind === 'tank' ? 'hitTank' : 'hitUte']);      // Matt, once the bang's died down
@@ -14721,6 +14726,7 @@ function mtStrike(R) {
 // the model: where MT.R says, the flame and smoke while it burns, the chute once it's out
 function mtRocketVis(dt) {
   const K = MT.rk, R = MT.R; if (!K || !R) return;
+  K.r.visible = R.ph !== 'crash';                  // (blown to bits: nothing left of her to see)
   K.r.position.copy(R.pos); K.r.quaternion.copy(R.q);
   K.tr.position.copy(R.tr); if (R.ph === 'shed' || R.ph === 'roll') K.tr.rotation.y = mtYaw(0, 1);
   const st = MT.stage, burn = R.ph === 'boost' || (R.ph === 'tumble' && R.t < 2.6) || (R.ph === 'ign');
@@ -15735,6 +15741,8 @@ const MM_L = {
   bunkFire: ["Strewth! The bunks are goin’ up!", "Fuck me dead, who shot the gas bottle?"],
   ko: ["Cheap shot...", "Strewth... me head..."],
   wreck: ["ME UTE! You’ve wrecked me bloody ute!", "Fuck me dead... she’s cooked."],
+  rocketUte: ["Was that your bloody rocket?! You’ve blown up me ute!", "ME UTE! Your stupid rocket’s flattened me ute!"],
+  storm: ["Where are ya?! I’m comin’ for ya!", "You and your bloody rockets!", "Nobody touches me ute!"],
   fixed: ["Mate’s towed her back and patched her up. No thanks to you."],
   ejected: ["Oi! Me own bloody ute!", "Ya mongrel!"],
   bye: ["Catch ya.", "Hooroo!", "Don’t do anything I wouldn’t do."],
@@ -15777,6 +15785,8 @@ const MM_C = {
   win: ["Stay down, ya useless prick."],
   ko: ["Me fuckin’ head..."],
   wreck: ["She’s fucked. She’s completely fucked."],
+  rocketUte: ["Your fuckin’ rocket just cooked me ute! I’m gonna kill ya!"],
+  storm: ["Get back here, ya rocket-buildin’ prick!"],
   ejected: ["Me own fuckin’ ute!"],
   bye: ["Piss off then. Hooroo."],
   aimed: ["Get that fuckin’ gun off me, ya cunt!"],
@@ -15847,7 +15857,7 @@ function mmPlace() {
 }
 function mmReset() {
   if (!MM.ready) return;
-  Object.assign(MM, { anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, inUteT: 0, touchT: 0, react: null, reactT: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0, npcDriving: false, sayT: 0, pk: null, parkCD: 0 });
+  Object.assign(MM, { rage: null, rocketBy: null, anger: 0, strikes: 0, strikeT: 0, calmT: 0, hostileT: 0, refuseT: 0, inUteT: 0, touchT: 0, react: null, reactT: 0, wreckT: 0, fixT: 0, parkPh: '', parkT: 0, npcDriving: false, sayT: 0, pk: null, parkCD: 0 });
   MM.rest = null; mmMenuClose(); if (MM.sub) MM.sub.classList.remove('show'); if (typeof dgReset === 'function') dgReset();
   mmPlace();
 }
@@ -15882,11 +15892,27 @@ const _mmScare0 = faunaScare;
 faunaScare = function (pos, r) { if (MM.ready && MM.n && r >= 30 && activeName === 'foot' && MM.scareT <= 0) { const d = Math.hypot(pos.x - MM.n.pos.x, pos.z - MM.n.pos.z); if (d < 26 && MM.n.st === 'lean') { MM.scareT = 25; mmSay('careful'); for (const dg of MM.dogs) dg.alert = 3; } } return _mmScare0(pos, r); };
 
 /* ---------- brain ---------- */
+// storming over to whoever's rocket blew up his ute: all the way across the farm if he has to, effing and blinding, then into them
+function mmStorm(n, dt, dP) {
+  const R0 = MM.rage; R0.t += dt;
+  if (R0.t > 110 || F.dead > 0 || !plById(R0.id)) { MM.rage = null; if (n.st === 'mmStorm') { n.st = 'home'; n.t = 0; } return false; }
+  if (!npcAlive(n) || ['chase', 'fight', 'stag'].includes(n.st)) return false;          // (knocked down on the way, or already into you: the fight code has him)
+  if (dP < 14) { MM.rage = null; MM.anger = 100; MM.strikes = Math.max(MM.strikes, 3); if (MM.hostileT <= 0) mmGoHostile(); MM.hostileT = Math.max(MM.hostileT, 45); n.angry = true; n.st = 'chase'; n.t = 0; return true; }
+  n.st = 'mmStorm'; const sp = dP > 30 ? 4.6 : 3.8;
+  if (npcGoTo(n, F.pos.x, F.pos.z, sp, dt, 6) === 'fail') npcWalk(n, faSteer(n, Math.atan2(F.pos.x - n.pos.x, F.pos.z - n.pos.z), 2), sp, dt, 8);
+  // hung up on a fence or a shed for a few seconds: out of anyone's sight, he's just further along (never closer than about 28 m, so you see him come)
+  if (dP < (R0.best || 1e9) - 0.5) { R0.best = dP; R0.prog = 0; } else R0.prog = (R0.prog || 0) + dt;
+  if (R0.prog > 3) { R0.prog = 0; R0.best = dP; n.route = null;
+    if (dP > 34 && npcUnseen(n.pos.x, n.pos.z)) for (let d = 28; d < dP - 6; d += 3) { const x = F.pos.x + (n.pos.x - F.pos.x) * d / dP, z = F.pos.z + (n.pos.z - F.pos.z) * d / dP; if (npcUnseen(x, z) && faFree(x, z, 0.6)) { npcHop(n, x, z); break; } } }
+  R0.sayT -= dt; if (R0.sayT <= 0) { R0.sayT = 7 + Math.random() * 3; mmSay('storm', 2.6, true); }
+  return true;
+}
 function mmThink(n, dt) {
   n.t += dt; const v = mmUte();
   if (n.veh && n.veh !== v && n.st !== 'drive') { const st = n.st, t = n.t; mmLeaveRide(n); n.st = st; n.t = t; }      // knocked out of whatever he pinched
   const dP = Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z);
   // fights, tumbles, getting knocked out: the backpackers' code does all that
+  if (MM.rage && mmStorm(n, dt, dP)) return;
   if (['chase', 'fight', 'tumble', 'down', 'ko', 'getup', 'stag', 'flee', 'wander'].includes(n.st)) {
     if (n.st === 'getup' && n.fleeT) n.fleeT = 0;
     if (activeName === 'ute' && (n.st === 'chase' || n.st === 'fight')) { n.st = 'toDoor'; n.t = 0; return; }   // drag you out first, then the hiding
@@ -16320,7 +16346,8 @@ function mmStep(dt) {
   }
   // wrecked: furious, and a mate tows it back once you've looked away
   if (v.wrecked) {
-    if (MM.wreckT === 0) { mmSay('wreck', 3.5, true); if (Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 70) mmOffend('wreck', 100, true); for (const d of MM.dogs) mmDogDrop(d); }
+    if (MM.wreckT === 0) { if (MM.rocketBy) { mmSay('rocketUte', 3.8, true); MM.rage = { id: MM.rocketBy, t: 0, sayT: 6 }; if (n) { n.foeId = MM.rocketBy; if (n.veh) mmLeaveUte(false); } }      // your rocket did it: he's coming over, wherever you are
+      else { mmSay('wreck', 3.5, true); if (Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 70) mmOffend('wreck', 100, true); } MM.rocketBy = null; for (const d of MM.dogs) mmDogDrop(d); }
     MM.wreckT += dt;
     const far = faCamD(mmUteSt().pos) > 90 || MM.wreckT > 150;
     if (MM.wreckT > 60 && far && activeName !== 'ute') mmFixUte();
@@ -17342,7 +17369,7 @@ function spkLine(n, kind, line, dur) {
   if (spkMuted(n)) return;                                                   // you're on a quest: the others keep it to themselves
   spkOffer({ n, kind, line, dur: dur || 3, to, at: spkNow() });
 }
-function spkDist(n) { const me = plRealPos(), p = n.veh && n.veh.state ? n.veh.state.pos : n.pos; return Math.hypot(p.x - me.x, p.z - me.z); }
+function spkDist(n) { const me = plRealPos(), p = npcSpkPos(n); return Math.hypot(p.x - me.x, p.z - me.z); }
 function spkOffer(L) {
   L.pri = L.to && L.to === MP.me ? 2 : 1;
   const F0 = SPK.floor, now = spkNow();
@@ -17407,6 +17434,7 @@ function plFocus(n) {
   const L = plList(); if (L.length < 2) return L[0];
   let pin = null;
   if (n.foeId && n.angry) pin = plById(n.foeId);
+  if (!pin && n.mm && MM.rage) pin = plById(MM.rage.id);
   if (!pin && n.mm) pin = L.find(q => q.veh === 'ute') || plById(MH.paxId) || (MM.talkUntil > MM.t ? plById(MM.talkId) : null);
   if (!pin && n.matt) pin = (MT.q ? plById(MT.q.who) : null) || (MT.talkUntil > NPC.t ? plById(MT.talkId) : null);
   if (!pin && n.dima) pin = (BP.q ? plById(BP.q.who) : null) || (SA.q ? plById(SA.q.who) : null) || (DM.talkUntil > NPC.t ? plById(DM.talkId) : null);
