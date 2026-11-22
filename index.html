@@ -5035,6 +5035,7 @@ function groundVehicleHit(nx, nz, yaw) {
 function dmgRammed(veh, hitN, impact) {
   if (!veh || veh.kind !== 'ground' || !veh.state || veh.npc && veh.npc.mm && MM.npcDriving) return; const D = WPN.VD[veh.name]; if (D && D.wrecked) return;
   const yours = !!(SIM.real && SIM.real.a === veh.name);          // somebody else's machine has run into the one you're driving
+  { const drv = SIM.npc > 0 && VEH[activeName] && VEH[activeName].npc; if (veh === VEH.ute && drv && !drv.mm && typeof MM !== 'undefined') { MM.npcRamT = MM.t + 3; MM.npcRamBy = drv; } }      // (a backpacker's run into Madman's ute: not on you)
   const st = vehSt(veh), m1 = VEH_MASS[activeName] || 1500, m2 = VEH_MASS[veh.name] || 1500, mEff = Math.min(m1, 3500), E = 0.5 * mEff * impact * impact / 1000;
   if (E < 6) return;
   const ix = -hitN.x, iz = -hitN.y, o = vehicleOBB(veh), wp = new THREE.Vector3(S.pos.x + ix * ((V.front + V.rear) / 2 + 0.2), st.pos.y + 0.7, S.pos.z + iz * ((V.front + V.rear) / 2 + 0.2));
@@ -11656,7 +11657,7 @@ function bubDom() {
    as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, url: 'voices-v1.bin?v=1d889249', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
+const VOX = { on: true, url: 'voices-v1.bin?v=452ced59', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
 const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
 // the same normalising the recording script used, so the game's text finds its clips
@@ -15764,6 +15765,7 @@ const MM_L = {
   yank: ["Out ya get!", "Go on, rack off!"],
   left: ["And stay out!", "Too right."],
   ram: ["OI! Watch the bloody ute!", "Ya galah! That’s me ute!"],
+  npcRam: ["Oi! Bloody backpackers! Watch me ute!", "Who taught you lot to drive?! That’s me ute!"],
   shotUte: ["Are you shootin’ at me ute?!", "That’s a fifty grand ute, ya drongo!"],
   careful: ["Careful where you point that thing!", "Strewth, mind the dogs!"],
   annoyed: ["Yeah nah, not in the mood, mate.", "Rack off for a bit."],
@@ -15811,6 +15813,7 @@ const MM_C = {
   yank: ["Get out, ya fuckin’ dropkick!"],
   left: ["And don’t come back, ya fuckwit."],
   ram: ["Ya stupid prick, ya dented her!"],
+  npcRam: ["Fuckin’ backpackers! Ya dented me ute!"],
   shotUte: ["That’s fifty grand, ya fuckwit!"],
   careful: ["Point that fuckin’ thing somewhere else!"],
   annoyed: ["Piss off, I’m not in the mood."],
@@ -16398,14 +16401,15 @@ function mmStep(dt) {
   if (v.state) {
     const p = mmUteSt().pos;
     if (!MM.rest) MM.rest = { x: p.x, z: p.z }; const mv = Math.hypot(p.x - MM.rest.x, p.z - MM.rest.z);
-    if (!v.npc && !v.mp && activeName !== 'ute' && mv > 0.25) { MM.rest.x = p.x; MM.rest.z = p.z; if (!(MM.ramT > MM.t)) { MM.ramT = MM.t + 4; mmSay('ram', 2.4, true); mmOffend('ram', 25, true); for (const d of MM.dogs) d.alert = 3; } }
+    const byNpc = MM.npcRamT > MM.t;            // one of the backpackers did it in a car they'd pinched: he lets them have it, not you
+    if (!v.npc && !v.mp && activeName !== 'ute' && mv > 0.25) { MM.rest.x = p.x; MM.rest.z = p.z; if (!(MM.ramT > MM.t)) { MM.ramT = MM.t + 4; if (byNpc) mmSay('npcRam', 2.6, true); else { mmSay('ram', 2.4, true); mmOffend('ram', 25, true); } for (const d of MM.dogs) d.alert = 3; } }
     if (v.npc || v.mp || activeName === 'ute') { MM.rest.x = p.x; MM.rest.z = p.z; }
-    const D = WPN.VD.ute; if (D) { if (MM.uteHp === undefined) MM.uteHp = D.hp; if (D.hp < MM.uteHp - 0.5 && !D.wrecked && !v.npc && !MH.mode) { if (!(MM.shotSaidT > MM.t) && !(MM.ramT > MM.t)) { MM.shotSaidT = MM.t + 4; mmSay('shotUte', 2.6, true); mmOffend('shot', 20, true); } } MM.uteHp = D.hp; } else MM.uteHp = undefined;
+    const D = WPN.VD.ute; if (D) { if (MM.uteHp === undefined) MM.uteHp = D.hp; if (D.hp < MM.uteHp - 0.5 && !D.wrecked && !v.npc && !MH.mode && !byNpc) { if (!(MM.shotSaidT > MM.t) && !(MM.ramT > MM.t)) { MM.shotSaidT = MM.t + 4; mmSay('shotUte', 2.6, true); mmOffend('shot', 20, true); } } MM.uteHp = D.hp; } else MM.uteHp = undefined;
   }
   // wrecked: furious, and a mate tows it back once you've looked away
   if (v.wrecked) {
     if (MM.wreckT === 0) { if (MM.rocketBy) { MM.rage = { ph: 'go', t: 0, sayT: 6 }; if (n && n.veh) mmLeaveUte(false); }      // Matt's rocket did it: he's off to sort Matt out
-      else { mmSay('wreck', 3.5, true); if (Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 70) mmOffend('wreck', 100, true); } MM.rocketBy = null; for (const d of MM.dogs) mmDogDrop(d); }
+      else { mmSay('wreck', 3.5, true); if (!(MM.npcRamT > MM.t) && Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z) < 70) mmOffend('wreck', 100, true); } MM.rocketBy = null; for (const d of MM.dogs) mmDogDrop(d); }      // (a backpacker wrote it off: not you)
     MM.wreckT += dt;
     const far = faCamD(mmUteSt().pos) > 90 || MM.wreckT > 150;
     if (MM.wreckT > 60 && far && activeName !== 'ute') mmFixUte();
