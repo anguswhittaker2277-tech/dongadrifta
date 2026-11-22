@@ -2994,7 +2994,8 @@ const LK = {
     shoe: ['Brown', 'Black', 'Tan', 'White'], hat: ['Felt', 'Black', 'Blue', 'Red', 'Olive']
   },
   styles: {
-    hair: [['curls', 'Curls'], ['crop', 'Short back & sides'], ['buzz', 'Buzz cut'], ['mullet', 'Mullet'], ['long', 'Long'], ['bald', 'Bald']],
+    g: [['m', 'Male'], ['f', 'Female']],
+    hair: [['curls', 'Curls'], ['crop', 'Short back & sides'], ['buzz', 'Buzz cut'], ['mullet', 'Mullet'], ['long', 'Long'], ['pony', 'Ponytail'], ['bob', 'Bob'], ['bald', 'Bald']],
     hat: [['none', 'No hat'], ['akubra', 'Stockman hat'], ['cap', 'Cap'], ['capback', 'Cap, backwards'], ['beanie', 'Beanie'], ['bucket', 'Bucket hat']],
     shirt: [['drill', 'Drill work shirt'], ['flanno', 'Flannel shirt'], ['hivis', 'Hi-vis shirt'], ['tee', 'T-shirt'], ['singlet', 'Singlet']],
     legs: [['shorts', 'Work shorts'], ['stubbies', 'Stubbies'], ['long', 'Jeans / work pants']],
@@ -3003,19 +3004,20 @@ const LK = {
     fh: [['0', 'Clean shaven'], ['1', 'Stubble'], ['2', 'Moustache'], ['3', 'Beard']]
   }
 };
-const LOOK_DEFAULT = { h: 0.5, w: 0.5, m: 0, skin: 0, hair: 'curls', hc: 0, hat: 'none', hatc: 0, shirt: 'drill', sc: 0, legs: 'shorts', lc: 0, shoes: 'clogs', shc: 3, gl: 'reading', fh: 0 };
-const lookH = L => 0.88 + 0.24 * (L.h == null ? 0.5 : L.h);
+const LOOK_DEFAULT = { g: 'm', h: 0.5, w: 0.5, m: 0, skin: 0, hair: 'curls', hc: 0, hat: 'none', hatc: 0, shirt: 'drill', sc: 0, legs: 'shorts', lc: 0, shoes: 'clogs', shc: 3, gl: 'reading', fh: 0 };
+const lookH = L => (0.88 + 0.24 * (L.h == null ? 0.5 : L.h)) * (L.g === 'f' ? 0.95 : 1);
 const lookFix = o => { const L = Object.assign({}, LOOK_DEFAULT); if (o && typeof o === 'object') for (const k of Object.keys(LOOK_DEFAULT)) if (o[k] !== undefined && typeof o[k] === typeof LOOK_DEFAULT[k]) L[k] = o[k];
   for (const k of ['h', 'w', 'm']) L[k] = Math.max(0, Math.min(1, L[k]));
   const ok = (k, arr) => { if (!arr.some(a => a[0] === L[k])) L[k] = LOOK_DEFAULT[k]; };
-  ok('hair', LK.styles.hair); ok('hat', LK.styles.hat.concat([['beret']])); ok('shirt', LK.styles.shirt.concat([['breton']])); ok('legs', LK.styles.legs); ok('shoes', LK.styles.shoes); ok('gl', LK.styles.gl);
+  ok('g', LK.styles.g); ok('hair', LK.styles.hair); ok('hat', LK.styles.hat.concat([['beret']])); ok('shirt', LK.styles.shirt.concat([['breton']])); ok('legs', LK.styles.legs); ok('shoes', LK.styles.shoes); ok('gl', LK.styles.gl);
   for (const [k, a] of [['skin', LK.skin], ['hc', LK.hair], ['sc', LK.shirt], ['lc', LK.legs], ['shc', LK.shoe], ['hatc', LK.hat]]) L[k] = Math.max(0, Math.min(a.length - 1, Math.round(L[k])));
   L.fh = Math.max(0, Math.min(3, Math.round(L.fh))); return L; };
 let LOOK = LOOK_DEFAULT;
 try { const s = localStorage.getItem('wfy.look'); if (s) LOOK = lookFix(JSON.parse(s)); } catch (_) {}
-const lookCode = L => [Math.round(L.h * 20), Math.round(L.w * 20), Math.round(L.m * 20), L.skin, L.hc, L.hatc, L.sc, L.lc, L.shc, L.fh, L.hair, L.hat, L.shirt, L.legs, L.shoes, L.gl].join(',');
-const lookFromCode = s => { try { const a = String(s).split(','); if (a.length !== 16) return null; const n = i => +a[i];
-  return lookFix({ h: n(0) / 20, w: n(1) / 20, m: n(2) / 20, skin: n(3), hc: n(4), hatc: n(5), sc: n(6), lc: n(7), shc: n(8), fh: n(9), hair: a[10], hat: a[11], shirt: a[12], legs: a[13], shoes: a[14], gl: a[15] }); } catch (_) { return null; } };
+const lookCode = L => [Math.round(L.h * 20), Math.round(L.w * 20), Math.round(L.m * 20), L.skin, L.hc, L.hatc, L.sc, L.lc, L.shc, L.fh, L.hair, L.hat, L.shirt, L.legs, L.shoes, L.gl, L.g].join(',');
+const lookFromCode = s => { try { const a = String(s).split(','); if (a.length !== 16 && a.length !== 17) return null; const n = i => +a[i];         // (16: from before there was a choice of body)
+  return lookFix({ h: n(0) / 20, w: n(1) / 20, m: n(2) / 20, skin: n(3), hc: n(4), hatc: n(5), sc: n(6), lc: n(7), shc: n(8), fh: n(9), hair: a[10], hat: a[11], shirt: a[12], legs: a[13], shoes: a[14], gl: a[15], g: a[16] || 'm' }); } catch (_) { return null; } };
+const lookName = L => (L || LOOK).g === 'f' ? 'Shazza' : 'Dazza';
 
 const LK_CACHE = new Map();
 function lookTex(kind, col) {
@@ -3054,18 +3056,19 @@ function buildFarmer(look) {
   const body = pivotAt(root, 0, 0.78, 0);                     // hips
   const P = { root, body, look: L, waist: [] };
   const sty = L.shirt, longSl = sty === 'drill' || sty === 'flanno' || sty === 'hivis' || sty === 'breton', collared = sty === 'drill' || sty === 'flanno' || sty === 'hivis';
-  const longLeg = L.legs === 'long';
-  P.waist.push(pm(new THREE.BoxGeometry(0.38, 0.2, 0.25), M.shorts, 0, 0.02, 0, body));
-  P.waist.push(pm(new THREE.BoxGeometry(0.385, 0.045, 0.255), M.shortsDark, 0, 0.11, 0, body));      // waistband
+  const longLeg = L.legs === 'long', fem = L.g === 'f';           // a woman's build: narrower shoulders and waist, a bit more hip, a bust, a finer face
+  P.waist.push(pm(new THREE.BoxGeometry(fem ? 0.4 : 0.38, 0.2, 0.25), M.shorts, 0, 0.02, 0, body));
+  P.waist.push(pm(new THREE.BoxGeometry(fem ? 0.405 : 0.385, 0.045, 0.255), M.shortsDark, 0, 0.11, 0, body));      // waistband
   const torso = pivotAt(body, 0, 0.1, 0); P.torso = torso;
-  const shirt = pm(new THREE.CylinderGeometry(0.235, 0.215, 0.56, 16), M.shirt, 0, 0.3, 0, torso); shirt.scale.set(1, 1, 0.74);
+  const shirt = pm(new THREE.CylinderGeometry(fem ? 0.215 : 0.235, fem ? 0.19 : 0.215, 0.56, 16), M.shirt, 0, 0.3, 0, torso); shirt.scale.set(1, 1, 0.74);
   P.belly = shirt; P.vest = shirt;
-  pm(new THREE.SphereGeometry(0.235, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), sty === 'singlet' ? M.skin : M.shirt, 0, 0.58, 0, torso).scale.set(1.08, 0.45, 0.78);   // shoulders
+  if (fem) pm(new THREE.SphereGeometry(0.09, 16, 10), M.shirt, 0, 0.115, 0.145, shirt).scale.set(1.75, 0.8, 0.68);      // a soft bust (on the shirt, so it fills out with it)
+  pm(new THREE.SphereGeometry(0.235, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), sty === 'singlet' ? M.skin : M.shirt, 0, 0.58, 0, torso).scale.set(fem ? 0.94 : 1.08, 0.45, fem ? 0.74 : 0.78);   // shoulders
   if (collared) {
     pm(new THREE.BoxGeometry(0.045, 0.5, 0.012), M.shirtDark, 0, 0.32, 0.168, torso);
     for (let i = 0; i < 4; i++) pm(new THREE.SphereGeometry(0.011, 6, 5), M.button, 0, 0.5 - i * 0.12, 0.176, torso);
     for (const s of [-1, 1]) {
-      if (sty !== 'hivis') { pm(new THREE.BoxGeometry(0.1, 0.11, 0.012), M.shirt, s * 0.1, 0.42, 0.17, torso); pm(new THREE.BoxGeometry(0.105, 0.035, 0.02), M.shirtDark, s * 0.1, 0.48, 0.172, torso); }
+      if (sty !== 'hivis' && !fem) { pm(new THREE.BoxGeometry(0.1, 0.11, 0.012), M.shirt, s * 0.1, 0.42, 0.17, torso); pm(new THREE.BoxGeometry(0.105, 0.035, 0.02), M.shirtDark, s * 0.1, 0.48, 0.172, torso); }
       const col = pm(new THREE.BoxGeometry(0.12, 0.05, 0.015), M.shirt, s * 0.06, 0.66, 0.12, torso); col.rotation.set(-0.5, -s * 0.5, s * 0.35);
     }
   }
@@ -3074,14 +3077,15 @@ function buildFarmer(look) {
   // head
   const head = pivotAt(torso, 0, 0.66, 0.0); P.head = head;
   pm(new THREE.CylinderGeometry(0.07, 0.08, 0.12, 10), M.skin, 0, 0.03, 0, head);
-  const skull = pm(new THREE.SphereGeometry(0.175, 18, 14), M.skin, 0, 0.2, 0.01, head); skull.scale.set(0.95, 1.08, 1);
+  const skull = pm(new THREE.SphereGeometry(0.175, 18, 14), M.skin, 0, 0.2, 0.01, head); skull.scale.set(fem ? 0.91 : 0.95, fem ? 1.05 : 1.08, fem ? 0.97 : 1);
   pm(new THREE.SphereGeometry(0.025, 8, 6), M.skinDark, 0, 0.18, 0.18, head).scale.set(1, 1.2, 1.2);         // nose
   for (const s of [-1, 1]) {
     pm(new THREE.SphereGeometry(0.017, 8, 6), M.eye, s * 0.056, 0.225, 0.17, head);
-    pm(new THREE.BoxGeometry(0.06, 0.013, 0.015), M.brow, s * 0.058, 0.262, 0.166, head).rotation.z = -s * 0.12;
+    pm(new THREE.BoxGeometry(fem ? 0.055 : 0.06, fem ? 0.008 : 0.013, 0.015), M.brow, s * 0.058, 0.262, 0.166, head).rotation.z = -s * (fem ? 0.2 : 0.12);
+    if (fem) pm(new THREE.BoxGeometry(0.042, 0.009, 0.01), M.dark, s * 0.058, 0.24, 0.178, head).rotation.z = -s * 0.15;          // lashes
     pm(new THREE.SphereGeometry(0.035, 8, 6), M.skin, s * 0.167, 0.2, 0.0, head).scale.set(0.45, 1, 0.8);   // ears
   }
-  pm(new THREE.BoxGeometry(0.07, 0.013, 0.012), M.lip, 0, 0.128, 0.171, head);
+  pm(new THREE.BoxGeometry(fem ? 0.064 : 0.07, fem ? 0.019 : 0.013, 0.012), M.lip, 0, 0.128, 0.171, head);
   // face hair
   if (L.fh === 1 || L.fh === 3) { const sh = pm(new THREE.SphereGeometry(0.1785, 16, 10, L.fh === 3 ? 0 : 0.2 * Math.PI, L.fh === 3 ? Math.PI * 2 : 0.6 * Math.PI, 1.62, L.fh === 3 ? 1.0 : 0.85), L.fh === 3 ? M.hair : M.stub, 0, 0.2, 0.01, head); sh.scale.set(0.95, 1.08, 1); }
   if (L.fh === 2 || L.fh === 3) { pm(new THREE.BoxGeometry(0.1, 0.024, 0.02), M.hair, 0, 0.152, 0.176, head); for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.02, 0.05, 0.02), M.hair, s * 0.052, 0.13, 0.172, head); }
@@ -3097,10 +3101,12 @@ function buildFarmer(look) {
       pm(new THREE.SphereGeometry(r, 7, 6), rnd() < 0.6 ? M.hair : M.hair2, x * 0.168, 0.21 + y * 0.18, 0.01 + z * 0.17, head);
     }
   } else if (hs !== 'bald') {
-    const R = hs === 'buzz' ? 0.178 : 0.186, tl = hs === 'long' ? 2.15 : hs === 'mullet' ? 1.85 : 1.72;
+    const R = hs === 'buzz' ? 0.178 : 0.186, tl = hs === 'long' ? 2.15 : hs === 'bob' ? 2.0 : hs === 'mullet' ? 1.85 : 1.72;
     const cap = pm(new THREE.SphereGeometry(R, 18, 12, 0, Math.PI * 2, 0, tl), hs === 'buzz' ? M.buzz : M.hair, 0, 0.2, 0.01, head); cap.scale.set(0.97, 1.09, 1.02); cap.rotation.x = -0.3;
     if (hs === 'mullet') { pm(new THREE.BoxGeometry(0.22, 0.2, 0.06), M.hair2, 0, 0.08, -0.15, head).rotation.x = 0.25; for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.04, 0.12, 0.12), M.hair, s * 0.165, 0.2, -0.04, head); }
     if (hs === 'long') { pm(new THREE.BoxGeometry(0.34, 0.42, 0.05), M.hair2, 0, 0.04, -0.17, head).rotation.x = 0.12; for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.04, 0.34, 0.16), M.hair, s * 0.17, 0.08, -0.06, head); }
+    if (hs === 'pony') { pm(new THREE.SphereGeometry(0.035, 8, 6), M.hair2, 0, 0.27, -0.185, head); const t = pm(new THREE.CapsuleGeometry(0.042, 0.2, 4, 8), M.hair, 0, 0.14, -0.235, head); t.rotation.x = 0.35; }      // tied back
+    if (hs === 'bob') { pm(new THREE.BoxGeometry(0.33, 0.2, 0.06), M.hair2, 0, 0.11, -0.16, head).rotation.x = 0.1; for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.045, 0.2, 0.2), M.hair, s * 0.168, 0.12, -0.02, head); }
   }
   // glasses
   const gl = pivotAt(head, 0, 0.212, 0.188); P.glasses = gl;
@@ -3128,7 +3134,7 @@ function buildFarmer(look) {
   else if (ht === 'beret') { const d = pm(new THREE.SphereGeometry(0.2, 16, 10), M.hat, 0.02, 0.37, 0.0, P.hat); d.scale.set(1.12, 0.34, 1.12); d.rotation.z = -0.12; pm(new THREE.CylinderGeometry(0.008, 0.008, 0.04, 5), M.hatDark, 0.02, 0.425, 0, P.hat); }
   // arms
   for (const s of [1, -1]) {
-    const sh = pivotAt(torso, s * 0.27, 0.55, 0);
+    const sh = pivotAt(torso, s * (fem ? 0.245 : 0.27), 0.55, 0);
     const el = pivotAt(sh, 0, -0.31, 0);
     if (longSl) {
       pm(new THREE.CapsuleGeometry(0.068, 0.22, 4, 8), M.shirt, 0, -0.15, 0, sh);
@@ -3147,7 +3153,7 @@ function buildFarmer(look) {
   for (const s of [-1, 1]) pm(new THREE.CylinderGeometry(0.012, 0.012, 0.04, 6), M.dark, s * 0.06, 0.04, 0, remote);
   // legs
   for (const s of [1, -1]) {
-    const hip = pivotAt(body, s * 0.1, -0.02, 0);
+    const hip = pivotAt(body, s * (fem ? 0.106 : 0.1), -0.02, 0);
     if (longLeg) pm(new THREE.CylinderGeometry(0.105, 0.098, 0.36, 10), M.shorts, 0, -0.17, 0, hip);
     else if (L.legs === 'stubbies') pm(new THREE.CylinderGeometry(0.108, 0.104, 0.16, 10), M.shorts, 0, -0.07, 0, hip);
     else pm(new THREE.CylinderGeometry(0.105, 0.098, 0.26, 10), M.shorts, 0, -0.12, 0, hip);
@@ -3180,7 +3186,7 @@ function lookScales(P, L) {
   const wk = 0.82 + 0.36 * L.w, mk = 1 + 0.2 * L.m;
   P.belly.scale.x = wk * mk; P.belly.scale.z = 0.74 * (0.8 + 0.4 * L.w) * (1 + 0.1 * L.m);
   for (const m of P.waist) { m.scale.x = (0.9 + 0.2 * L.w) * mk; m.scale.z = 0.92 + 0.16 * L.w; }
-  const lk = (0.9 + 0.2 * L.w) * (1 + 0.28 * L.m), ak = (0.92 + 0.14 * L.w) * (1 + 0.5 * L.m);
+  const fem = L.g === 'f', lk = (0.9 + 0.2 * L.w) * (1 + 0.28 * L.m) * (fem ? 0.96 : 1), ak = (0.92 + 0.14 * L.w) * (1 + 0.5 * L.m) * (fem ? 0.86 : 1);
   P.hipL.scale.set(lk, 1, lk); P.hipR.scale.set(lk, 1, lk); P.shL.scale.set(ak, 1, ak); P.shR.scale.set(ak, 1, ak);
 }
 // re-dress an existing farmer in place: pivots (and anything held or attached to them) stay, the clothes and body parts are swapped
@@ -11298,7 +11304,7 @@ function mpPeerLook(p, code) {
   lookApply(p.av, L); p.av.root.scale.setScalar(0.9 * lookH(L)); p.lk = code; p.mats = null; mpTint(p);
 }
 const LKROWS = [
-  ['sl', 'h', 'Height', 'Short', 'Tall'], ['sl', 'w', 'Weight', 'Lean', 'Heavy'], ['sl', 'm', 'Muscle', 'Skinny', 'Jacked'],
+  ['ch', 'g', 'Body', LK.styles.g], ['sl', 'h', 'Height', 'Short', 'Tall'], ['sl', 'w', 'Weight', 'Lean', 'Heavy'], ['sl', 'm', 'Muscle', 'Skinny', 'Jacked'],
   ['sw', 'skin', 'Skin', LK.skin], ['ch', 'hair', 'Hair', LK.styles.hair], ['sw', 'hc', 'Hair colour', LK.hair], ['ch', 'fh', 'Face', LK.styles.fh],
   ['ch', 'hat', 'Hat', LK.styles.hat], ['sw', 'hatc', 'Hat colour', LK.hat], ['ch', 'gl', 'Glasses', LK.styles.gl],
   ['ch', 'shirt', 'Top', LK.styles.shirt], ['sw', 'sc', 'Top colour', LK.shirt], ['ch', 'legs', 'Legs', LK.styles.legs], ['sw', 'lc', 'Legs colour', LK.legs],
@@ -11337,6 +11343,7 @@ function lookUIBuild() {
         b.addEventListener('click', () => {
           const v = r[1] === 'fh' || r[0] === 'sw' ? +o[0] : o[0], p = { [r[1]]: v };
           if (r[1] === 'shoes' && v === 'boots' && LOOK.shc === 3) p.shc = 0;
+          if (r[1] === 'g' && v !== LOOK.g) { if (v === 'f') { p.fh = 0; if (['curls', 'crop', 'buzz', 'bald', 'mullet'].includes(LOOK.hair)) p.hair = 'pony'; if (LOOK.gl === 'reading') p.gl = 'none'; } else if (['pony', 'bob', 'long'].includes(LOOK.hair)) p.hair = 'crop'; }
           lookSet(p, true); lookUIFill();
         });
         c.appendChild(b);
@@ -11349,18 +11356,23 @@ function lookUIBuild() {
   $('lookX').addEventListener('click', close); $('lookOk').addEventListener('click', close);
   $('lookRst').addEventListener('click', () => { lookSet(Object.assign({}, LOOK_DEFAULT), true); lookUIFill(); });
   $('lookRnd').addEventListener('click', () => {
-    const pk = a => a[Math.floor(Math.random() * a.length)], p = { h: Math.random(), w: Math.random(), m: Math.random() * 0.8, skin: Math.floor(Math.random() * 5), hair: pk(LK.styles.hair)[0], hc: Math.floor(Math.random() * 5), fh: Math.floor(Math.random() * 4),
+    const g = Math.random() < 0.5 ? 'f' : 'm', pk = a => a[Math.floor(Math.random() * a.length)], p = { g, h: Math.random(), w: Math.random(), m: Math.random() * 0.8, skin: Math.floor(Math.random() * 5), hair: pk(LK.styles.hair)[0], hc: Math.floor(Math.random() * 5), fh: Math.floor(Math.random() * 4),
       hat: pk(LK.styles.hat)[0], hatc: Math.floor(Math.random() * 5), gl: pk(LK.styles.gl)[0], shirt: pk(LK.styles.shirt)[0], sc: Math.floor(Math.random() * 8), legs: pk(LK.styles.legs)[0], lc: Math.floor(Math.random() * 6), shoes: pk(LK.styles.shoes)[0], shc: Math.floor(Math.random() * 3) };
+    if (g === 'f') { p.fh = 0; p.hair = pk(['long', 'pony', 'bob', 'crop', 'curls']); p.m = Math.random() * 0.4; }
     lookSet(p, true); lookUIFill();
   });
 }
 function lookUIFill() {
+  lookNameUI();
   for (const row of $('lookBody').children) {
     const k = row.dataset.k, v = LOOK[k], inp = row.querySelector('input');
+    if (k === 'fh') row.style.display = LOOK.g === 'f' ? 'none' : '';
     if (inp) inp.value = Math.round(v * 100);
     for (const b of row.querySelectorAll('button')) b.classList.toggle('on', String(b.dataset.v) === String(v));
   }
 }
+// Dazza, or Shazza: the sheet's title and the menu button follow the body you picked
+function lookNameUI() { const nm = 'Customise ' + lookName(); const h = document.querySelector('#lookSheet h2'); if (h && !CRE.on) h.textContent = nm; const b = document.querySelector('#lookbtn .mlbl'); if (b) b.textContent = nm; const sh = $('lookSheet'); if (sh) sh.setAttribute('aria-label', nm); }
 function lookUIOpen(on) {
   lookUIBuild(); LKUI.on = on; $('lookSheet').classList.toggle('show', on);
   if (on) { lookUIFill(); LKUI.ang = 0.5; } else { camera.clearViewOffset(); lookSave(); camInit = false; }
@@ -11378,7 +11390,7 @@ function creatorOpen() {
 }
 function creatorDone() {
   CRE.on = false; document.body.classList.remove('creator'); lookUIOpen(false);
-  const hd = document.querySelector('#lookSheet h2'); if (hd) hd.textContent = 'Customise Dazza'; const ok = $('lookOk'); if (ok && CRE.okTxt) ok.textContent = CRE.okTxt;
+  lookNameUI(); const ok = $('lookOk'); if (ok && CRE.okTxt) ok.textContent = CRE.okTxt;
   const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); camYawF = h.yaw; camPitchF = 0.25; camInit = false; DN.doorA = 1; DN.creakT = 3;          // and you wake up in the dunny, door open
 }
 /* ---------- back after a long time away ----------
@@ -11406,7 +11418,7 @@ function lookCamStep(dt) {
 }
 (() => {
   const panel = $('menuPanel'), b = document.createElement('button'); b.type = 'button'; b.id = 'lookbtn';
-  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20c.6-3.8 3.1-6 6.5-6s5.9 2.2 6.5 6"/></svg><span class="mlbl">Customise Dazza</span>';
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20c.6-3.8 3.1-6 6.5-6s5.9 2.2 6.5 6"/></svg><span class="mlbl">Customise ' + lookName() + '</span>';
   const help = $('helpbtn'); help ? panel.insertBefore(b, help) : panel.appendChild(b);
   b.addEventListener('click', () => lookUIOpen(true));
   const fp = document.createElement('button'); fp.type = 'button'; fp.id = 'fpbtn';
@@ -11591,7 +11603,7 @@ const npcPick = a => pickFresh(a);
 const NPC_LOOKS = [
   { name: 'Mathieu', shirt: 'breton', sc: 7, hat: 'beret', hatc: 1, hair: 'crop', hc: 1, legs: 'long', lc: 1, shoes: 'boots', shc: 1, gl: 'none', fh: 2, skin: 1, h: 0.58, w: 0.3, m: 0.1 },
   { name: 'Alexandre', shirt: 'tee', sc: 6, hat: 'capback', hatc: 2, hair: 'mullet', hc: 0, legs: 'stubbies', lc: 4, shoes: 'thongs', shc: 3, gl: 'sunnies', fh: 1, skin: 2, h: 0.7, w: 0.2, m: 0.35 },
-  { name: 'Chloé', shirt: 'breton', sc: 1, hat: 'none', hair: 'long', hc: 3, legs: 'shorts', lc: 3, shoes: 'boots', shc: 0, gl: 'none', fh: 0, skin: 1, h: 0.3, w: 0.25, m: 0 }
+  { name: 'Chloé', g: 'f', shirt: 'breton', sc: 1, hat: 'none', hair: 'long', hc: 3, legs: 'shorts', lc: 3, shoes: 'boots', shc: 0, gl: 'none', fh: 0, skin: 1, h: 0.3, w: 0.25, m: 0 }
 ];
 // how far up you can look: further through his own eyes (a seat in the sauna, the dongas) than over his shoulder
 function camPitchLo() { return WPN.cur ? -0.75 : F.fp ? -0.55 : -0.12; }
