@@ -6110,7 +6110,7 @@ function audioUpdate(dt) {
   if (AU.wind) AU.wind.update(!v ? Math.hypot(F.vel.x, F.vel.y, F.vel.z) * (F.mode === 'air' || F.mode === 'tumble' ? 1 : 0) : v.kind === 'air' ? v.st.vel.length() : Math.hypot(S.vx, S.vz) * 0.8);
 }
 // footsteps, called from the walk cycle
-function footstep(run) { if (!AU.buf.steps) return; playAt(sndPick('steps'), F.pos, run ? 0.55 : 0.32, 0.9 + Math.random() * 0.2, 5); }
+function footstep(run) { if (!AU.buf.steps) return; playAt(sndPick('steps'), F.pos, run ? 0.26 : 0.15, 0.9 + Math.random() * 0.2, 5); }      // (kept well under everything else: you hear them every step)
 
 $('snd').addEventListener('click', () => setSound(!AU.on));
 $('snd').setAttribute('aria-pressed', String(AU.on)); $('snd').classList.toggle('off', !AU.on);
@@ -7386,7 +7386,7 @@ function startEmote(id) {
   const E = EMOTES.find(e => e.id === id); if (!E) return;
   EM.cur = E; EM.t = 0; EM.yaw0 = F.yaw; F.mode = 'emote'; F.vel.set(0, 0, 0); F.speedH = 0;
   audioInit(); emoteMusic(E); closeEmoteWheel();
-  if (id === 'flip' && AU.buf.steps) playAt(sndPick('steps'), F.pos, 0.6, 0.8, 5);
+  if (id === 'flip' && AU.buf.steps) playAt(sndPick('steps'), F.pos, 0.32, 0.8, 5);
 }
 function endEmote() { if (EM.cur && EM.cur.sit) { saStandUp(); return; } if (EM.cur && EM.cur.mt) { mtWeldExit(); return; }
   if (EM.cur && EM.cur.bp) { const lie = EM.cur.bp === 'lie'; if (lie) bpStandUp(); else { F.mode = 'walk'; F.yaw = EM.yaw0; EM.cur = null; } if (BP.q && BP.q.who === MP.me) bpSend(lie ? 'bp:up' : 'bp:leave'); return; } if (F.mode === 'emote') { F.mode = 'walk'; F.yaw = EM.yaw0; } EM.cur = null; stopEmoteMusic(); }
@@ -7396,7 +7396,7 @@ function emoteStep(dt) {
   const E = EM.cur, moving = Math.hypot(input.x + input.kAD, input.y + input.kWS) > 0.3 || input.jump;
   if (E.once && EM.t >= E.once) { endEmote(); return false; }
   if (!E.once && moving && !E.lock) { endEmote(); return false; }
-  if (E.once && EM.t > 1.05 && EM.t < 1.1 && AU.buf.steps) playAt(sndPick('steps'), F.pos, 0.7, 0.75, 5);
+  if (E.once && EM.t > 1.05 && EM.t < 1.1 && AU.buf.steps) playAt(sndPick('steps'), F.pos, 0.38, 0.75, 5);
   return true;
 }
 function emoteRoot(R) {
