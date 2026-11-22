@@ -3489,7 +3489,9 @@ let camYawF = 0, camPitchF = 0.3, lookIdleT = 9, seqDist = 4.8;
 // first person on foot: a menu toggle, remembered (dancing, tumbling and dead still swing out to the usual camera so you can see it)
 var FPS = { on: false };
 try { FPS.on = localStorage.getItem('wfy.fp') === '1'; } catch (_) {}
-function fpPref() { return FPS.on && activeName === 'foot'; }
+function fpPref() { return FPS.on && activeName === 'foot' && !lookSheetOn(); }
+// the look sheet (or the first-run creator) is open: the camera's round the front of you, so never through your eyes
+function lookSheetOn() { try { return LKUI.on || CRE.on; } catch (_) { return false; } }
 function fpSet(on) { FPS.on = !!on; try { localStorage.setItem('wfy.fp', on ? '1' : '0'); } catch (_) {} const b = document.getElementById('fpbtn'); if (b) b.querySelector('.mlbl').textContent = 'First person: ' + (on ? 'on' : 'off'); }
 function footCam(dt) {
   if (typeof bpCam === 'function' && bpCam(dt)) return;          // under the bar, or spotting: the camera up in the corner of Dima's room
@@ -3526,7 +3528,7 @@ function footCam(dt) {
   lookAt.lerp(lookTarget, 1 - Math.exp(-14 * dt));
   camera.position.copy(camPos);
   // under the dongas' roofs (the rooms and the breezeway): through his eyes, so you can see the place instead of the back of a wall
-  const fpWant = !inSeq && (F.mode !== 'emote' || (EM.cur && EM.cur.sit)) && F.mode !== 'tumble' && !(F.dead > 0) && (fpPref() || (typeof dgUnder === 'function' && dgUnder(F.pos))) ? 1 : 0;      // (first person picked in the menu, or under the dongas' roofs)
+  const fpWant = !inSeq && (F.mode !== 'emote' || (EM.cur && EM.cur.sit)) && F.mode !== 'tumble' && !(F.dead > 0) && !lookSheetOn() && (fpPref() || (typeof dgUnder === 'function' && dgUnder(F.pos))) ? 1 : 0;      // (first person picked in the menu, or under the dongas' roofs)
   F.fpK = fresh ? fpWant : (F.fpK || 0) + (fpWant - (F.fpK || 0)) * (1 - Math.exp(-8 * dt)); F.fp = F.fpK > 0.5;
   if (F.fpK > 0.01) { const p = camPitchF - 0.3, cy = Math.cos(p), eye = _v2.set(F.pos.x, F.pos.y + (F.mode === 'emote' && EM.cur && EM.cur.sit ? (EM.cur.sit === 'bench' ? 1.56 : 1.36) : 1.58), F.pos.z); camera.position.lerp(eye, F.fpK);
     _v3.set(eye.x + Math.sin(camYawF) * cy * 4, eye.y - Math.sin(p) * 4, eye.z + Math.cos(camYawF) * cy * 4).lerp(lookAt, 1 - F.fpK);
@@ -7717,7 +7719,7 @@ function keepClear(from, to, minD) {     // pull a camera in front of any wall b
 }
 function applyView(dt) {
   const view = currentView(), v = activeVeh();
-  DAZZA.root.visible = !(view === 'cockpit' || (view === 'fpv' && v && !isRemote(v))) && !(typeof WPN !== 'undefined' && WPN.hidFarmer) && !(activeName === 'foot' && F.fp);
+  DAZZA.root.visible = !(view === 'cockpit' || (view === 'fpv' && v && !isRemote(v))) && !(typeof WPN !== 'undefined' && WPN.hidFarmer) && !(activeName === 'foot' && F.fp && !lookSheetOn());
   if (v && v.name === 'racer') v.model.root.visible = view !== 'fpv';
   if (view !== 'operator') VIEW.oPos = null;
   if (view === 'chase' || !v) { const fp = activeName === 'foot' && F.fp; setFov(fp ? 76 : VIEW.baseFov, dt); setNear(fp ? 0.07 : 0.3); return; }
@@ -10531,7 +10533,7 @@ function wpnCam(dt) {
   const yaw = camYawF, pit = camPitchF, cp = Math.cos(pit), sp = Math.sin(pit);
   const f = _w1.set(Math.sin(yaw) * cp, -sp, Math.cos(yaw) * cp), right = _w2.set(-Math.cos(yaw), 0, Math.sin(yaw));
   const pivot = _w3.set(F.pos.x, F.pos.y + 1.58, F.pos.z);
-  const fpIn = activeName === 'foot' && (fpPref() || (typeof dgUnder === 'function' && dgUnder(F.pos))); if (fpIn) { F.fpK = 1; F.fp = true; }            // under the dongas' roofs you aim through his eyes (a camera over the shoulder ends up in the ceiling)
+  const fpIn = activeName === 'foot' && !lookSheetOn() && (fpPref() || (typeof dgUnder === 'function' && dgUnder(F.pos))); if (fpIn) { F.fpK = 1; F.fp = true; }            // under the dongas' roofs you aim through his eyes (a camera over the shoulder ends up in the ceiling)
   const want = WPN.scope ? 14 : fpIn ? 76 : 58; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
   let back = WPN.scope ? -0.25 : fpIn ? -0.05 : 2.3, side = WPN.scope || fpIn ? 0 : 0.62;
   const desired = _w4.copy(pivot).addScaledVector(f, -back).addScaledVector(right, side); desired.y += WPN.scope ? 0.05 : fpIn ? 0 : 0.25;
@@ -11375,7 +11377,7 @@ function lookUIFill() {
 function lookNameUI() { const nm = 'Customise ' + lookName(); const h = document.querySelector('#lookSheet h2'); if (h && !CRE.on) h.textContent = nm; const b = document.querySelector('#lookbtn .mlbl'); if (b) b.textContent = nm; const sh = $('lookSheet'); if (sh) sh.setAttribute('aria-label', nm); }
 function lookUIOpen(on) {
   lookUIBuild(); LKUI.on = on; $('lookSheet').classList.toggle('show', on);
-  if (on) { lookUIFill(); LKUI.ang = 0.5; } else { camera.clearViewOffset(); lookSave(); camInit = false; }
+  if (on) { lookUIFill(); LKUI.ang = 0.5; } else { camera.clearViewOffset(); lookSave(); camInit = false; if (typeof DN !== 'undefined' && DN.root) DN.root.visible = true; }
 }
 /* ---------- before you start: make your character (the look sheet, full screen of the yard behind it), then into the dunny ---------- */
 const CRE = { on: false, spot: null };
@@ -11412,7 +11414,11 @@ function lookCamStep(dt) {
   if (!LKUI.on) return;
   LKUI.ang += dt * 0.35; const R = DAZZA.root; R.updateWorldMatrix(true, false); R.getWorldPosition(_v1);
   const yaw = F.mode === 'seated' ? R.rotation.y : F.yaw, a = yaw + LKUI.ang, d = 3.0 * Math.max(0.9, lookH(LOOK));
-  camera.position.set(_v1.x + Math.sin(a) * d, _v1.y + 1.15, _v1.z + Math.cos(a) * d); camera.lookAt(_v1.x, _v1.y + 0.95, _v1.z);
+  camera.position.set(_v1.x + Math.sin(a) * d, _v1.y + 1.15, _v1.z + Math.cos(a) * d);
+  // stood in the dunny (where you wake up): its walls go while you're looking at yourself; anywhere else the camera comes in off a wall
+  const inDunny = typeof DN !== 'undefined' && DN.root && dnInside(F.pos); if (DN.root && DN.root.visible === inDunny) DN.root.visible = !inDunny;
+  if (!inDunny) keepClear(_v2.set(_v1.x, _v1.y + 1.15, _v1.z), camera.position, 0.9);
+  camera.lookAt(_v1.x, _v1.y + 0.95, _v1.z);
   const w = innerWidth, h = innerHeight, port = h > w;
   camera.setViewOffset(w, h, port ? 0 : w * 0.2, port ? h * 0.2 : 0, w, h);
 }
