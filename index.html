@@ -11943,7 +11943,7 @@ function npcThink(n, dt) {
     return;
   }
   if (n.st === 'down') { n.tilt = -1.5; if (n.t > 1.3) { n.st = 'getup'; n.t = 0; } return; }
-  if (n.st === 'ko') { n.tilt = -1.5; if (n.t > 9) { n.st = 'getup'; n.t = 0; n.hp = 25; n.angry = false; n.fleeT = 7; } return; }
+  if (n.st === 'ko') { n.tilt = -1.5; if (n.t > 9) { n.st = 'getup'; n.t = 0; n.hp = 25; n.angry = false; n.ko = false; n.fleeT = 7; } return; }      // (back up: not knocked out any more, so Matt and co. can be talked to again)
   if (n.st === 'getup') { n.tilt += (0 - n.tilt) * Math.min(1, dt * 7); if (n.t > 0.8) { n.tilt = 0; n.st = n.fleeT ? 'flee' : (n.angry && n.hp > 0 ? 'chase' : 'wander'); n.t = 0; if (n.st === 'chase' && F.dead <= 0) npcSay(n, npcPick(NPC_L.angry)); } return; }
   n.tilt = 0;
   if (n.st === 'stag') { n.pos.x += n.vel.x * dt; n.pos.z += n.vel.z * dt; n.vel.multiplyScalar(Math.exp(-7 * dt)); if (!faWalk(n.pos.x, n.pos.z)) { n.pos.x -= n.vel.x * dt; n.pos.z -= n.vel.z * dt; }
@@ -12253,9 +12253,7 @@ var slideSet = function (v, quiet) {
   hud.querySelector('#drfN').addEventListener('click', () => { if (DRIFTM) driftModeSet(false); }); hud.querySelector('#drfD').addEventListener('click', () => { if (!DRIFTM) driftModeSet(true); });
   hud.querySelector('#sldM').addEventListener('click', () => slideSet(Math.round(SLD.v * 20 - 1) / 20));
   hud.querySelector('#sldP').addEventListener('click', () => slideSet(Math.round(SLD.v * 20 + 1) / 20));
-  let told = false;
-  setInterval(() => { const car = ['suv', 'x5', 'bmw', 'trophy', 'truck'].includes(activeName); hud.classList.toggle('show', car);
-    if (car && !told) { told = true; toast('NORMAL / DRIFT switch and the slide \u2212/+ are at the bottom', 3.5); } }, 300);
+  // (the bar along the bottom while driving is gone: Car slide and Drift mode are in the menu, and [ / ] still nudge the slide)
   const r = row.querySelector('input'); r.addEventListener('input', () => slideSet(r.value / 100, true)); slideSet(SLD.v, true); driftModeSet(DRIFTM, true);
   addEventListener('keydown', e => { if (e.repeat) return; if (e.key === '[') slideSet(SLD.v - 0.1); else if (e.key === ']') slideSet(SLD.v + 0.1); });
 })();
