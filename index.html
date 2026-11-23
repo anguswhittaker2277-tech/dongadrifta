@@ -2402,7 +2402,7 @@ addEventListener('keydown', e => {
   if (!collider) return;
   if (k === 'r') resetAll();
   if (k === 'e' || k === 'f') primaryAction();
-  if (k === 't') { const v = activeVeh(); if (v && v.kind === 'air') doAction(v.st.landed ? 'to' : 'land'); }
+  if (k === 't') { const v = activeVeh(); if (v && v.kind === 'air') doAction(v.st.landed ? 'to' : 'land'); else if (activeName === 'foot' && TALK.id) doAction(TALK.id); }
   if (k === 'g') doAction('sport');
   if (k === ' ' && (activeName === 'spray' || activeName === 'duster')) doAction('spray');
   if (k === 'v') doAction('hold');
@@ -5411,6 +5411,7 @@ function updateActions() {
       else items.push(A.landed ? { id: 'out', label: 'Get out', cls: 'dark' } : { id: 'out', label: 'Bail out!', cls: 'neg' });
     }
   }
+  const talks = items.filter(it => TALK_WHO[it.id]); if (talks.length) items = items.filter(it => !TALK_WHO[it.id]); talkSet(talks.length ? talkPick(talks) : null);
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
@@ -5769,7 +5770,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
+  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) { drawMinimap(); if (CHAT.open && CHAT.map) drawMinimap(CHAT.map, CHAT.R); }
@@ -12205,6 +12206,43 @@ function npcKick() {
   F.yaw = Math.atan2(n.veh.state.pos.x - F.pos.x, n.veh.state.pos.z - F.pos.z);
   npcEject(n, 'kick'); toast('Kicked out of the ' + (n.look.name || '') + '’s joyride', 1.6);
 }
+/* ---------- name tags over everyone's head, and one TALK button ---------- */
+// a dark tag with the name in white (like Minecraft), hidden behind walls and past ~28 m (so the bloke with the rifle in the trees
+// doesn't give himself away), and swapped for the speech bubble while they're talking
+const NT = { list: new Map(), v: new THREE.Vector3() };
+function ntMake(name) {
+  const c = document.createElement('canvas'), x = c.getContext('2d'), f = '700 34px system-ui,sans-serif'; x.font = f; const tw = Math.ceil(x.measureText(name).width);
+  c.width = tw + 30; c.height = 52; x.font = f; x.fillStyle = 'rgba(0,0,0,0.5)'; x.beginPath(); x.roundRect ? x.roundRect(0, 0, c.width, c.height, 8) : x.rect(0, 0, c.width, c.height); x.fill();
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(name, c.width / 2, c.height / 2 + 1);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, fog: false })); const h = 0.2; sp.scale.set(h * c.width / c.height, h, 1); sp.renderOrder = 9; sp.visible = false; scene.add(sp); return sp;
+}
+function ntStep() {
+  if (!NPC.ready) return; const off = (typeof CRE !== 'undefined' && CRE.on) || (typeof lookSheetOn === 'function' && lookSheetOn());
+  for (const n of NPC.list) { let sp = NT.list.get(n); if (!sp) NT.list.set(n, sp = ntMake(n.name));
+    const B = n.bub, talking = B && B.sp && B.sp.visible && B.time > 0;
+    if (off || talking || !n.P.root.visible || !npcAlive(n)) { sp.visible = false; continue; }
+    n.P.head.getWorldPosition(NT.v); NT.v.y += 0.6 * n.P.root.scale.y; const d = NT.v.distanceTo(camera.position);
+    sp.visible = d < 28 && d > 0.6; if (!sp.visible) continue; sp.position.copy(NT.v); sp.material.opacity = THREE.MathUtils.clamp((28 - d) / 6, 0, 1); }
+}
+// TALK: one button for whoever's nearest and up for a chat (Madman, Dima, Matt), in place of 'Talk to …' up in the corner
+const TALK = { id: null, btn: null };
+const TALK_WHO = { 'mm:talk': () => MM.n, 'sa:talk': () => DM.n, 'mt:talk': () => MT.n };
+function talkSet(id) {
+  if (!TALK.btn) { const st = document.createElement('style');
+    st.textContent = '#talkBtn{position:fixed;z-index:8;display:none;right:calc(max(16px,env(safe-area-inset-right,0px)) + 202px);bottom:calc(34px + env(safe-area-inset-bottom,0px));width:76px;height:76px;border-radius:50%;border:0;background:rgba(36,122,92,.92);color:#fff;font:900 13px var(--font);letter-spacing:.08em;box-shadow:var(--shadow);align-items:center;justify-content:center;flex-direction:column;gap:3px;touch-action:none;cursor:pointer}' +
+      'body.cantalk #talkBtn{display:flex}#talkBtn.on{transform:scale(.94)}#talkBtn kbd{font:800 10px var(--font);background:rgba(255,255,255,.25);border-radius:4px;padding:0 4px}' +
+      '@media (max-height:360px){#talkBtn{width:64px;height:64px;right:calc(max(16px,env(safe-area-inset-right,0px)) + 176px);bottom:calc(24px + env(safe-area-inset-bottom,0px))}}';
+    document.head.appendChild(st); const b = document.createElement('button'); b.type = 'button'; b.id = 'talkBtn'; b.className = 'ui'; b.setAttribute('aria-label', 'Talk');
+    b.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg><span>TALK</span>';
+    b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); b.classList.add('on'); if (TALK.id) doAction(TALK.id); });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => b.classList.remove('on'));
+    document.body.appendChild(b); TALK.btn = b; }
+  const pc = !!(typeof PCL !== 'undefined' && PCL.on), k = TALK.btn.querySelector('kbd'); if (pc && !k) { const kb = document.createElement('kbd'); kb.textContent = 'T'; TALK.btn.appendChild(kb); } else if (!pc && k) k.remove();
+  if (TALK.id === id) return; TALK.id = id; document.body.classList.toggle('cantalk', !!id);
+  const n = id && TALK_WHO[id] && TALK_WHO[id](); TALK.btn.setAttribute('aria-label', n ? 'Talk to ' + n.name : 'Talk');
+}
+function talkPick(talks) { let best = null, bd = 1e9; for (const it of talks) { const n = TALK_WHO[it.id] && TALK_WHO[it.id](), d = n ? Math.hypot(n.pos.x - F.pos.x, n.pos.z - F.pos.z) : 50; if (d < bd) { bd = d; best = it.id; } } return best; }
 function npcActions(items) {
   if (!NPC.ready || activeName !== 'foot') return;
   const n = npcKickTarget(); if (n) items.push({ id: 'npc:kick', label: 'Kick ' + n.name + ' out!', cls: 'neg' });
