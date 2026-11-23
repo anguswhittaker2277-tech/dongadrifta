@@ -10083,8 +10083,16 @@ function wpnDecal(mat, point, normal, size, parent, life) {
   const m = new THREE.Mesh(WMAT.decalGeo, mat); m.scale.setScalar(size);
   const nn = normal.clone(); m.position.copy(point).addScaledVector(nn, 0.012); m.lookAt(m.position.clone().add(nn)); m.rotateZ(Math.random() * 6.28);
   scene.add(m); if (parent && parent !== scene) parent.attach(m);
-  WPN.decals.push({ m, life: life || 0 }); if (WPN.decals.length > 220) { const o = WPN.decals.shift(); o.m.parent && o.m.parent.remove(o.m); }
+  // (each one's a draw call of its own: blood and bullet holes soak away after a while, and there are never more than 100, or the
+  //  game got slower with every fight and every death)
+  const ttl = life != null ? life : mat === WMAT.blood ? 45 : mat === WMAT.hole ? 60 : mat === WMAT.scorch ? 150 : 0;
+  WPN.decals.push({ m, ttl, age: 0, s: size }); if (WPN.decals.length > 100) { const o = WPN.decals.shift(); o.m.parent && o.m.parent.remove(o.m); }
   return m;
+}
+function wpnDecalAge(dt) {
+  WPN.decalT = (WPN.decalT || 0) + dt; if (WPN.decalT < 0.25) return; const st = WPN.decalT; WPN.decalT = 0;
+  for (let i = WPN.decals.length - 1; i >= 0; i--) { const o = WPN.decals[i]; if (!o.ttl || o.m.userData.bb) continue; o.age += st; const left = o.ttl - o.age;
+    if (left <= 0) { o.m.parent && o.m.parent.remove(o.m); WPN.decals.splice(i, 1); } else if (left < 3) o.m.scale.setScalar(o.s * left / 3); }
 }
 
 /* ---------- models: guns in the hand, the locker ---------- */
@@ -10829,7 +10837,7 @@ function wpnStep(dt) {
   dt = Math.min(dt, 0.05);
   siloStep(dt); wpnProjStep(dt); wpnFireStep(dt); wpnBoomStep(dt); wpnVehStep(dt); dmgStep(dt);
   wpnParts(WPN.spark, dt); wpnParts(WPN.chip, dt); wpnParts(WPN.flame, dt);
-  wpnParts(WPN.blood, dt, (k, x, y, z) => { if (Math.random() < 0.35) wpnSplat(x, y, z, 0.12 + Math.random() * 0.25); });
+  wpnParts(WPN.blood, dt, (k, x, y, z) => { if (Math.random() < 0.35) wpnSplat(x, y, z, 0.12 + Math.random() * 0.25); }); wpnDecalAge(dt);
   wpnParts(WPN.grain, dt);
   const T = WPN.tracer; let tr = false; for (let i = 0; i < 40; i++) if (T.life[i] > 0) { T.life[i] -= dt; tr = true; if (T.life[i] <= 0) { const A = T.m.geometry.attributes.position.array; A[i * 6 + 1] = A[i * 6 + 4] = -1e4; } } if (tr) T.m.geometry.attributes.position.needsUpdate = true;
   if (WPN.flashT > 0) { WPN.flashT -= dt; if (WPN.flashT <= 0) { WPN.flash.intensity = 0; WPN.flashS.visible = false; } }
@@ -14029,7 +14037,7 @@ function snThink(n, dt) {
   const [px, pz, pyaw] = snPerch(), dP = Math.hypot(px - n.pos.x, pz - n.pos.z); SN.saidT -= dt; SN.cd -= dt; SN.moveT -= dt;
   const L = plList(), near = plNearest(n.pos.x, n.pos.z, true), dN = near ? Math.hypot(near.pos.x - n.pos.x, near.pos.z - n.pos.z) : 1e9;
   // who's been standing still, and how long
-  for (const q of L) { let s = SN.still.get(q.id); if (!s) SN.still.set(q.id, s = { x: q.pos.x, z: q.pos.z, t: 0 }); if (Math.hypot(q.pos.x - s.x, q.pos.z - s.z) > 1.0) { s.x = q.pos.x; s.z = q.pos.z; s.t = 0; } else s.t += dt; }
+  for (const q of L) { const qp = snPosOf(q); let s = SN.still.get(q.id); if (!s) SN.still.set(q.id, s = { x: qp.x, z: qp.z, t: 0 }); if (Math.hypot(qp.x - s.x, qp.z - s.z) > 0.6) { s.x = qp.x; s.z = qp.z; s.t = 0; } else s.t += dt; }
   // someone's walked right up: he's just a bloke out after a pig
   if (dN < 7.5) { SN.aim = null; n.st = 'snTalk'; npcFace(n, near.pos.x, near.pos.z, 5, dt); n.sp *= 0.8;
     if (SN.saidT <= 0) { SN.saidT = 20; const shot = (SN.hitAt.get(near.id) || -1e9) > NPC.t - 120; plWith(near, () => npcSay(n, npcPick(shot ? NPC_L.oops : NPC_L.hunt), 3.2)); } return true; }
@@ -14053,6 +14061,10 @@ function snThink(n, dt) {
   return true;
 }
 // anyone else about (NPCs on foot or in a car, other players): no witnesses, no shot
+// where a player really is: for someone on another phone, the newest position they've sent (their figure here trails it a little,
+// and a shot decided on that would catch them after they'd already moved off)
+const _snP = new THREE.Vector3();
+function snPosOf(q) { const b = q.p && q.p.buf, last = b && b[b.length - 1]; if (!q.veh && last && last.r) return _snP.set(last.r[0], last.r[1], last.r[2]); return _snP.copy(q.pos); }
 function snCompany(n, q, L) {
   const R = 18; if (NPC.list.some(m => m !== n && npcAlive(m) && Math.hypot(m.pos.x - q.pos.x, m.pos.z - q.pos.z) < R)) return true;
   return (L || plList()).some(o => o.id !== q.id && !o.dead && Math.hypot(o.pos.x - q.pos.x, o.pos.z - q.pos.z) < R); }
@@ -14061,7 +14073,7 @@ function snAim(n, dt) {
   A.t += dt; npcFace(n, A.x, A.z, 6, dt); if (A.t < 2.0) return;
   // the shot: anyone who's stayed put in the open cops it; anyone who's moved gets a puff of dirt by their feet
   SN.aim = null; SN.cd = 9; n.st = 'snPerch'; const s = SN.still.get(q.id); if (s) s.t = 0;
-  const m = snEye(n, new THREE.Vector3()); m.y += 0.05; const stay = Math.hypot(q.pos.x - A.x, q.pos.z - A.z) < 1.1, clear = snSees(n, q.pos.x, q.pos.y + 1.2, q.pos.z), hit = stay && clear;
+  const m = snEye(n, new THREE.Vector3()); m.y += 0.05; const qp = snPosOf(q), stay = Math.hypot(qp.x - A.x, qp.z - A.z) < 0.8, clear = snSees(n, q.pos.x, q.pos.y + 1.2, q.pos.z), hit = stay && clear;
   const tgt = hit ? new THREE.Vector3(q.pos.x, q.pos.y + 1.2, q.pos.z) : new THREE.Vector3(A.x + (Math.random() - 0.5) * 1.5, groundAt(A.x, A.z, A.y + 1, A.y - 2) + 0.05, A.z + (Math.random() - 0.5) * 1.5);
   if (typeof wpnFlashAt === 'function') wpnFlashAt(m); if (typeof wpnTracer === 'function' && WPN.tracer) wpnTracer(m, tgt);
   playAt(typeof sndPick === 'function' ? sndPick('g_sniper') : AU.buf.g_sniper, m, 1, 0.97, 110);           // heard right across the farm (not through the local relay)
