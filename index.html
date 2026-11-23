@@ -14824,7 +14824,7 @@ const MATT_L = {
   fixNone: ["Can't fix what's not here. Bring it to the shed."],
   fixUte: ["That's Madman's ute. I'm not touching it. I like my fingers."],
   hurt: ['Ow! Not the glasses!', 'Oi! I bruise like a peach!', "Careful! I need these hands for soldering!"],
-  angry: ["Right, that's it. I'm calculating your trajectory!", "You'll keep!", "You've done it now. I know where you park."],
+  angry: ["Right, that's it. I'm calculating your trajectory!", "You've done it now. I know where you park."],
   storm: ["Uh oh. That's Madman's angry walk.", "Madman! It was the welds! Blame the welds!", "Right. Glasses off. Science time.", "Mate, put the tinnie down and let's talk about this like engineers.", "He's coming. Somebody hold my soldering iron."],
   ko: ['I think I saw the square root of minus one.', "Ugh... I can hear colours..."],
   win2: ['Ha! Physics, mate.'],
@@ -15284,7 +15284,7 @@ function mtCalm(n) {
 // Madman's come for him over the ute: Matt puts his fists up and has a go back (not much of one)
 function mtBrawl(n, dt) {
   const R0 = typeof MM !== 'undefined' && MM.rage, mm = MM.n;
-  if (!R0 || !mm || !npcAlive(n) || ['tumble', 'down', 'ko', 'getup', 'stag'].includes(n.st)) return false;
+  if (!R0 || !mm || !npcAlive(n) || n.angry || ['tumble', 'down', 'ko', 'getup', 'stag'].includes(n.st)) return false;      // (you've just hit him: you're his problem now, Madman or no Madman)
   if (R0.ph !== 'fight') {                    // he can see Madman coming: out the front to face him, rather than be cornered at the bench
     if (Math.hypot(mm.pos.x - n.pos.x, mm.pos.z - n.pos.z) > 70 || !npcAlive(mm)) return false;
     R0.mtT = (R0.mtT == null ? 0.8 : R0.mtT) - dt; if (R0.mtT <= 0) { R0.mtT = 9 + Math.random() * 4; SPK.allow = true; try { mtSay('storm'); } finally { SPK.allow = false; } }      // (he's seen him coming)
