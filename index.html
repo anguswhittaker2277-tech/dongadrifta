@@ -12336,7 +12336,8 @@ function talkSet(id) {
       '@media (max-height:360px){#talkBtn{width:64px;height:64px;right:calc(max(16px,env(safe-area-inset-right,0px)) + 176px);bottom:calc(24px + env(safe-area-inset-bottom,0px))}}';
     document.head.appendChild(st); const b = document.createElement('button'); b.type = 'button'; b.id = 'talkBtn'; b.className = 'ui'; b.setAttribute('aria-label', 'Talk');
     b.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg><span>TALK</span>';
-    b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); b.classList.add('on'); if (TALK.id) doAction(TALK.id); });
+    b.addEventListener('pointerdown', e => { e.stopPropagation(); b.classList.add('on'); });
+    b.addEventListener('click', e => { e.stopPropagation(); if (TALK.id) doAction(TALK.id); });      // (on the tap, not the touch: opened on the touch, the tap that follows landed on the menu's backdrop and shut it)
     for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => b.classList.remove('on'));
     document.body.appendChild(b); TALK.btn = b; }
   const pc = !!(typeof PCL !== 'undefined' && PCL.on), k = TALK.btn.querySelector('kbd'); if (pc && !k) { const kb = document.createElement('kbd'); kb.textContent = 'T'; TALK.btn.appendChild(kb); } else if (!pc && k) k.remove();
