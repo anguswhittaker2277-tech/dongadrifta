@@ -7620,7 +7620,7 @@ function emotePose(id, t) {
   }
   if (id === 'bpLie') { p.flip = Math.PI / 2; p.hipL = p.hipR = 0.05; p.kneeL = p.kneeR = 1.45; bpPressArms(p, BP.vk, DAZZA); p.headX = -0.12; p.torsoX = 0; return p; }     // flat on the bench, pressing
   if (id === 'bpSpot') { bpSpotArms(p, BP.vk, BP.q && BP.q.stall === 3, DAZZA); return p; }
-  if (id === 'mtWeld') { p.torsoX = 0.38; p.headX = 0.32; p.shRx = -1.3; p.shRz = -0.2; p.elR = -0.75; p.shLx = -0.95; p.shLz = 0.32; p.elL = -1.15; p.kneeL = p.kneeR = 0.2; p.hipL = p.hipR = -0.2; return p; }     // bent over the jig, torch in the right hand                                                       // at the head of the bench, hands under the bar
+  if (id === 'mtWeld') { p.torsoX = 0.38; p.headX = 0.32; p.shRx = -1.3; p.shRz = -0.2; p.elR = -0.75; p.shLx = -0.95; p.shLz = 0.32; p.elL = -1.15; p.kneeL = p.kneeR = 0.2; p.hipL = p.hipR = -0.2; if (typeof mtWeldAim === 'function') mtWeldAim(p); return p; }     // bent over the jig, torch in the right hand                                                       // at the head of the bench, hands under the bar
   if (id === 'sit') {                     // sat down: on the sauna bench, or up to the chest in the cold tub, hands on the knees
     const tub = EM.cur && EM.cur.sit === 'tub', br = Math.sin(t * 1.6) * 0.02;
     p.hipL = p.hipR = -1.5; p.kneeL = p.kneeR = tub ? 1.75 : 1.45; p.shLx = p.shRx = tub ? -0.35 : -1.0; p.shLz = tub ? 0.55 : 0.2; p.shRz = tub ? -0.55 : -0.2; p.elL = p.elR = tub ? -0.25 : -0.6;
@@ -10879,7 +10879,7 @@ function wpnSelect(id) {
   if (id && !WPN.told.aim) { WPN.told.aim = 1; toast('Drag anywhere to aim · hold FIRE (drag it to aim while firing)', 3); }
 }
 function wpnReload(instant) {
-  const id = WPN.cur, W = WEAPONS[id]; if (!W || W.kind !== 'gun' || !W.reload) return;
+  const id = WPN.cur, W = WEAPONS[id]; if (!W || W.kind !== 'gun') return; if (!W.reload) instant = true;      // (the minigun's belt-fed: no reload, it just feeds; skipping it left its first belt empty and it never fired)
   const need = W.mag - (WPN.mag[id] || 0), have = WPN.ammo[id] || 0; if (need <= 0 || have <= 0) return;
   if (instant) { const n = Math.min(need, have); WPN.mag[id] += n; WPN.ammo[id] -= n; return; }
   if (WPN.reloadT > 0) return; WPN.reloadT = W.reload; sfx('g_reload', F.pos, 0.6, 1, 5);
@@ -14825,6 +14825,7 @@ const MATT_L = {
   fixUte: ["That's Madman's ute. I'm not touching it. I like my fingers."],
   hurt: ['Ow! Not the glasses!', 'Oi! I bruise like a peach!', "Careful! I need these hands for soldering!"],
   angry: ["Right, that's it. I'm calculating your trajectory!", "You'll keep!", "You've done it now. I know where you park."],
+  storm: ["Uh oh. That's Madman's angry walk.", "Madman! It was the welds! Blame the welds!", "Right. Glasses off. Science time.", "Mate, put the tinnie down and let's talk about this like engineers.", "He's coming. Somebody hold my soldering iron."],
   ko: ['I think I saw the square root of minus one.', "Ugh... I can hear colours..."],
   win2: ['Ha! Physics, mate.'],
   bye: ['Catch ya!', 'Hooroo! Mind the swarf.', "See ya! Come back when you've got something broken."],
@@ -14838,7 +14839,7 @@ function mtFloor(x, z) { const f = shedFloorAt(x, z); return f !== null ? f : gr
 function mtGround(x, z) { const sk = STRUCTS.skip; STRUCTS.skip = MT.rk ? MT.rk.gr : sk; try { return mtFloor(x, z); } finally { STRUCTS.skip = sk; } }      // (under the rocket: not its own box)
 // where Matt works ([u, v, facing du, dv]), the welding spot, the trolley's way out to the pad and the control box
 const MT_SPOT = { meet: [-4, 21, 0, 1], bench: [-5, -14.35, 0, -1], board: [14.3, -10, 1, 0], lathe: [4.8, -14.3, 0, -1], rocket: [1.25, -8, -1, 0], watch: [9.9, -12.5, -0.5, 1], box: [6.4, 18.8, -0.8, 0.6], trolley: [0, -9.2, 0, 1] };
-const MT_AISLE = -12.9, MT_WELD = [8, -12.15], MT_TABLE = [8, -11], MT_ROCK = [0, -8], MT_PAD = [0, 30], MT_BOX = [5, 18];
+const MT_AISLE = -12.9, MT_WELD = [8, -11.9], MT_TABLE = [8, -11], MT_ROCK = [0, -8], MT_PAD = [0, 30], MT_BOX = [5, 18];
 const MT_ROLL = [[0, -8], [0, 3], [0, 17], [0, 30]];
 const MT_PARTS = [
   { id: 'pump', name: 'the fuel pump', at: () => [-145.6, 50.2] },
@@ -15273,7 +15274,7 @@ function mtWalk(n, dt) {        // true while still walking
   const dW = Math.hypot(x - n.pos.x, z - n.pos.z); MT.walkT = (MT.walkT || 0) + dt; if (dW < (MT.walkBest || 1e9) - 0.2) { MT.walkBest = dW; MT.walkT = 0; }
   if (MT.walkT > 3) { MT.walkT = 0; MT.walkBest = 1e9;               // blocked: skip this corner, or (out of anyone's sight) just be there
     if (faCamD(n.pos) > 30 && faCamD(_mtV.set(x, n.pos.y, z)) > 30) { n.pos.x = x; n.pos.z = z; n.gy = n.pos.y = mtFloor(x, z); } else MT.path.shift(); if (!MT.path.length) { n.st = 'home'; n.t = 0; return false; } return true; }
-  if (dgMove(n, x, z, 1.5, dt)) { MT.path.shift(); MT.walkT = 0; MT.walkBest = 1e9; if (!MT.path.length) { const S0 = MT_SPOT[MT.spot]; n.st = 'home'; n.t = 0; return false; } }
+  if (dgMove(n, x, z, MT.spot === 'meet' && typeof MM !== 'undefined' && MM.rage ? 3.2 : 1.5, dt)) { MT.path.shift(); MT.walkT = 0; MT.walkBest = 1e9; if (!MT.path.length) { const S0 = MT_SPOT[MT.spot]; n.st = 'home'; n.t = 0; return false; } }      // (a jog out to the door with Madman coming)
   n.gT -= dt; if (n.gT <= 0) { n.gT = 0.12; n.gy = mtFloor(n.pos.x, n.pos.z); } return true;
 }
 function mtCalm(n) {
@@ -15286,10 +15287,12 @@ function mtBrawl(n, dt) {
   if (!R0 || !mm || !npcAlive(n) || ['tumble', 'down', 'ko', 'getup', 'stag'].includes(n.st)) return false;
   if (R0.ph !== 'fight') {                    // he can see Madman coming: out the front to face him, rather than be cornered at the bench
     if (Math.hypot(mm.pos.x - n.pos.x, mm.pos.z - n.pos.z) > 70 || !npcAlive(mm)) return false;
+    R0.mtT = (R0.mtT == null ? 0.8 : R0.mtT) - dt; if (R0.mtT <= 0) { R0.mtT = 9 + Math.random() * 4; SPK.allow = true; try { mtSay('storm'); } finally { SPK.allow = false; } }      // (he's seen him coming)
     if (MT.spot !== 'meet') mtGo('meet');
     if (n.st === 'mtWalk' && mtWalk(n, dt)) return true;
     n.st = 'mtBrace'; npcFace(n, mm.pos.x, mm.pos.z, 6, dt); n.sp *= 0.8; return true; }
   if (n.veh) mtCalm(n);
+  if (!R0.mtUp) { R0.mtUp = true; SPK.allow = true; try { mtSay('angry', 2.6); } finally { SPK.allow = false; } }      // squaring up
   if (n.st !== 'brawl') { n.st = 'brawl'; n.t = 0; n.atkPh = ''; n.atk = 0.9; MT.path = null; }
   const dx = mm.pos.x - n.pos.x, dz = mm.pos.z - n.pos.z, d = Math.hypot(dx, dz);
   npcFace(n, mm.pos.x, mm.pos.z, 10, dt); n.sp *= 0.8;
@@ -15489,6 +15492,17 @@ function mtHost(dt) {
 // ---- your side: the action buttons, the welding (on your own phone) ----
 const MT_WELD_EM = { id: 'mtWeld', mt: 'weld', work: true, lock: true };
 function mtWelding() { return !!MT.w && F.mode === 'emote' && EM.cur === MT_WELD_EM; }
+// the right arm puts the torch's nozzle on the arc, wherever it's got to along the seam (shoulder, then elbow, worked out in his
+// torso's frame; the torch is in that hand, pointing at it)
+const _mtA = new THREE.Vector3(), _mtZ = new THREE.Vector3(0, 0, 1);
+function mtWeldAim(p) {
+  const T = MT.wAt, P = DAZZA; if (!T || !MT.w || !P.torso || !P.shR) return;
+  P.torso.updateWorldMatrix(true, false); const t = P.torso.worldToLocal(_mtA.copy(T)).sub(P.shR.position);
+  const a = 0.31, b = 0.28 + MT_TORCH_REACH, L = THREE.MathUtils.clamp(t.length(), Math.abs(a - b) + 0.02, a + b - 0.02); t.normalize();
+  const bend = Math.PI - Math.acos(THREE.MathUtils.clamp((a * a + b * b - L * L) / (2 * a * b), -1, 1)), lift = Math.acos(THREE.MathUtils.clamp((a * a + L * L - b * b) / (2 * a * L), -1, 1));
+  p.shRz = Math.asin(THREE.MathUtils.clamp(t.x, -1, 1)); p.shRx = Math.atan2(-t.z, -t.y) + lift; p.elR = -bend;
+}
+const MT_TORCH_REACH = 0.24;      // hand to nozzle
 function mtActions(items) {
   if (activeName !== 'foot' || F.dead > 0) return;
   if (mtWelding()) { items.push({ id: 'mt:wstop', label: 'Put the torch down', cls: 'dark' }); return; }
@@ -15514,7 +15528,7 @@ function mtWeldEnter() {
 function mtWeldExit(quiet) {
   const W = MT.w; MT.w = null; if (W) { for (const s of W.sparks) scene.remove(s.s); if (W.arc) scene.remove(W.arc); }
   if (EM.cur === MT_WELD_EM) { EM.cur = null; F.mode = 'walk'; F.yaw = EM.yaw0; }
-  if (MT.torch) MT.torch.visible = false; if (MT.helm) MT.helm.style.opacity = '0'; if (MT.arcV) ramp(MT.arcV.g.gain, 0, 0.05);
+  if (MT.torch) MT.torch.visible = false; MT.wAt = null; if (MT.helm) MT.helm.style.opacity = '0'; if (MT.arcV) ramp(MT.arcV.g.gain, 0, 0.05);
   if (!quiet && MT.q && MT.q.kind === 'weld' && MT.q.who === MP.me) mtSend('mt:wstop');
 }
 // the seam being welded, in the world (bottom to top as it goes)
@@ -15536,7 +15550,9 @@ function mtWeldStep(dt) {
   const P = mtSeamAt(W.seam, W.prog * 0.45 + 0.005, _mtV);
   if (!W.arc) { W.arc = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([210, 230, 255], true), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); scene.add(W.arc); }
   W.arc.visible = held; W.arc.position.copy(P); const fl = 0.35 + Math.random() * 0.35; W.arc.scale.set(fl, fl, 1);
-  if (MT.torch) { MT.torch.visible = true; const [tu, tv] = mtUV(P.x, P.z); MT.torch.position.set(tu, P.y - (MT.ws ? 0 : 0) + 0.02, tv - 0.12); MT.torch.rotation.set(-0.6, 0, 0); }
+  (MT.wAt || (MT.wAt = new THREE.Vector3())).copy(P);
+  if (MT.torch) { const h = DAZZA.elR; if (MT.torch.parent !== h) h.add(MT.torch); MT.torch.visible = true; MT.torch.position.set(0, -0.3, 0.03);       // in his right hand
+    h.updateWorldMatrix(true, false); const loc = h.worldToLocal(_mtA.copy(P)).sub(MT.torch.position); if (loc.lengthSq() > 1e-6) MT.torch.quaternion.setFromUnitVectors(_mtZ, loc.normalize()); MT.torch.translateZ(0.11); }
   W.sparkT -= dt; if (held && W.sparkT <= 0) { W.sparkT = 0.03; let s = W.sparks.find(o => o.life <= 0); if (!s && W.sparks.length < 40) { s = { s: new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([255, 210, 120], true), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })), life: 0, v: new THREE.Vector3() }; scene.add(s.s); W.sparks.push(s); }
     if (s) { s.life = 0.35 + Math.random() * 0.4; s.s.position.copy(P); s.v.set((Math.random() - 0.5) * 3, Math.random() * 2.2, (Math.random() - 0.5) * 3); s.s.scale.set(0.05, 0.05, 1); s.s.visible = true; } }
   for (const s of W.sparks) { if (s.life <= 0) continue; s.life -= dt; s.v.y -= 9.8 * dt; s.s.position.addScaledVector(s.v, dt); s.s.visible = s.life > 0; }
@@ -16418,7 +16434,14 @@ function mmStorm(n, dt) {
     if (!R0.said) { R0.said = true; mmSay('rocketUte', 3.8, true); }          // (up off the deck if the bang floored him: now he says it)
     if (d < 4.5 && walkLOS(n.pos.x, n.pos.z, m.pos.x, m.pos.z)) { R0.ph = 'fight'; R0.ft = 0; R0.farT = 0; R0.hits = 0; n.atkPh = ''; n.atk = 0.5; n.st = 'brawl'; n.t = 0; SPK.allow = true; try { mmSay('mattFight', 2.6, true); } finally { SPK.allow = false; } return true; }
     n.st = 'mmStorm'; const sp = d > 30 ? 4.6 : 3.8;
-    if (npcGoTo(n, m.pos.x, m.pos.z, sp, dt, 3) === 'fail') npcWalk(n, faSteer(n, Math.atan2(dx, dz), 2), sp, dt, 8);
+    const out = MT.spot === 'meet' && (m.st === 'mtWalk' || m.st === 'mtBrace') && d < 60 && !walkLOS(n.pos.x, n.pos.z, m.pos.x, m.pos.z) && (R0.waitT || 0) < 20;
+    if (out) { const M0 = MT_SPOT.meet, side = Math.floor(R0.t / 2.5) % 2 ? 1.2 : -1.2;                                                 // just outside the door, pacing
+      const [wx, wz] = mtW(M0[0] + M0[2] * 2.8 + M0[3] * side, M0[1] + M0[3] * 2.8 - M0[2] * side), dw = Math.hypot(wx - n.pos.x, wz - n.pos.z);
+      if (dw < 6) R0.waitT = (R0.waitT || 0) + dt;
+      if (dw > 0.6) { if (npcGoTo(n, wx, wz, dw > 8 ? sp : 1.6, dt, 0.5) === 'fail') npcWalk(n, faSteer(n, Math.atan2(wx - n.pos.x, wz - n.pos.z), 2), dw > 8 ? sp : 1.6, dt, 8); }
+      else { npcFace(n, m.pos.x, m.pos.z, 4, dt); n.sp *= 0.7; }
+      R0.prog = 0; R0.best = d; }
+    else if (npcGoTo(n, m.pos.x, m.pos.z, sp, dt, 3) === 'fail') npcWalk(n, faSteer(n, Math.atan2(dx, dz), 2), sp, dt, 8);
     if (d < (R0.best || 1e9) - 0.5) { R0.best = d; R0.prog = 0; } else R0.prog = (R0.prog || 0) + dt;
     if (R0.prog > 3) { R0.prog = 0; R0.best = d; n.route = null;
       if (d > 26 && npcUnseen(n.pos.x, n.pos.z)) for (let k = 20; k < d - 6; k += 3) { const x = m.pos.x - dx * k / d, z = m.pos.z - dz * k / d; if (npcUnseen(x, z) && faFree(x, z, 0.6)) { npcHop(n, x, z); break; } } }
