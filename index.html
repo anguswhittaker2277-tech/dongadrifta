@@ -3211,13 +3211,14 @@ function lookApply(P, look) {
    Until the files arrive (or if they can't be fetched) everyone stays as they were.
    ================================================================ */
 const CH = { packs: {}, ready: false, list: new Set(), loading: null };
+const CH_ON = false;      // the rigged models are switched off: everyone wears the original blocky body (flip to true to bring them back)
 const CH_FILES = { m: 'assets/chars/chars_m.glb', w: 'assets/chars/chars_w.glb', hero: 'assets/chars/hero.glb' };
 const CH_DEF = { m: ['Farmer_Head', 'Farmer_Body', 'Farmer_Pants', 'Farmer_Feet'], w: ['Casual_Head', 'Casual_Body', 'Casual_Legs', 'Casual_Feet'] };
 const CH_BONES = { mod: { body: 'Hips', sp: ['Abdomen', 'Torso', 'Chest'], neck: 'Neck', head: 'Head', clav: ['ShoulderL', 'ShoulderR'], ua: ['UpperArmL', 'UpperArmR'], la: ['LowerArmL', 'LowerArmR'], hd: ['WristL', 'WristR'], ul: ['UpperLegL', 'UpperLegR'], ll: ['LowerLegL', 'LowerLegR'], ft: ['FootL', 'FootR'] },
   hero: { body: 'pelvis', sp: ['spine_01', 'spine_02', 'spine_03'], neck: 'neck_01', head: 'Head', clav: ['clavicle_l', 'clavicle_r'], ua: ['upperarm_l', 'upperarm_r'], la: ['lowerarm_l', 'lowerarm_r'], hd: ['hand_l', 'hand_r'], ul: ['thigh_l', 'thigh_r'], ll: ['calf_l', 'calf_r'], ft: ['foot_l', 'foot_r'] } };
 const chSlot = n => /_Head$/.test(n) ? 'hd' : /_Body$/.test(n) ? 'tp' : /_(Legs|Pants)$/.test(n) ? 'lg' : /_Feet$/.test(n) ? 'ft' : 'x';
 function chLoad() {
-  if (CH.loading) return CH.loading;
+  if (CH.loading) return CH.loading; if (!CH_ON) return (CH.loading = Promise.resolve());
   const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   CH.loading = Promise.all(Object.entries(CH_FILES).map(([k, url]) => new Promise((ok) => gl.load(url, g => ok([k, g]), undefined, () => ok([k, null]))))).then(res => {
     for (const [k, g] of res) { if (!g) continue;
@@ -8209,7 +8210,7 @@ function updateHud() {
    LOOP
    ================================================================ */
 const clock = new THREE.Clock();
-let ftAvg = 16, lowFor = 0, highFor = 0;
+let ftAvg = 16, lowFor = 0, highFor = 0; const PRA = { t: 0, upAt: -99, downAt: -99, cap: 9 };
 function frame() {
   const raw = clock.getDelta();
   let dt = Math.min(raw, 1 / 30);
@@ -8224,11 +8225,14 @@ function frame() {
     camera.position.set(0, 60, 120); camera.lookAt(0, 0, 0);
   }
   if (collider) { slodStep(); dtlStep(raw); mtTvRender(dt); }
+  // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down. It's changed BEFORE this frame is drawn (resizing the
+  // canvas clears it, and done after drawing that showed as a blank frame: a flicker), and once a step up has had to be taken back
+  // the ceiling stays down (on a 90/120 Hz screen it would otherwise bounce up and down every few seconds)
+  ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05; PRA.t += raw;
+  if (collider && ftAvg > 20 && pixelRatio > PR_MIN) { lowFor += raw; highFor = 0; if (lowFor > 2) { if (PRA.t - PRA.upAt < 15) PRA.cap = Math.min(PRA.cap, pixelRatio - 0.25); pixelRatio = Math.max(PR_MIN, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); lowFor = 0; PRA.downAt = PRA.t; } }
+  else { lowFor = 0; if (collider && ftAvg < 12.5 && pixelRatio < Math.min(DPR, PRA.cap) && PRA.t - PRA.downAt > 20) { highFor += raw; if (highFor > 8) { pixelRatio = Math.min(DPR, PRA.cap, pixelRatio + 0.25); renderer.setPixelRatio(pixelRatio); highFor = 0; PRA.upAt = PRA.t; } } else highFor = 0; }
+  if (RSZ.want) applyResize();
   fmxCine(raw); chStep(dt); renderer.render(scene, camera); bubDom();
-  // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down
-  ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05;
-  if (collider && ftAvg > 20 && pixelRatio > PR_MIN) { lowFor += raw; highFor = 0; if (lowFor > 2) { pixelRatio = Math.max(PR_MIN, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); lowFor = 0; } }
-  else { lowFor = 0; if (collider && ftAvg < 12.5 && pixelRatio < DPR) { highFor += raw; if (highFor > 8) { pixelRatio = Math.min(DPR, pixelRatio + 0.25); renderer.setPixelRatio(pixelRatio); highFor = 0; } } else highFor = 0; }
   window.__game.fps = 1000 / ftAvg;
 }
 renderer.setAnimationLoop(frame);
@@ -8375,10 +8379,15 @@ function slodStep() {
   }
 }
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight); placeStickHome(); placeStickRHome();
-});
+// a resize clears the canvas, so it's applied at the start of the next frame, right before that frame is drawn (done in the event, a
+// phone's address bar sliding about showed as blank frames: a flicker), and only when the size really changed
+const RSZ = { want: false, v: new THREE.Vector2() };
+addEventListener('resize', () => { RSZ.want = true; });
+function applyResize() {
+  RSZ.want = false; const w = innerWidth, h = innerHeight, sz = renderer.getSize(RSZ.v);
+  if (sz.x !== w || sz.y !== h) { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); }
+  placeStickHome(); placeStickRHome();
+}
 
 window.__au = () => ({ ctx: AU.ctx && AU.ctx.state, busy: AU.busy, eng: Object.keys(AU.eng), sr: AU.sr });
 /* ================================================================
@@ -10074,8 +10083,16 @@ function wpnDecal(mat, point, normal, size, parent, life) {
   const m = new THREE.Mesh(WMAT.decalGeo, mat); m.scale.setScalar(size);
   const nn = normal.clone(); m.position.copy(point).addScaledVector(nn, 0.012); m.lookAt(m.position.clone().add(nn)); m.rotateZ(Math.random() * 6.28);
   scene.add(m); if (parent && parent !== scene) parent.attach(m);
-  WPN.decals.push({ m, life: life || 0 }); if (WPN.decals.length > 220) { const o = WPN.decals.shift(); o.m.parent && o.m.parent.remove(o.m); }
+  // (each one's a draw call of its own: blood and bullet holes soak away after a while, and there are never more than 100, or the
+  //  game got slower with every fight and every death)
+  const ttl = life != null ? life : mat === WMAT.blood ? 45 : mat === WMAT.hole ? 60 : mat === WMAT.scorch ? 150 : 0;
+  WPN.decals.push({ m, ttl, age: 0, s: size }); if (WPN.decals.length > 100) { const o = WPN.decals.shift(); o.m.parent && o.m.parent.remove(o.m); }
   return m;
+}
+function wpnDecalAge(dt) {
+  WPN.decalT = (WPN.decalT || 0) + dt; if (WPN.decalT < 0.25) return; const st = WPN.decalT; WPN.decalT = 0;
+  for (let i = WPN.decals.length - 1; i >= 0; i--) { const o = WPN.decals[i]; if (!o.ttl || o.m.userData.bb) continue; o.age += st; const left = o.ttl - o.age;
+    if (left <= 0) { o.m.parent && o.m.parent.remove(o.m); WPN.decals.splice(i, 1); } else if (left < 3) o.m.scale.setScalar(o.s * left / 3); }
 }
 
 /* ---------- models: guns in the hand, the locker ---------- */
@@ -10820,7 +10837,7 @@ function wpnStep(dt) {
   dt = Math.min(dt, 0.05);
   siloStep(dt); wpnProjStep(dt); wpnFireStep(dt); wpnBoomStep(dt); wpnVehStep(dt); dmgStep(dt);
   wpnParts(WPN.spark, dt); wpnParts(WPN.chip, dt); wpnParts(WPN.flame, dt);
-  wpnParts(WPN.blood, dt, (k, x, y, z) => { if (Math.random() < 0.35) wpnSplat(x, y, z, 0.12 + Math.random() * 0.25); });
+  wpnParts(WPN.blood, dt, (k, x, y, z) => { if (Math.random() < 0.35) wpnSplat(x, y, z, 0.12 + Math.random() * 0.25); }); wpnDecalAge(dt);
   wpnParts(WPN.grain, dt);
   const T = WPN.tracer; let tr = false; for (let i = 0; i < 40; i++) if (T.life[i] > 0) { T.life[i] -= dt; tr = true; if (T.life[i] <= 0) { const A = T.m.geometry.attributes.position.array; A[i * 6 + 1] = A[i * 6 + 4] = -1e4; } } if (tr) T.m.geometry.attributes.position.needsUpdate = true;
   if (WPN.flashT > 0) { WPN.flashT -= dt; if (WPN.flashT <= 0) { WPN.flash.intensity = 0; WPN.flashS.visible = false; } }
@@ -10960,11 +10977,12 @@ function melTarget(r) {
   for (const n of NPC.list) { if (!npcAlive(n) || n.st === 'drive') continue; const d = Math.hypot(n.pos.x - F.pos.x, n.pos.z - F.pos.z); if (d < bd) { bd = d; best = n; } }
   return best;
 }
-function melCan() { if (typeof bpTapMode === 'function' && bpTapMode()) return true; if (typeof mtWelding === 'function' && mtWelding()) return true; return activeName === 'foot' && F.dead <= 0 && !wpnArmed() && (F.mode === 'walk' || F.mode === 'air' || !!MEL.cur); }
+function melCan() { if (typeof bpTapMode === 'function' && bpTapMode()) return true; if (typeof saLeilMode === 'function' && saLeilMode()) return true; if (typeof mtWelding === 'function' && mtWelding()) return true; return activeName === 'foot' && F.dead <= 0 && !wpnArmed() && (F.mode === 'walk' || F.mode === 'air' || !!MEL.cur); }
 function melPop(txt) { if (typeof motoPop === 'function') motoPop('<b>' + txt + '</b>', 1.1, 'pre'); }
 function melStart(btn = 'punch') {
   if (typeof mtWelding === 'function' && mtWelding()) return;                                                         // the torch: WELD is held (see MT.held)
   if (typeof bpTapMode === 'function' && bpTapMode()) { if (btn === 'punch') bpTap(); return; }         // bench day: it's SPOT, or PUSH
+  if (typeof saLeilMode === 'function' && saLeilMode()) { if (btn === 'punch') saAct('sa:water'); return; }      // in the sauna: it's LEIL
   if (btn === 'punch' && typeof bbNailTarget === 'function' && bbNailTarget()) { bbSwing(); return; }        // at the bunks with a sheet: it's the hammer
   if (wpnArmed() || activeName !== 'foot' || F.mode !== 'walk' || F.dead > 0) return;
   if (MEL.cur || MEL.cd > 0) { MEL.queued = btn; return; }
@@ -14019,7 +14037,7 @@ function snThink(n, dt) {
   const [px, pz, pyaw] = snPerch(), dP = Math.hypot(px - n.pos.x, pz - n.pos.z); SN.saidT -= dt; SN.cd -= dt; SN.moveT -= dt;
   const L = plList(), near = plNearest(n.pos.x, n.pos.z, true), dN = near ? Math.hypot(near.pos.x - n.pos.x, near.pos.z - n.pos.z) : 1e9;
   // who's been standing still, and how long
-  for (const q of L) { let s = SN.still.get(q.id); if (!s) SN.still.set(q.id, s = { x: q.pos.x, z: q.pos.z, t: 0 }); if (Math.hypot(q.pos.x - s.x, q.pos.z - s.z) > 1.0) { s.x = q.pos.x; s.z = q.pos.z; s.t = 0; } else s.t += dt; }
+  for (const q of L) { const qp = snPosOf(q); let s = SN.still.get(q.id); if (!s) SN.still.set(q.id, s = { x: qp.x, z: qp.z, t: 0 }); if (Math.hypot(qp.x - s.x, qp.z - s.z) > 0.6) { s.x = qp.x; s.z = qp.z; s.t = 0; } else s.t += dt; }
   // someone's walked right up: he's just a bloke out after a pig
   if (dN < 7.5) { SN.aim = null; n.st = 'snTalk'; npcFace(n, near.pos.x, near.pos.z, 5, dt); n.sp *= 0.8;
     if (SN.saidT <= 0) { SN.saidT = 20; const shot = (SN.hitAt.get(near.id) || -1e9) > NPC.t - 120; plWith(near, () => npcSay(n, npcPick(shot ? NPC_L.oops : NPC_L.hunt), 3.2)); } return true; }
@@ -14043,6 +14061,10 @@ function snThink(n, dt) {
   return true;
 }
 // anyone else about (NPCs on foot or in a car, other players): no witnesses, no shot
+// where a player really is: for someone on another phone, the newest position they've sent (their figure here trails it a little,
+// and a shot decided on that would catch them after they'd already moved off)
+const _snP = new THREE.Vector3();
+function snPosOf(q) { const b = q.p && q.p.buf, last = b && b[b.length - 1]; if (!q.veh && last && last.r) return _snP.set(last.r[0], last.r[1], last.r[2]); return _snP.copy(q.pos); }
 function snCompany(n, q, L) {
   const R = 18; if (NPC.list.some(m => m !== n && npcAlive(m) && Math.hypot(m.pos.x - q.pos.x, m.pos.z - q.pos.z) < R)) return true;
   return (L || plList()).some(o => o.id !== q.id && !o.dead && Math.hypot(o.pos.x - q.pos.x, o.pos.z - q.pos.z) < R); }
@@ -14051,7 +14073,7 @@ function snAim(n, dt) {
   A.t += dt; npcFace(n, A.x, A.z, 6, dt); if (A.t < 2.0) return;
   // the shot: anyone who's stayed put in the open cops it; anyone who's moved gets a puff of dirt by their feet
   SN.aim = null; SN.cd = 9; n.st = 'snPerch'; const s = SN.still.get(q.id); if (s) s.t = 0;
-  const m = snEye(n, new THREE.Vector3()); m.y += 0.05; const stay = Math.hypot(q.pos.x - A.x, q.pos.z - A.z) < 1.1, clear = snSees(n, q.pos.x, q.pos.y + 1.2, q.pos.z), hit = stay && clear;
+  const m = snEye(n, new THREE.Vector3()); m.y += 0.05; const qp = snPosOf(q), stay = Math.hypot(qp.x - A.x, qp.z - A.z) < 0.8, clear = snSees(n, q.pos.x, q.pos.y + 1.2, q.pos.z), hit = stay && clear;
   const tgt = hit ? new THREE.Vector3(q.pos.x, q.pos.y + 1.2, q.pos.z) : new THREE.Vector3(A.x + (Math.random() - 0.5) * 1.5, groundAt(A.x, A.z, A.y + 1, A.y - 2) + 0.05, A.z + (Math.random() - 0.5) * 1.5);
   if (typeof wpnFlashAt === 'function') wpnFlashAt(m); if (typeof wpnTracer === 'function' && WPN.tracer) wpnTracer(m, tgt);
   playAt(typeof sndPick === 'function' ? sndPick('g_sniper') : AU.buf.g_sniper, m, 1, 0.97, 110);           // heard right across the farm (not through the local relay)
@@ -15539,6 +15561,14 @@ function wlBuild() {
   legs(1.0, 0.75); legs(1.9, 0.75); const bar = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.06), M.barkD); bar.position.set(1.45, 0.78, 0.75); st.add(bar);
   WL.roundsG = new THREE.Group(); WL.roundsG.position.set(0.9, 0, -0.55); st.add(WL.roundsG);
   WL.pileG = new THREE.Group(); WL.pileG.position.set(-0.95, 0, -0.35); st.add(WL.pileG);
+  // the round up on the block waiting for the axe (cut face up), and the two halves it bursts into
+  const onB = new THREE.Group(); onB.position.y = 0.462; onB.visible = false; st.add(onB); WL.onBlock = onB;
+  const rnd = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.15, 0.36, 12), M.bark); rnd.position.y = 0.18; onB.add(rnd);
+  const rf = new THREE.Mesh(new THREE.CircleGeometry(0.135, 12), M.cut); rf.rotation.x = -Math.PI / 2; rf.position.y = 0.362; onB.add(rf);
+  WL.halves = [1, -1].map(sd => { const p = new THREE.Group(); p.visible = false; st.add(p);
+    const h = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.15, 0.36, 10, 1, false, sd > 0 ? 0 : Math.PI, Math.PI), M.split); h.position.set(0, 0.18, 0); p.add(h);
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(0.29, 0.36), M.split); f.rotation.y = Math.PI / 2; f.position.set(0, 0.18, 0); p.add(f); return { p, sd }; });
+  WL.splitT = 0;
   st.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const bp = addPart(group, { kind: 'wltree', obj: blk, fixed: true }); boxPart(bp, new THREE.Vector3(S0.x, gy + 0.23, S0.z), eXw, eYw, eZw, 0.3, 0.23, 0.3);
   // the log you drag, and the marker over whatever's next
@@ -15656,7 +15686,15 @@ function wlStep(dt) {
   if (showLog) { const L = q.log, ya = groundAt(L[0], L[1], 30, 0) + 0.15, yb = groundAt(L[2], L[3], 30, 0) + 0.13;
     WL.log.position.set((L[0] + L[2]) / 2, (ya + yb) / 2, (L[1] + L[3]) / 2); WL.log.quaternion.setFromUnitVectors(eYw, _w3.set(L[0] - L[2], ya - yb, L[1] - L[3]).normalize()); }
   // the rounds waiting by the block, and the split pile
-  const rounds = q && q.step === 'split' ? WL.ROUNDS - (q.split || 0) : 0, pile = q && ['split', 'light', 'heat', 'sweat', 'plunge'].includes(q.step) ? (q.split || 0) : 0;
+  const left = q && q.step === 'split' ? WL.ROUNDS - (q.split || 0) : 0, rounds = Math.max(0, left - 1), pile = q && ['split', 'light', 'heat', 'sweat', 'plunge'].includes(q.step) ? (q.split || 0) : 0;
+  if (WL.onBlock) { const was = WL.lastSplit == null ? (q ? q.split || 0 : 0) : WL.lastSplit, now = q ? q.split || 0 : 0;
+    if (q && now > was && (q.step === 'split' || q.step === 'light')) WL.splitT = 0.001; WL.lastSplit = now;          // (that one's through: it bursts)
+    if (WL.splitT > 0) { WL.splitT += dt; const u = Math.min(1, WL.splitT / 0.45);
+      const drop = THREE.MathUtils.clamp((WL.splitT - 0.3) / 0.25, 0, 1);                                                   // tipping out over the edges, then off onto the dirt
+      for (const H of WL.halves) { H.p.visible = WL.splitT < 1.4; H.p.position.set(H.sd * (0.04 + 0.32 * u), 0.462 * (1 - drop * drop), 0); H.p.rotation.z = -H.sd * 1.45 * u; }
+      if (WL.splitT >= 1.4) { WL.splitT = 0; for (const H of WL.halves) H.p.visible = false; } }
+    WL.onBlock.visible = left > 0 && WL.splitT === 0 || (left > 0 && WL.splitT > 0.6);                                  // (the next one goes up once the halves are off)
+    if (WL.onBlock.visible && WL.hitIn > 0 && WL.hitA === 'split') WL.onBlock.rotation.z = Math.sin(WL.t * 60) * 0.02; else WL.onBlock.rotation.z = 0; }
   if (rounds !== WL.shown.rounds) { WL.shown.rounds = rounds; while (WL.roundsG.children.length) WL.roundsG.remove(WL.roundsG.children[0]);
     for (let k = 0; k < rounds; k++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.15, 0.36, 10), WL.mats.bark); r.position.set((k % 2) * 0.34, 0.18 + Math.floor(k / 2) * 0.36, (k % 3) * 0.05); r.castShadow = true; WL.roundsG.add(r); } }
   if (pile !== WL.shown.pile) { WL.shown.pile = pile; while (WL.pileG.children.length) WL.pileG.remove(WL.pileG.children[0]);
@@ -15765,6 +15803,13 @@ function saSoloTick(dt) {
   SA.solo = { t: 45 + Math.random() * 25 }; SA.lit = true; SA.litT = Math.max(SA.litT, 90); dmSay(n, 'talk');
 }
 function saSoloEnd() { SA.solo = null; }
+// in the sauna with the stove going: the big round button (where FIRE sits) throws the leil, and there's no jumping about
+function saLeilMode() { return !!SA.root && SA.lit && activeName === 'foot' && F.dead <= 0 && saInside(F.pos) && (F.mode === 'walk' || F.mode === 'air' || saSitting() === 'bench') && !(typeof wpnArmed === 'function' && wpnArmed()); }
+function saPunchLabel() {
+  const inn = !!SA.root && activeName === 'foot' && saInside(F.pos), on = inn && saLeilMode(); document.body.classList.toggle('saIn', inn); document.body.classList.toggle('saLeil', on);
+  if (!SA.leilCss) { SA.leilCss = true; const st = document.createElement('style'); st.textContent = 'body.saIn #jump,body.saLeil #mKick,body.saLeil #mHead{display:none!important}#mPunch.leil{background:rgba(52,128,190,.92)}'; document.head.appendChild(st); }
+  const el = $('mPunch'); if (!el || SA.punchOn === on) return; SA.punchOn = on; const sp = el.querySelector('span'); if (sp) sp.textContent = on ? 'LEIL' : 'PUNCH'; el.classList.toggle('leil', on); el.setAttribute('aria-label', on ? 'Throw water on the rocks' : 'Punch');
+}
 function saActions(items) {
   if (!SA.root) return;
   if (saTalkable() && !seqBusy()) items.push({ id: 'sa:talk', label: 'Talk to Dima', cls: 'warn' });
@@ -15777,7 +15822,7 @@ function saActions(items) {
   if (saInside(F.pos)) {
     const noWood = SA.q && ['chop', 'fell', 'drag', 'split'].includes(SA.q.step);
     if (!SA.lit) items.push({ id: 'sa:light', label: noWood ? 'No firewood yet' : wq && wq.step === 'light' ? 'Load the firewood & light it' : 'Light the stove', cls: 'warn' });
-    else items.push({ id: 'sa:water', label: 'Throw water on the rocks', cls: 'warn' });
+    else if (!saLeilMode()) items.push({ id: 'sa:water', label: 'Throw water on the rocks', cls: 'warn' });      // (otherwise it's the big LEIL button)
     items.push(sit ? { id: 'sa:stand', label: 'Stand up', cls: 'dark' } : { id: 'sa:sit', label: 'Sit on the bench', cls: 'warn' });
   }
   if (!sit && F.mode === 'walk' && Math.hypot(F.pos.x - SA.tub.x, F.pos.z - SA.tub.z) < SA.tub.R + 1.1) items.push({ id: 'sa:tub', label: 'Get in the cold tub', cls: 'warn' });
@@ -15826,7 +15871,7 @@ function saPuff(burst) { const p = SA.puffs.find(p => p.life <= 0); if (!p) retu
   const [sx, sz] = saW(0.85 + (Math.random() - 0.5) * 0.3, 0.55 + (Math.random() - 0.5) * 0.3), c = Math.cos(SA.yaw); p.sp.position.set(sx, SA.gy + SA.fl + 0.75, sz);
   p.v = new THREE.Vector3(c * ((Math.random() - 0.5) * 0.5 - (burst ? 0.4 : 0.1)), burst ? 0.9 : 0.35, c * ((Math.random() - 0.5) * 0.5 - (burst ? 0.35 : 0.1))); p.burst = burst; p.sp.visible = true; }
 function saStep(dt) {
-  if (!SA.root) return; dt = Math.min(dt, 0.05);
+  if (!SA.root) return; dt = Math.min(dt, 0.05); saPunchLabel();
   if (!DM.ready && NPC.ready && DG.root) dmBuild();
   if (SA.lit) { SA.litT -= dt; if (SA.litT <= 0 && !SA.q && !SA.solo) SA.lit = false; }
   SA.temp += ((SA.lit ? 86 : 24) - SA.temp) * Math.min(1, dt / (SA.lit ? 20 : 45)); SA.steam = Math.max(0, SA.steam - dt * 0.22);
