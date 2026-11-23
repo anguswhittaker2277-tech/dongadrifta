@@ -86,13 +86,6 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
 
 They were trimmed, layered, compressed and level-matched, and converted to MP3 here.
 
-## Character credits
-
-The people are Quaternius' [Ultimate Modular Men](https://quaternius.com/packs/ultimatemodularcharacters.html),
-[Ultimate Modular Women](https://quaternius.com/packs/ultimatemodularwomen.html) and, for Dima,
-[Universal Base Characters](https://quaternius.com/packs/universalbasecharacters.html), all
-[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). See `tools/chars/README.md` for how they were converted.
-
 ## Voice credits
 
 Madman's, the backpackers' and Dima's voices were generated with [Kokoro-82M](https://github.com/hexgrad/kokoro)
