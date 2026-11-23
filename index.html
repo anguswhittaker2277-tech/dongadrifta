@@ -11071,12 +11071,12 @@ const MEL_OUCH = {
   jab: ['Ow, the knuckles', 'That’s tin, mate'], cross: ['Ow, the knuckles', 'That’s tin, mate'], upper: ['Uppercut a steel beam. Smart.', 'Ow ow ow'],
   kick: ['Tornado-kicked a post. Ow.', 'Something went crunch. It was you'], head: ['Headbutted it. Genius.', 'Seeing stars'],
 };
-const melAnimals = () => FA.pigs.filter(a => a.st !== 'down' && a.st !== 'tumble').concat(FA.wal || []).concat(NPC.list.filter(n => (npcAlive(n) || n.st === 'ko' || n.st === 'down') && n.st !== 'drive'));      // (someone lying there can still cop one: it wakes them up)
+const melAnimals = () => FA.pigs.filter(a => a.st !== 'down' && a.st !== 'tumble').concat(FA.wal || []).concat(NPC.list.filter(n => npcAlive(n) && n.st !== 'drive'));
 function melTarget(r) {
   if (activeName !== 'foot' || F.mode !== 'walk' || F.dead > 0) return null;
   let best = null, bd = r;
   for (const a of FA.pigs) { if (a.st === 'down' || a.st === 'tumble') continue; const d = Math.hypot(a.pos.x - F.pos.x, a.pos.z - F.pos.z); if (d < bd) { bd = d; best = a; } }
-  for (const n of NPC.list) { if ((!npcAlive(n) && n.st !== 'ko' && n.st !== 'down') || n.st === 'drive') continue; const d = Math.hypot(n.pos.x - F.pos.x, n.pos.z - F.pos.z); if (d < bd) { bd = d; best = n; } }      // (someone lying there can still cop one)
+  for (const n of NPC.list) { if (!npcAlive(n) || n.st === 'drive') continue; const d = Math.hypot(n.pos.x - F.pos.x, n.pos.z - F.pos.z); if (d < bd) { bd = d; best = n; } }
   return best;
 }
 function melCan() { if (typeof bpTapMode === 'function' && bpTapMode()) return true; if (typeof saLeilMode === 'function' && saLeilMode()) return true; if (typeof mtWelding === 'function' && mtWelding()) return true; return activeName === 'foot' && F.dead <= 0 && !wpnArmed() && (F.mode === 'walk' || F.mode === 'air' || !!MEL.cur); }
@@ -12352,8 +12352,6 @@ function npcActions(items) {
 // melee hooks: they take a punch like anyone else
 function npcHit(n, kind, M) {
   const dx = n.pos.x - F.pos.x, dz = n.pos.z - F.pos.z, d = Math.hypot(dx, dz) || 1, nx = dx / d, nz = dz / d;
-  if (n.st === 'ko' || n.st === 'down') { n.angry = true; n.wakeAngry = true; if (n.mm) mmHurt(n, 'hit'); if (n.st === 'ko') n.t = Math.max(n.t, 7.2);      // lying there: a boot wakes him up, and he's not happy about it
-    if (typeof sfx === 'function') sfx('m_punch', _w1.set(n.pos.x, n.pos.y + 0.3, n.pos.z), 0.6, 0.85, 8); npcSay(n, npcPick(NPC_L.hurt), 2); return; }
   n.hp -= M.dmg; n.angry = true; if (n.mm) mmHurt(n, 'hit'); if (n.st === 'drive') { npcEject(n, 'kick'); return; }
   if (typeof sfx === 'function') sfx('m_punch', _w1.set(n.pos.x, n.pos.y + 1.2, n.pos.z), M.big ? 1 : 0.75, 0.9 + Math.random() * 0.2, 9); camShake = Math.max(camShake, M.big ? 0.35 : 0.16);
   if (n.hp <= 0) { n.hp = 0; n.vel.set(nx * (M.push + 1), (M.lift || 1.8) + 1.2, nz * (M.push + 1)); n.st = 'tumble'; n.t = 0; n.spinT = 6; n.ko = true; npcSay(n, npcPick(NPC_L.ko), 3.5); return; }
@@ -12386,7 +12384,7 @@ function npcThink(n, dt) {
     return;
   }
   if (n.st === 'down') { n.tilt = -1.5; if (n.t > 1.3) { n.st = 'getup'; n.t = 0; } return; }
-  if (n.st === 'ko') { n.tilt = -1.5; if (n.t > 9) { const mad = !!n.wakeAngry; n.wakeAngry = false; n.st = 'getup'; n.t = 0; n.hp = mad ? 45 : 25; n.angry = mad; n.ko = false; n.fleeT = mad ? 0 : 7; } return; }      // (woken with a boot: up and after you)      // (back up: not knocked out any more, so Matt and co. can be talked to again)
+  if (n.st === 'ko') { n.tilt = -1.5; if (n.t > 9) { n.st = 'getup'; n.t = 0; n.hp = 25; n.angry = false; n.ko = false; n.fleeT = 7; } return; }      // (back up: not knocked out any more, so Matt and co. can be talked to again)
   if (n.st === 'getup') { n.tilt += (0 - n.tilt) * Math.min(1, dt * 7); if (n.t > 0.8) { n.tilt = 0; n.st = n.fleeT ? 'flee' : (n.angry && n.hp > 0 ? 'chase' : 'wander'); n.t = 0; if (n.st === 'chase' && F.dead <= 0) npcSay(n, npcPick(NPC_L.angry)); } return; }
   n.tilt = 0;
   if (n.st === 'stag') { n.pos.x += n.vel.x * dt; n.pos.z += n.vel.z * dt; n.vel.multiplyScalar(Math.exp(-7 * dt)); if (!faWalk(n.pos.x, n.pos.z)) { n.pos.x -= n.vel.x * dt; n.pos.z -= n.vel.z * dt; }
