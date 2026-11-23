@@ -3246,7 +3246,7 @@ function chParts(L) {
 function chAttach(P, look) {
   CH.list.add(P); P.chWant = look; if (!CH.ready) return false;
   const hero = !!(look && look.hero), want = hero ? { k: 'hero' } : chParts(lookFix(look || {})), pk = CH.packs[want.k]; if (!pk) return false;
-  if (P.ch) { P.root.remove(P.ch.root); P.ch = null; }
+  if (P.ch) { P.root.remove(P.ch.root); P.ch.root.traverse(o => { if (o.isMesh && o.geometry.userData.chOwn) o.geometry.dispose(); }); P.ch = null; }
   const root = skelClone(pk.scene), keep = new Set(hero ? [] : [want.hd, want.tp, want.lg, want.ft].concat(want.bp ? ['Backpack'] : []));
   const L = hero ? null : lookFix(look), skin = L ? new THREE.Color(LK.skin[L.skin]) : null, hair = L ? new THREE.Color(LK.hair[L.hc]) : null;
   const tint = (q) => { if (!L) return q; if (q.name === 'Skin') { const c = q.clone(); c.color.copy(skin); return c; } if (q.name === 'Hair') { const c = q.clone(); c.color.copy(hair); return c; } return q; };
@@ -3258,7 +3258,7 @@ function chAttach(P, look) {
   const relQ = (o) => { const q = new THREE.Quaternion(); rel(o).decompose(new THREE.Vector3(), q, new THREE.Vector3()); return q; }, relP = (o) => new THREE.Vector3().setFromMatrixPosition(rel(o));
   let sides = [0, 1]; if (B[map.ua[0]] && relP(B[map.ua[0]]).x < 0) sides = [1, 0];      // (the left arm is the one on +x, where the old rig's left is)
   const J = []; const add = (name, seg, corrFrom, extra) => { const b = B[name]; if (!b) return; J.push(Object.assign({ b, seg, W0: relQ(b), C: new THREE.Quaternion(), q0: b.quaternion.clone(), p0: b.position.clone() }, extra || {})); };
-  add(map.body, 'body'); map.sp.forEach((n, i) => add(n, 'spine', null, { t: (i + 1) / map.sp.length })); add(map.neck, 'neck'); add(map.head, 'head');
+  add(map.body, 'body'); map.sp.forEach((n, i) => add(n, 'spine', null, { t: [0.75, 0.95, 1][i] == null ? 1 : [0.75, 0.95, 1][i] }));      // (the old torso is one block hinged at the waist: the lower spine takes most of the bend) add(map.neck, 'neck'); add(map.head, 'head');
   for (const [si, side] of [[0, 'L'], [1, 'R']]) { const ix = sides[si];
     add(map.clav[ix], 'torso'); add(map.ua[ix], 'sh' + side); add(map.la[ix], 'el' + side); add(map.hd[ix], 'el' + side); add(map.ul[ix], 'hip' + side); add(map.ll[ix], 'knee' + side); add(map.ft[ix], 'knee' + side); }
   // limbs: the old rig's rest pose has arms and legs hanging straight down; turn each bone from its bind direction to that
@@ -3266,7 +3266,7 @@ function chAttach(P, look) {
   for (const side of [0, 1]) { const ix = sides[side];
     const ca = dirOf(B[map.ua[ix]], B[map.la[ix]]), cl = dirOf(B[map.la[ix]], B[map.hd[ix]]), cu = dirOf(B[map.ul[ix]], B[map.ll[ix]]), ck = dirOf(B[map.ll[ix]], B[map.ft[ix]]);
     for (const j of J) { if (j.b.name === map.ua[ix] && ca) j.C.setFromUnitVectors(ca, down); if ((j.b.name === map.la[ix] || j.b.name === map.hd[ix]) && cl) j.C.setFromUnitVectors(cl, down);
-      if (j.b.name === map.ul[ix] && cu) j.C.setFromUnitVectors(cu, down); if ((j.b.name === map.ll[ix] || j.b.name === map.ft[ix]) && ck) j.C.setFromUnitVectors(ck, down); } }
+      if (j.b.name === map.ul[ix] && cu) j.C.setFromUnitVectors(cu, down); if (j.b.name === map.ll[ix] && ck) j.C.setFromUnitVectors(ck, down); } }      // (the feet keep their own rest turn: flat when the old shin is upright)
   // every bone between the model's root and these, in order, so world rotations can be worked out top-down without matrices
   const ord = []; const seen = new Set(); const up = (b) => { if (!b || !b.isBone || seen.has(b)) return; up(b.parent); seen.add(b); ord.push(b); }; J.forEach(j => up(j.b));
   const top = ord[0] && ord[0].parent, topQ = top ? relQ(top) : new THREE.Quaternion();
@@ -3277,28 +3277,114 @@ function chAttach(P, look) {
   const relax = []; if (pk.clips.Idle) { const keepQ = new Map(); root.traverse(b => { if (b.isBone) keepQ.set(b, b.quaternion.clone()); });
     const a = mixer.clipAction(pk.clips.Idle); a.play(); mixer.update(0.05); root.traverse(b => { if (b.isBone && !jb.has(b) && /Thumb|Index|Middle|Ring|Pinky/.test(b.name)) relax.push([b, b.quaternion.clone()]); });
     a.stop(); mixer.uncacheAction(pk.clips.Idle); for (const [b, q] of keepQ) b.quaternion.copy(q); }
-  P.ch = { root, B, J, ord, jb, topQ, hips, hipsParentScale, mixer, pk, act: null, clip: null, w: 1, hero, relax, hand: B[map.hd[sides[1]]] };
+  // what the reaching and anchoring need: each limb's bones, how high the ankles sit over the soles, where the hip joints are
+  const limb = (a, b, c) => [B[a], B[b], B[c]], L0 = sides[0], R0 = sides[1];
+  const limbs = { clavL: B[map.clav[L0]], clavR: B[map.clav[R0]], armL: limb(map.ua[L0], map.la[L0], map.hd[L0]), armR: limb(map.ua[R0], map.la[R0], map.hd[R0]), legL: limb(map.ul[L0], map.ll[L0], map.ft[L0]), legR: limb(map.ul[R0], map.ll[R0], map.ft[R0]) };
+  const hA = Math.max(0.02, relP(limbs.legL[2]).y), hipsRest = hips ? relP(hips.b) : new THREE.Vector3(), hpInv = hips ? rel(hips.b.parent).invert() : new THREE.Matrix4();
+  const hipJointOff = relP(limbs.legL[0]).add(relP(limbs.legR[0])).multiplyScalar(0.5).sub(hipsRest);
+  const legLen = [limbs.legL, limbs.legR].map(([a, b, c]) => a && b && c ? [relP(b).distanceTo(relP(a)), relP(c).distanceTo(relP(b))] : [0.47, 0.5]);
+  const hipOff = [limbs.legL, limbs.legR].map(([a]) => a ? relP(a).sub(hipsRest) : new THREE.Vector3());
+  const hj = J.find(j => j.b === limbs.armR[2]), handR0 = hj ? new THREE.Quaternion().multiplyQuaternions(hj.C, hj.W0).invert() : new THREE.Quaternion();
+  // the middle of the right palm, on the hand bone (what's held goes there)
+  const hb = limbs.armR[2], fg = hb && hb.children.find(c => /middle/i.test(c.name)), palm = new THREE.Vector3();
+  if (hb && fg) { const w0 = relP(hb), pr = relP(fg).sub(w0).normalize().multiplyScalar(CH_PALM).add(w0); palm.copy(hb.worldToLocal(P.root.localToWorld(pr))); }
+  const cq = ord.map(() => new THREE.Quaternion());
+  // (the modular rigs' feet hang off the root, not the shins: they're carried on the shins here, as at rest)
+  const feet = [limbs.legL, limbs.legR].map(([, lb, fb]) => { if (!lb || !fb || fb.parent === lb) return null; return { lb, fb, off: lb.worldToLocal(fb.getWorldPosition(new THREE.Vector3())), p0: fb.position.clone() }; });
+  P.ch = { root, B, J, ord, jb, topQ, hips, hipsParentScale, mixer, pk, act: null, clip: null, w: 1, hero, relax, hand: limbs.armR[2], limbs, hA, hipsRest, hpInv, hipJointOff, handR0, palm, cq, cp: new THREE.Vector3(), feet, legLen, hipOff, fp: [new THREE.Vector3(), new THREE.Vector3()], rf: 0, s: 0 };
   chBuild(P, L); chHideOld(P); return true;
 }
-// weight and muscle: the belly, the arms and the legs thicken (each bone across its length, never along it)
+// weight and muscle: the belly, the arms and the legs thicken, by moving the model's own vertices out from each bone's line once
+// (scaling the bones would stretch the forearms and shins whenever an elbow or knee bends)
 function chBuild(P, L) {
-  const C = P.ch; if (!C || !L) return; const w = L.w, m = L.m, set = (b, s, inv) => { if (!b || !b.children[0]) return; const d = b.children.find(c => c.isBone); if (!d) return; const a = d.position.clone(), ax = Math.abs(a.x) > Math.abs(a.y) ? (Math.abs(a.x) > Math.abs(a.z) ? 'x' : 'z') : (Math.abs(a.y) > Math.abs(a.z) ? 'y' : 'z');
-    b.scale.set(ax === 'x' ? 1 : s, ax === 'y' ? 1 : s, ax === 'z' ? 1 : s); if (inv) d.scale.set(ax === 'x' ? 1 : 1 / s, ax === 'y' ? 1 : 1 / s, ax === 'z' ? 1 : 1 / s); };
-  const B = C.B; set(B.Abdomen, 0.88 + 0.3 * w, true); set(B.UpperArmL, 0.9 + 0.12 * w + 0.32 * m); set(B.UpperArmR, 0.9 + 0.12 * w + 0.32 * m); set(B.UpperLegL, 0.92 + 0.14 * w + 0.18 * m); set(B.UpperLegR, 0.92 + 0.14 * w + 0.18 * m);
+  const C = P.ch; if (!C || !L) return; const w = L.w, m = L.m, B = C.B;
+  const want = new Map([[B.Abdomen, 0.88 + 0.3 * w], [B.UpperArmL, 0.9 + 0.12 * w + 0.32 * m], [B.UpperArmR, 0.9 + 0.12 * w + 0.32 * m], [B.UpperLegL, 0.92 + 0.14 * w + 0.18 * m], [B.UpperLegR, 0.92 + 0.14 * w + 0.18 * m]].filter(([b, k]) => b && Math.abs(k - 1) > 0.01));
+  if (!want.size) return;
+  const M = new THREE.Matrix4(), hd = new THREE.Vector3(), tl = new THREE.Vector3(), v = new THREE.Vector3(), off = new THREE.Vector3(), mv = new THREE.Vector3();
+  C.root.traverse(o => { if (!o.isSkinnedMesh) return; const sk = o.skeleton, lines = [];
+    sk.bones.forEach((b, i) => { const k = want.get(b); if (!k) return; const kid = b.children.find(c => c.isBone && sk.bones.includes(c)); if (!kid) return;
+      M.copy(sk.boneInverses[i]).invert(); const h = new THREE.Vector3().setFromMatrixPosition(M); M.copy(sk.boneInverses[sk.bones.indexOf(kid)]).invert(); const t = new THREE.Vector3().setFromMatrixPosition(M);
+      lines[i] = { h, d: t.sub(h).normalize(), k }; });
+    if (!lines.length) return;
+    const g = o.geometry.clone(), q = g.attributes.position, f = new Float32Array(q.count * 3); g.userData.chOwn = true;      // (the packs store positions as small integers: room to grow needs floats)
+    for (let i = 0; i < q.count; i++) { f[i * 3] = q.getX(i); f[i * 3 + 1] = q.getY(i); f[i * 3 + 2] = q.getZ(i); }
+    const pos = new THREE.BufferAttribute(f, 3); g.setAttribute('position', pos); const si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+    for (let i = 0; i < pos.count; i++) { mv.set(0, 0, 0); let any = false;
+      for (let j = 0; j < 4; j++) { const wt = sw.getComponent(i, j), ln = wt > 0 && lines[si.getComponent(i, j)]; if (!ln) continue;
+        v.fromBufferAttribute(pos, i).sub(ln.h); off.copy(v).addScaledVector(ln.d, -v.dot(ln.d)); mv.addScaledVector(off, (ln.k - 1) * wt); any = true; }
+      if (any) { v.fromBufferAttribute(pos, i).add(mv); pos.setXYZ(i, v.x, v.y, v.z); } }
+    o.geometry = g; });
 }
 // the blocky body hides (its pivots stay, invisible, to be posed); what's held in a hand (a tinnie, a gun) and the drone remote stay
 function chHideOld(P) {
   if (!P.ch) return;
   for (const k of ['body', 'torso', 'head', 'glasses', 'hat', 'shL', 'shR', 'elL', 'elR', 'hipL', 'hipR', 'kneeL', 'kneeR']) { const o = P[k]; if (!o) continue;
-    for (const c of o.children) { if (c === P.can || c === P.remote || c === P.ch.root) continue; if (c.isMesh || (c.userData && c.userData.chHide)) c.traverse(m => { if (m.isMesh) m.visible = false; }); } }
+    for (const c of o.children) { if (c === P.can || c === P.remote || c === P.ch.root) continue; if (c.isMesh || (c.userData && c.userData.chHide)) c.traverse(m => { if (m.isMesh && m.visible) { m.visible = false; (P.chOld || (P.chOld = new Set())).add(m); } }); } }
 }
 // a character's walk / run / idle clip (or null for the hand-made pose); rate scales the clip's speed
 const chSnapOf = (P, out) => { const r = [P.shL.rotation.x, P.shL.rotation.z, P.shR.rotation.x, P.shR.rotation.z, P.elL.rotation.x, P.elR.rotation.x, P.hipL.rotation.x, P.hipR.rotation.x, P.kneeL.rotation.x, P.kneeR.rotation.x, P.torso.rotation.x, P.torso.rotation.y, P.head.rotation.x];
   if (!out) return r; for (let i = 0; i < r.length; i++) out[i] = r[i]; return out; };
+// how fast each pack's walk and run carry it over the ground (character units a second, off the planted foot), so the clip
+// plays at the speed the character is really going and the feet don't skate
+const CH_GAIT = { m: { Walk: 1.48, Run: 3.25 }, w: { Walk: 1.14, Run: 3.26 } };
+function chRate(P, name, sp) { const C = P.ch, g = C && CH_GAIT[C.pk.k] && CH_GAIT[C.pk.k][name]; return g ? THREE.MathUtils.clamp(sp / (g * P.root.scale.x), 0.5, 2.2) : 1; }
 function chClip(P, name, rate) { P.chClip = name; P.chRate = rate || 1; P.chSnap = chSnapOf(P, P.chSnap); }
-const _chQ = new THREE.Quaternion(), _chQ2 = new THREE.Quaternion(), _chQ3 = new THREE.Quaternion(), _chV = new THREE.Vector3(), _chV2 = new THREE.Vector3();
+const CH_PALM = 0.07, CH_HP = new THREE.Vector3(0, -0.28, 0.02);      // how far the palm's middle is past the wrist; the old fist, on the old forearm
+const CH_REACH_ST = new Set(['lean', 'bpLie', 'bpSpot', 'mtPush', 'bbCarry', 'bbNail', 'dmWood', 'snAim', 'snPerch', 'snMove']);      // NPC poses that hold or lean on something
+// how much a character's hands should go to exactly where the old rig's hands were (a wheel, a bar, a bench, a ladder): 0..1
+function chReach(P, v) { P.chReachT = v; }
+const _chQ = new THREE.Quaternion(), _chQ2 = new THREE.Quaternion(), _chQ3 = new THREE.Quaternion(), _chV = new THREE.Vector3(), _chV2 = new THREE.Vector3(), _chV3 = new THREE.Vector3();
 const _chSeg = {}; for (const k of ['body', 'torso', 'head', 'shL', 'shR', 'elL', 'elR', 'hipL', 'hipR', 'kneeL', 'kneeR']) _chSeg[k] = new THREE.Quaternion();
 const _chWR = new Map();
+// the old rig's joints, relative to the character (worked out from its pivots, no matrices)
+const CHO = {}; for (const k of ['torso', 'shL', 'shR', 'elL', 'elR', 'haL', 'haR', 'hiL', 'hiR', 'knL', 'knR', 'anL', 'anR', 'hipMid']) CHO[k] = new THREE.Vector3();
+function chOld(P, C, S) {
+  const O = CHO, b = P.body.position;
+  O.torso.copy(P.torso.position).applyQuaternion(S.body).add(b);
+  O.shL.copy(P.shL.position).applyQuaternion(S.torso).add(O.torso); O.shR.copy(P.shR.position).applyQuaternion(S.torso).add(O.torso);
+  O.elL.copy(P.elL.position).applyQuaternion(S.shL).add(O.shL); O.elR.copy(P.elR.position).applyQuaternion(S.shR).add(O.shR);
+  O.haL.set(0, -0.28, 0.02).applyQuaternion(S.elL).add(O.elL); O.haR.set(0, -0.28, 0.02).applyQuaternion(S.elR).add(O.elR);
+  O.hiL.copy(P.hipL.position).applyQuaternion(S.body).add(b); O.hiR.copy(P.hipR.position).applyQuaternion(S.body).add(b);
+  O.knL.copy(P.kneeL.position).applyQuaternion(S.hipL).add(O.hiL); O.knR.copy(P.kneeR.position).applyQuaternion(S.hipR).add(O.hiR);
+  const d = -(0.418 - C.hA); O.anL.set(0, d, 0.03).applyQuaternion(S.kneeL).add(O.knL); O.anR.set(0, d, 0.03).applyQuaternion(S.kneeR).add(O.knR);
+  O.hipMid.addVectors(O.hiL, O.hiR).multiplyScalar(0.5);
+}
+// two-bone reach (shoulder-elbow-hand or hip-knee-ankle), in world space: the elbow / knee goes on the pole's side, each bone swung
+// (not twisted) onto its new line; wgt 0..1
+const _chkA = new THREE.Vector3(), _chkB = new THREE.Vector3(), _chkC = new THREE.Vector3(), _chkX = new THREE.Vector3(), _chkY = new THREE.Vector3(), _chkK = new THREE.Vector3(), _chkT = new THREE.Vector3(), _chkV = new THREE.Vector3(), _chkV2 = new THREE.Vector3();
+const _chkq1 = new THREE.Quaternion(), _chkq2 = new THREE.Quaternion(), _chkqu = new THREE.Quaternion(), _chkql = new THREE.Quaternion(), _chkqp = new THREE.Quaternion(), _chkqU = new THREE.Quaternion(), _chkqL = new THREE.Quaternion();
+function chIK(ub, lb, eb, T, pole, wgt) {
+  if (!ub || !lb || !eb || wgt <= 0.001) return;
+  const a = ub.getWorldPosition(_chkA), b = lb.getWorldPosition(_chkB), c = eb.getWorldPosition(_chkC);
+  const l1 = a.distanceTo(b), l2 = b.distanceTo(c); if (l1 < 1e-6 || l2 < 1e-6) return;
+  const dir = _chkX.subVectors(T, a); let d = dir.length(); if (d < 1e-6) return; dir.divideScalar(d);
+  d = THREE.MathUtils.clamp(d, Math.abs(l1 - l2) + 1e-4, (l1 + l2) * 0.999);
+  const ca = THREE.MathUtils.clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1), sa = Math.sqrt(1 - ca * ca);
+  const n = _chkY.subVectors(pole, a); n.addScaledVector(dir, -n.dot(dir));
+  if (n.lengthSq() < 1e-10) { n.subVectors(b, a); n.addScaledVector(dir, -n.dot(dir)); }
+  if (n.lengthSq() < 1e-10) { n.set(0, 0, 1); n.addScaledVector(dir, -n.dot(dir)); }
+  n.normalize();
+  const K = _chkK.copy(a).addScaledVector(dir, l1 * ca).addScaledVector(n, l1 * sa), Tc = _chkT.copy(a).addScaledVector(dir, d);
+  const uW = ub.getWorldQuaternion(_chkqu), lW = lb.getWorldQuaternion(_chkql), pW = ub.parent.getWorldQuaternion(_chkqp);
+  const q1 = _chkq1.setFromUnitVectors(_chkV.subVectors(b, a).normalize(), _chkV2.subVectors(K, a).normalize());
+  const q2 = _chkq2.setFromUnitVectors(_chkV.subVectors(c, b).applyQuaternion(q1).normalize(), _chkV2.subVectors(Tc, K).normalize());
+  const U = _chkqU.multiplyQuaternions(q1, uW), Lw = _chkqL.multiplyQuaternions(q2, q1).multiply(lW);
+  ub.quaternion.slerp(pW.invert().multiply(U), wgt); lb.quaternion.slerp(U.invert().multiply(Lw), wgt);
+}
+// a hand that can't quite get there: the collarbone swings the shoulder toward it (the new arms are a bit shorter than the old ones)
+const _chcA = new THREE.Vector3(), _chcB = new THREE.Vector3(), _chcW = new THREE.Vector3(), _chcU = new THREE.Vector3(), _chcq = new THREE.Quaternion(), _chcI = new THREE.Quaternion(), _chcP = new THREE.Quaternion(), _chcC = new THREE.Quaternion();
+function chClav(cb, ub, lb, eb, T, wgt) {
+  if (!cb || !ub || !lb || !eb || wgt <= 0.001) return;
+  const o = cb.getWorldPosition(_chcA), a = ub.getWorldPosition(_chcB), l = a.distanceTo(lb.getWorldPosition(_chcW)) + _chcW.distanceTo(eb.getWorldPosition(_chcU));
+  const need = a.distanceTo(T) - l * 0.995, r = o.distanceTo(a); if (need <= 0 || r < 1e-5) return;
+  _chcW.subVectors(T, a).normalize().multiplyScalar(Math.min(need, r * 0.7)).add(a);                       // where the shoulder would like to be
+  _chcq.setFromUnitVectors(_chcU.subVectors(a, o).normalize(), _chcW.sub(o).normalize());
+  const ang = 2 * Math.acos(Math.min(1, Math.abs(_chcq.w))), mx = 0.35; if (ang > mx) _chcq.copy(_chcI.identity().slerp(_chcq, mx / ang));
+  if (wgt < 1) _chcq.copy(_chcI.identity().slerp(_chcq, wgt));
+  cb.getWorldQuaternion(_chcC); cb.parent.getWorldQuaternion(_chcP); cb.quaternion.copy(_chcP.invert().multiply(_chcq.multiply(_chcC)));
+}
+const _chFQ = new THREE.Quaternion(), _chRQ = new THREE.Quaternion(), _chPQ = new THREE.Quaternion(), _chFV = new THREE.Vector3(), _chHP = new THREE.Vector3(), _chAT = new THREE.Vector3(), _chDN = new THREE.Vector3();
+function chFeet(C) { for (const f of C.feet) { if (!f) continue; f.lb.updateWorldMatrix(true, false); f.lb.localToWorld(_chFV.copy(f.off)); f.fb.parent.updateWorldMatrix(true, false); f.fb.parent.worldToLocal(_chFV); f.fb.position.copy(_chFV); f.fb.updateMatrixWorld(true); } }
 function chSync(P, dt) {
   const C = P.ch; if (!C || !P.root.visible) return;
   // the clip side
@@ -3309,30 +3395,63 @@ function chSync(P, dt) {
     if (C.act && C.act !== a) a.crossFadeFrom(C.act, 0.18, false); a.play(); C.act = a; }
   C.clip = want; if (C.act) C.act.timeScale = P.chRate || 1;
   C.w += ((want ? 0 : 1) - C.w) * Math.min(1, dt * 9); if (!want && C.w > 0.995) C.w = 1; if (want && C.w < 0.005) C.w = 0;
+  C.rf += ((P.chReachT || 0) - C.rf) * Math.min(1, dt * 8);
   if (C.w < 1) C.mixer.update(dt);
-  if (C.w <= 0) return;
-  // the hand-made side: the old pivots' rotations, relative to the character
+  // the old pivots' rotations, relative to the character
   const S = _chSeg; S.body.copy(P.body.quaternion); S.torso.multiplyQuaternions(S.body, P.torso.quaternion); S.head.multiplyQuaternions(S.torso, P.head.quaternion);
   S.shL.multiplyQuaternions(S.torso, P.shL.quaternion); S.elL.multiplyQuaternions(S.shL, P.elL.quaternion); S.shR.multiplyQuaternions(S.torso, P.shR.quaternion); S.elR.multiplyQuaternions(S.shR, P.elR.quaternion);
   S.hipL.multiplyQuaternions(S.body, P.hipL.quaternion); S.kneeL.multiplyQuaternions(S.hipL, P.kneeL.quaternion); S.hipR.multiplyQuaternions(S.body, P.hipR.quaternion); S.kneeR.multiplyQuaternions(S.hipR, P.kneeR.quaternion);
-  const WR = _chWR; WR.clear(); const w = C.w;
-  for (const [b, q] of C.relax) if (w >= 1) b.quaternion.copy(q); else b.quaternion.slerp(q, w);
-  for (const b of C.ord) { const pq = WR.get(b.parent) || C.topQ, j = C.jb.get(b);
-    if (j) { const seg = j.seg === 'spine' ? _chQ.slerpQuaternions(S.body, S.torso, j.t) : j.seg === 'neck' ? _chQ.slerpQuaternions(S.torso, S.head, 0.45) : S[j.seg];
-      _chQ2.multiplyQuaternions(seg, j.C).multiply(j.W0);                       // where it should point, relative to the character
-      _chQ3.copy(pq).invert().multiply(_chQ2);                                  // as its own local rotation
-      if (w >= 1) b.quaternion.copy(_chQ3); else b.quaternion.slerp(_chQ3, w);
-      if (j === C.hips) { _chV.set(P.body.position.x, P.body.position.y - 0.78, P.body.position.z); _chQ.copy(pq).invert(); _chV.applyQuaternion(_chQ).divideScalar(C.hipsParentScale);
-        _chV2.copy(j.p0).add(_chV); if (w >= 1) b.position.copy(_chV2); else b.position.lerp(_chV2, w); } }
-    WR.set(b, (WR.get(b) || new THREE.Quaternion()).multiplyQuaternions(pq, b.quaternion)); }
+  if (C.w > 0) {
+    const w = C.w, ord = C.ord; if (w < 1) { for (let i = 0; i < ord.length; i++) C.cq[i].copy(ord[i].quaternion); if (C.hips) C.cp.copy(C.hips.b.position); C.feet.forEach((f, i) => f && C.fp[i].copy(f.fb.position)); }
+    for (const [b, q] of C.relax) if (w >= 1) b.quaternion.copy(q); else b.quaternion.slerp(q, w);
+    // 1. the rotations, copied (with the rest-pose correction)
+    const WR = _chWR; WR.clear();
+    for (const b of ord) { const pq = WR.get(b.parent) || C.topQ, j = C.jb.get(b);
+      if (j) { const seg = j.seg === 'spine' ? _chQ.slerpQuaternions(S.body, S.torso, j.t) : j.seg === 'neck' ? _chQ.slerpQuaternions(S.torso, S.head, 0.45) : S[j.seg];
+        _chQ2.multiplyQuaternions(seg, j.C).multiply(j.W0); b.quaternion.copy(pq).invert().multiply(_chQ2); }
+      WR.set(b, (WR.get(b) || new THREE.Quaternion()).multiplyQuaternions(pq, b.quaternion)); }
+    // 2. where the hips go: standing, the feet stay on the ground (the new legs are longer, so the hips ride higher);
+    //    sitting or lying, the hip joints go exactly where the old ones were (on the seat, the bench, the ground)
+    chOld(P, C, S); const O = CHO;
+    P.root.updateWorldMatrix(true, false); const e = P.root.matrixWorld.elements, upY = e[5] / (Math.hypot(e[4], e[5], e[6]) || 1);
+    const lieK = THREE.MathUtils.clamp((Math.acos(THREE.MathUtils.clamp(upY, -1, 1)) - 0.6) / 0.5, 0, 1);
+    const sitK = THREE.MathUtils.clamp((-(P.hipL.rotation.x + P.hipR.rotation.x) / 2 - 0.75) / 0.45, 0, 1);
+    const sT = Math.max(sitK, lieK); C.s += (sT - C.s) * Math.min(1, dt * 10); if (Math.abs(sT - C.s) > 0.5) C.s = sT;
+    const hp = _chHP.copy(C.hipsRest);
+    if (C.hips) { const hb = C.hips.b;
+      hp.add(_chV2.set(P.body.position.x, P.body.position.y - 0.78, P.body.position.z));                                                // feet on the ground
+      _chV3.copy(C.hipJointOff).applyQuaternion(S.body); _chV2.copy(O.hipMid).sub(_chV3);                                                // hips on the seat
+      hp.lerp(_chV2, C.s); hb.position.copy(_chV.copy(hp).applyMatrix4(C.hpInv)); }
+    // 3. reaching: the feet to where the old feet were (the ground, the pedals, the floor in front of a bench), unless lying down;
+    //    the hands to where the old hands were, where it matters (P.chReach)
+    C.root.updateMatrixWorld(true); chFeet(C); const L = C.limbs, toW = (v) => P.root.localToWorld(_chV3.copy(v));
+    const legW = 1 - lieK;
+    if (legW > 0.01) { for (const [i, lg, an, kn, qh, qk] of [[0, L.legL, O.anL, O.knL, S.hipL, S.kneeL], [1, L.legR, O.anR, O.knR, S.hipR, S.kneeR]]) { lg[2].getWorldQuaternion(_chFQ);
+      const ll = C.legLen[i]; _chAT.copy(C.hipOff[i]).applyQuaternion(S.body).add(hp).add(_chDN.set(0, -ll[0], 0).applyQuaternion(qh)).add(_chDN.set(0, -ll[1], 0).applyQuaternion(qk));
+      if (_chAT.y < an.y) _chAT.y = an.y; _chAT.lerpVectors(an, _chAT, C.s);
+      const T = toW(_chAT).clone(), pole = toW(_chDN.set(0, 0, 0.3).applyQuaternion(qh).add(kn)).clone(); chIK(lg[0], lg[1], lg[2], T, pole, legW); if (lg[2].parent !== lg[1]) chFeet(C);
+      lg[2].parent.getWorldQuaternion(_chRQ); lg[2].quaternion.copy(_chRQ.invert().multiply(_chFQ)); } }
+    if (C.rf > 0.01) for (const [am, ha, el, qs] of [[L.armL, O.haL, O.elL, S.shL], [L.armR, O.haR, O.elR, S.shR]]) {
+      const T = toW(_chDN.set(0, CH_PALM, 0).applyQuaternion(qs === S.shL ? S.elL : S.elR).add(ha)).clone(), pole = toW(_chDN.set(0, 0, -0.3).applyQuaternion(qs).add(el)).clone();      // (the wrist goes a palm short of the old fist)
+      chClav(qs === S.shL ? L.clavL : L.clavR, am[0], am[1], am[2], T, C.rf); chIK(am[0], am[1], am[2], T, pole, C.rf); }
+    // 4. blended with the clip
+    if (w < 1) { for (let i = 0; i < ord.length; i++) { _chQ.copy(ord[i].quaternion); ord[i].quaternion.copy(C.cq[i]).slerp(_chQ, w); } if (C.hips) C.hips.b.position.lerp(C.cp, 1 - w); C.feet.forEach((f, i) => f && f.fb.position.lerp(C.fp[i], 1 - w)); }
+  }
+  // what's held in the right hand (a gun, a tinnie, an axe): in the new hand, turned with it
+  if (C.hand) { let any = false; for (const c of P.elR.children) if (c === P.can || (c.userData && c.userData.chHand)) { any = true; break; }
+    if (any) { C.root.updateMatrixWorld(true); C.hand.localToWorld(_chV.copy(C.palm)); P.elR.updateMatrixWorld(true); P.elR.worldToLocal(_chV);
+      P.root.getWorldQuaternion(_chPQ); C.hand.getWorldQuaternion(_chRQ); _chRQ.premultiply(_chPQ.invert()).multiply(C.handR0);      // the hand's turn as the old forearm's
+      _chQ.copy(S.elR).invert().multiply(_chRQ);                                                                                          // relative to the old forearm
+      for (const c of P.elR.children) if (c === P.can || (c.userData && c.userData.chHand)) { const u = c.userData;
+        if (!u.chP || !c.position.equals(u.chP)) u.p0 = c.position.clone(); if (!u.chQ || !c.quaternion.equals(u.chQ)) u.q0 = c.quaternion.clone();      // (the game moved it since: that's its place on the old hand)
+        c.position.copy(u.p0).sub(CH_HP).applyQuaternion(_chQ).add(_chV); c.quaternion.copy(_chQ).multiply(u.q0);
+        (u.chP || (u.chP = new THREE.Vector3())).copy(c.position); (u.chQ || (u.chQ = new THREE.Quaternion())).copy(c.quaternion); } } }
 }
-// every frame, after all the posing: every character's model follows its pivots (or its clip); a held tinnie sits in the new hand
+// every frame, after all the posing: every character's model follows its pivots (or its clip)
 function chStep(dt) {
   if (!CH.ready) return;
   CH.hideT = (CH.hideT || 0) - dt; if (CH.hideT <= 0) { CH.hideT = 1; for (const P of CH.list) chHideOld(P); }      // (bits added to the old bodies after the model went on: Madman's gut, the backpackers' packs)
-  for (const P of CH.list) { if (!P.ch) continue; chSync(P, dt);
-    if (P.ch.hand && P.root.visible) { let done = false; for (const c of P.elR.children) if (c === P.can || (c.userData && c.userData.chHand)) {
-        if (!done) { P.ch.root.updateMatrixWorld(true); P.ch.hand.getWorldPosition(_chV); P.elR.updateMatrixWorld(true); P.elR.worldToLocal(_chV); done = true; } c.position.copy(_chV); } } }
+  for (const P of CH.list) if (P.ch) chSync(P, dt);
 }
 
 const DAZZA = buildFarmer(LOOK);
@@ -3454,7 +3573,8 @@ function animateFarmer(dt) {
   P.body.position.y += (0.78 + bodyY - F.squash * 0.25 - P.body.position.y) * L;
   P.belly.scale.y = 0.95 * bellyK; P.vest.scale.y = 0.95 * bellyK;
   const plain = F.mode === 'walk' && !fastK && !F.act && !(typeof WPN !== 'undefined' && WPN.cur) && !(typeof MEL !== 'undefined' && MEL.cur) && !(typeof wlDragPose === 'function' && wlDragPose());
-  chClip(P, plain ? (sp > 3.3 ? 'Run' : sp > 0.15 ? 'Walk' : 'Idle') : null, sp > 3.3 ? THREE.MathUtils.clamp(sp / 4.4, 0.75, 1.6) : sp > 0.15 ? THREE.MathUtils.clamp(sp / 1.7, 0.6, 1.7) : 1);
+  chReach(P, F.mode === 'seated' || F.mode === 'climb' || F.mode === 'pilot' ? 1 : F.mode === 'seq' ? F.sitK : (F.mode === 'emote' && EM.cur && EM.cur.work) || (typeof wlDragPose === 'function' && wlDragPose()) || (F.mode === 'walk' && typeof WPN !== 'undefined' && WPN.cur && !(typeof MEL !== 'undefined' && MEL.cur)) ? 1 : 0);      // (hands to the wheel, the bars, the rungs, the bar, the torch, the log)
+  const gait = sp > 2.6 ? 'Run' : sp > 0.15 ? 'Walk' : 'Idle'; chClip(P, plain ? gait : null, chRate(P, gait, sp));
   F.squash = Math.max(0, F.squash - dt * 2);
 }
 
@@ -9694,6 +9814,7 @@ function mpStep(dt) {
     if (vn !== p.veh) { if (p.veh) mpRelease(p, p.veh);
       if (vn) { if (vn === activeName) mpConflict(p, vn); const v = VEH[vn]; v.mp = p.id; v.coast = false; p.veh = vn; } }
     if (p.veh && VEH[p.veh].mp === p.id) mpDriveCopy(p, VEH[p.veh], A, Bb, k, dt);
+    chReach(p.av, vn || cur.w ? 1 : 0);      // (their hands on the wheel or the gun, as the old body had them)
   }
   mpHitCheck();
 }
@@ -12208,14 +12329,15 @@ function npcPose(n, dt) {
   }
   const gen = (n.st === 'drive' || n.st === 'saSit' || n.st === 'saTub') ? null : ['tumble', 'down', 'ko', 'getup'].includes(n.st) ? null : n.st === 'stag' ? 'HitRecieve'
     : (n.st === 'fight' || n.st === 'brawl' || n.st === 'defend') && (n.atkPh === 'wind' || n.atkPh === 'hit') ? 'Punch_Right' : (n.st === 'fight' || (n.st === 'chase' && n.sp < 2) || ((n.st === 'defend' || n.st === 'brawl' || n.st === 'mtBrace') && n.sp < 2)) ? null
-    : n.sp > 3.2 ? 'Run' : n.sp > 0.15 ? 'Walk' : 'Idle';
+    : n.sp > 2.6 ? 'Run' : n.sp > 0.15 ? 'Walk' : 'Idle';
   let hooked = false;
   if (n.mm || n.dima || n.matt || n.sniper || n.st.startsWith('bb')) { const Q = { hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY }, Q0 = Object.assign({}, Q); (n.st === 'bbWatch' || n.st === 'mmWatch' || n.st === 'dmWatch' ? bbWatchPose(n, Q) : n.mm ? mmPoseHook(n, Q, dt) : n.dima ? dmPoseHook(n, Q) : n.matt ? mtPoseHook(n, Q) : n.sniper ? snPoseHook(n, Q) : bbPoseHook(n, Q)); for (const k in Q) if (Math.abs(Q[k] - Q0[k]) > 1e-4) { hooked = true; break; } ({ hipL, hipR, kneeL, kneeR, shLx, shRx, shLz, shRz, elL, elR, torsoX, torsoY, headX, headY, bodyY } = Q); }
   const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * L; };
   lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
   lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
   P.body.position.y += (bodyY - P.body.position.y) * L;
-  chClip(P, hooked ? null : gen, gen === 'Run' ? THREE.MathUtils.clamp(n.sp / 4.4, 0.75, 1.6) : gen === 'Walk' ? THREE.MathUtils.clamp(n.sp / 1.7, 0.6, 1.7) : 1);
+  chReach(P, n.st === 'drive' || n.st === 'saSit' || n.st === 'saTub' || CH_REACH_ST.has(n.st) || (n.matt && n.st === 'home' && ['bench', 'lathe', 'board'].includes(MT.spot)) ? 1 : 0);
+  chClip(P, hooked ? null : gen, chRate(P, gen, n.sp));
   if (n.st !== 'drive') {
     R.position.copy(n.pos); _fe.set(n.tilt, n.yaw, 0, 'YXZ'); R.quaternion.setFromEuler(_fe);
     if (n.tilt < -0.2) R.position.y = n.pos.y + Math.min(0.2, -n.tilt * 0.14);
@@ -18034,11 +18156,11 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
 }
 
-window.__game = { DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); chStep(n / 60); renderer.render(scene, camera); bubDom(); } };
-Object.assign(window.__game, { CH, chAttach, chParts, chLoad, lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { CH, chAttach, chParts, chLoad, chStep, lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
 load().catch(e => console.error(e));
 </script>
 </body>
