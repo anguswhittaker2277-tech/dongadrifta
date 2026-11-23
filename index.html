@@ -2079,8 +2079,8 @@ VEHICLES.ute = buildX5(UTE_META, UTE_GLB);
    tools in the session that made it: the buggy boxed out of the scan, the ground and the reflective blob on the roof dropped,
    the 83 photo tiles packed into one 2048 texture). Same frame as the others: origin on the ground under the rear axle,
    +Z forward, +X left. The wheels are part of the scan, so the wheel groups here carry nothing; ds = draw both faces. */
-const BUGGY_META = { wb: 1.35, R: 0.28, wheels: { Fp: { X: -0.5, Z: 1.35 }, Fn: { X: 0.5, Z: 1.35 }, Rp: { X: -0.5, Z: 0 }, Rn: { X: 0.5, Z: 0 } }, inset: 0, ds: true };
-VEHICLES.buggy = buildX5(BUGGY_META, { url: 'buggy-v1.glb' });
+const BUGGY_META = { wb: 1.96, R: 0.41, wheels: { Fp: { X: -0.725, Z: 1.96 }, Fn: { X: 0.725, Z: 1.96 }, Rp: { X: -0.725, Z: 0 }, Rn: { X: 0.725, Z: 0 } }, inset: 0, ds: true };   // scaled x1.45 to full side-by-side size (about 3 m long, 1.9 m tall: next to the Hilux, not a kid's toy)
+VEHICLES.buggy = buildX5(BUGGY_META, { url: 'buggy-v2.glb' });
 for (const v of Object.values(VEHICLES)) scene.add(v.root);
 let T = VEHICLES.tractor;
 
@@ -2601,10 +2601,10 @@ SPECS.ute = Object.assign({}, SPECS.x5, { top: 150 / 3.6, rev: 22 / 3.6, accel: 
 SPECS.x5.drift = Object.assign({}, DRIFT, { m: 2200, Iz: 3600, a: 1.5, Cf: 74000, Cr: 68000, mu: 0.95, drive: 7.2, top: 200 / 3.6, rev: 24 / 3.6, steer: 0.56, steerFast: 0.22, kick: 2.2 });
 SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 11.5, top: 235 / 3.6, Cf: 76000, Cr: 70000, mu: 0.97 });      // the M-car: a lot more go
 SPECS.buggy = Object.assign({}, SPECS.x5, { top: 235 / 3.6, rev: 24 / 3.6, accel: 5.2, brake: 10, wb: BUGGY_META.wb, steer: 0.6, steerFast: 0.18, steerRate: 2.4,
-  front: 1.7, rear: 0.38, halfW: 0.62, rayH: [0.25, 0.6, 1.1], lanes: [-0.5, 0, 0.5], noseLane: 1,
-  rF: BUGGY_META.R, rR: BUGGY_META.R, step: 0.25, trackR: 0.5, trackF: 0.5, roll: 0.015, rollMax: 0.07, grip: 8, susK: 150, susC: 9,
-  camBack: 5.6, camUp: 2.4, camPivot: 0.9, look: 2.0, lookH: 0.8 });
-SPECS.buggy.drift = Object.assign({}, SPECS.x5.drift, { m: 650, Iz: 420, a: 0.7, Cf: 22500, Cr: 20800, mu: 0.97, drive: 11.5, top: 235 / 3.6, rev: 24 / 3.6, steer: 0.6, steerFast: 0.22, kick: 2.0 });   // as quick as the BMW
+  front: 2.47, rear: 0.55, halfW: 0.88, rayH: [0.35, 0.85, 1.55], lanes: [-0.75, 0, 0.75], noseLane: 1,
+  rF: BUGGY_META.R, rR: BUGGY_META.R, step: 0.35, trackR: 0.725, trackF: 0.725, roll: 0.018, rollMax: 0.08, grip: 8, susK: 120, susC: 8.5,
+  camBack: 7.4, camUp: 3.0, camPivot: 1.25, look: 2.4, lookH: 0.95 });
+SPECS.buggy.drift = Object.assign({}, SPECS.x5.drift, { m: 750, Iz: 900, a: 1.0, Cf: 26000, Cr: 24000, mu: 0.97, drive: 11.5, top: 235 / 3.6, rev: 24 / 3.6, steer: 0.6, steerFast: 0.22, kick: 2.0 });   // as quick as the BMW
 SPECS.ute.drift = Object.assign({}, SPECS.x5.drift, { m: 2300, Iz: 4300, a: 1.62, Cf: 70000, Cr: 63000, mu: 0.9, drive: 6.0, top: 150 / 3.6, rev: 22 / 3.6, steer: 0.54, steerFast: 0.2, kick: 2.0 });
 SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 70000, Cr: 64000, mu: 0.9, drive: 8.6, top: 165 / 3.6, rev: 25 / 3.6, steer: 0.58, steerFast: 0.3, kick: 2.8 });
 /* ================================================================
@@ -2625,7 +2625,7 @@ SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 
 const HND = {
   x5:      { g: 1.55, cs: 20, fw: 0.52, h: 0.62, drv: 'a', lk: 1.2 }, bmw:     { g: 1.6, cs: 21, fw: 0.52, h: 0.6, drv: 'a', lk: 1.2 },
   suv:     { g: 1.42, cs: 18, fw: 0.53, h: 0.74, drv: 'a', lk: 1.2 }, ute:     { g: 1.42, cs: 18, fw: 0.56, h: 0.72, drv: 'r', lk: 1.2 },
-  buggy:   { g: 1.3, cs: 16, fw: 0.45, h: 0.6, drv: 'a', lk: 1.2 },
+  buggy:   { g: 1.35, cs: 17, fw: 0.45, h: 0.75, drv: 'a', lk: 1.2 },
   trophy:  { g: 1.45, cs: 16, fw: 0.5, h: 0.85, drv: 'r', lk: 1.15 },  tractor: { g: 1.0, cs: 11, fw: 0.42, h: 1.1, drv: 'a', lk: 1.1 },
   tele:    { g: 1.0, cs: 11, fw: 0.5, h: 1.2, drv: 'a', lk: 1.1 },     truck:   { g: 0.85, cs: 10, fw: 0.45, h: 1.3, drv: 'r', lk: 1.1 },
   combine: { g: 0.8, cs: 10, fw: 0.6, h: 1.6, drv: 'f', lk: 1 },       def:     { g: 1.25, cs: 14, fw: 0.5, h: 0.8, drv: 'a', lk: 1.1 } };
@@ -4554,7 +4554,7 @@ function shedParking() {
   HOME.combine = { x: -150, z: 46, yaw: Math.PI };
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
-  HOME.buggy = { x: 166.3, z: 40.6, yaw: -Math.PI / 2 };       // the buggy: south end of the dongas' gravel, beside the 4WD, nose out
+  HOME.buggy = { x: 166.3, z: 53.4, yaw: -Math.PI / 2 };       // the buggy: north end of the dongas' gravel past Madman's ute, nose out, its driver's side (left) to the open ground
   { const [x, z] = dgW(0, 0.12, DN); HOME.farmer = { x, z, yaw: DN.yaw, indoors: true, dunny: true }; }   // you wake up in the dunny south of the water tanks, facing the door (not in the bunks: they might be on fire)
   HOME.ute = { x: 166.3, z: 50.4, yaw: -Math.PI / 2 };   // on the gravel beside the BMW, nose out to the open ground (tailgate to the dongas)   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
@@ -4657,7 +4657,7 @@ Object.assign(VEH, {
   bmw:     { name: 'bmw', kind: 'ground', label: 'the BMW', model: VEHICLES.bmw, spec: SPECS.bmw, state: null, pose: 'wheel', coast: false,
              seat: { x: -0.42, hip: 0.72, z: 1.25, k: 0.8 }, exit: [[-1.9, 1.3], [1.9, 1.3], [0, -2.4]], range: 3.4, top: 1.85, icon: ['B', '#5a6470'] },
   buggy:   { name: 'buggy', kind: 'ground', label: 'the buggy', model: VEHICLES.buggy, spec: SPECS.buggy, state: null, pose: 'wheel', coast: false,
-             seat: { x: 0.24, hip: 0.6, z: 0.5, k: 0.7 }, exit: [[1.3, 0.5], [-1.3, 0.5], [0, -1.6]], range: 3, top: 1.35, icon: ['Y', '#6b5a3e'] },
+             seat: { x: 0.35, hip: 0.87, z: 0.73, k: 0.82 }, exit: [[1.8, 0.7], [-1.8, 0.7], [0, -2.2]], range: 3.4, top: 1.95, icon: ['Y', '#6b5a3e'] },
   x5:      { name: 'x5', kind: 'ground', label: 'the X5', model: VEHICLES.x5, spec: SPECS.x5, state: null, pose: 'wheel', coast: false,
              seat: { x: -0.42, hip: 0.72, z: 1.25, k: 0.8 }, exit: [[-1.9, 1.3], [1.9, 1.3], [0, -2.4]], range: 3.4, top: 1.85, icon: ['X', '#3d4a58'] },
   trophy:  { name: 'trophy', kind: 'ground', label: 'the trophy truck', model: VEHICLES.trophy, spec: SPECS.trophy, state: null, pose: 'wheel', coast: false,
@@ -4694,9 +4694,9 @@ Object.assign(DOORS, {
     inn: v => ({ end: 1.6, ev: [], keys: [K(0, -1.55, 0, 1.25, HP), K(0.3, -1.55, 0, 1.25, HP, { reach: 1 }), K(0.8, -1.2, 0, 1.3, HP, { duck: 0.5, sit: 0.15 }), seatKey(v, 1.3)] }),
     out: v => ({ end: 1.2, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3, 0, { reach: 0.7 }), K(0.75, -1.2, 0, 1.3, -HP, { duck: 0.5, sit: 0.15 }), K(1.2, -1.6, 0, 1.25, -2.2)] }) },
   // the buggy is left-hand drive: in and out on the +X side, no door swing
-  buggy: { side: 1, max: 0, bail: [1.15, 0.55, 0.5],
-    inn: v => ({ end: 1.5, ev: [], keys: [K(0, 1.2, 0, 0.5, -HP), K(0.3, 1.2, 0, 0.5, -HP, { reach: 1 }), K(0.8, 0.85, 0, 0.5, -HP, { duck: 0.4, sit: 0.15 }), seatKey(v, 1.25)] }),
-    out: v => ({ end: 1.2, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3, 0, { reach: 0.7 }), K(0.75, 0.85, 0, 0.5, HP, { duck: 0.4, sit: 0.15 }), K(1.2, 1.3, 0, 0.45, 2.2)] }) },
+  buggy: { side: 1, max: 0, bail: [1.5, 0.8, 0.73],
+    inn: v => ({ end: 1.5, ev: [], keys: [K(0, 1.6, 0, 0.73, -HP), K(0.3, 1.6, 0, 0.73, -HP, { reach: 1 }), K(0.8, 1.15, 0.15, 0.73, -HP, { duck: 0.4, sit: 0.15, climb: 0.4 }), seatKey(v, 1.25)] }),
+    out: v => ({ end: 1.2, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3, 0, { reach: 0.7 }), K(0.75, 1.15, 0.15, 0.73, HP, { duck: 0.4, sit: 0.15, climb: 0.4 }), K(1.2, 1.7, 0, 0.65, 2.2)] }) },
   x5: { side: -1, max: 0, bail: [-1.25, 0.65, 1.3],
     inn: v => ({ end: 1.6, ev: [], keys: [K(0, -1.55, 0, 1.25, HP), K(0.3, -1.55, 0, 1.25, HP, { reach: 1 }), K(0.8, -1.2, 0, 1.3, HP, { duck: 0.5, sit: 0.15 }), seatKey(v, 1.3)] }),
     out: v => ({ end: 1.2, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3, 0, { reach: 0.7 }), K(0.75, -1.2, 0, 1.3, -HP, { duck: 0.5, sit: 0.15 }), K(1.2, -1.6, 0, 1.25, -2.2)] }) },
@@ -6933,7 +6933,7 @@ const BOX_DEFS = [
   { id: 'redbox', kind: 'container', cx: 49.8, cz: 3.7, ang: -18.4, L: 6.06, W: 2.44, H: 2.59, mass: 2300, color: 0x9e2a1f },
   { id: 'tank', kind: 'tank', cx: 46.1, cz: -1.6, ang: 84, L: 4.1, W: 2.3, H: 2.6, mass: 3000 },
 ];
-const VEH_MASS = { buggy: 650, ute: 2300, combine: 16000, x5: 2200, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
+const VEH_MASS = { buggy: 750, ute: 2300, combine: 16000, x5: 2200, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
 const STRUCTS = { ready: false, parts: [], groups: [], debris: [], boxes: {}, fx: [], fires: [], blown: false, slowT: 0, scorch: null };
 
 // ---------- which scan triangles to drop (called while the scan is being set up) ----------
