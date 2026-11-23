@@ -3211,13 +3211,14 @@ function lookApply(P, look) {
    Until the files arrive (or if they can't be fetched) everyone stays as they were.
    ================================================================ */
 const CH = { packs: {}, ready: false, list: new Set(), loading: null };
+const CH_ON = false;      // the rigged models are switched off: everyone wears the original blocky body (flip to true to bring them back)
 const CH_FILES = { m: 'assets/chars/chars_m.glb', w: 'assets/chars/chars_w.glb', hero: 'assets/chars/hero.glb' };
 const CH_DEF = { m: ['Farmer_Head', 'Farmer_Body', 'Farmer_Pants', 'Farmer_Feet'], w: ['Casual_Head', 'Casual_Body', 'Casual_Legs', 'Casual_Feet'] };
 const CH_BONES = { mod: { body: 'Hips', sp: ['Abdomen', 'Torso', 'Chest'], neck: 'Neck', head: 'Head', clav: ['ShoulderL', 'ShoulderR'], ua: ['UpperArmL', 'UpperArmR'], la: ['LowerArmL', 'LowerArmR'], hd: ['WristL', 'WristR'], ul: ['UpperLegL', 'UpperLegR'], ll: ['LowerLegL', 'LowerLegR'], ft: ['FootL', 'FootR'] },
   hero: { body: 'pelvis', sp: ['spine_01', 'spine_02', 'spine_03'], neck: 'neck_01', head: 'Head', clav: ['clavicle_l', 'clavicle_r'], ua: ['upperarm_l', 'upperarm_r'], la: ['lowerarm_l', 'lowerarm_r'], hd: ['hand_l', 'hand_r'], ul: ['thigh_l', 'thigh_r'], ll: ['calf_l', 'calf_r'], ft: ['foot_l', 'foot_r'] } };
 const chSlot = n => /_Head$/.test(n) ? 'hd' : /_Body$/.test(n) ? 'tp' : /_(Legs|Pants)$/.test(n) ? 'lg' : /_Feet$/.test(n) ? 'ft' : 'x';
 function chLoad() {
-  if (CH.loading) return CH.loading;
+  if (CH.loading) return CH.loading; if (!CH_ON) return (CH.loading = Promise.resolve());
   const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   CH.loading = Promise.all(Object.entries(CH_FILES).map(([k, url]) => new Promise((ok) => gl.load(url, g => ok([k, g]), undefined, () => ok([k, null]))))).then(res => {
     for (const [k, g] of res) { if (!g) continue;
