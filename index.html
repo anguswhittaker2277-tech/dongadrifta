@@ -8209,7 +8209,7 @@ function updateHud() {
    LOOP
    ================================================================ */
 const clock = new THREE.Clock();
-let ftAvg = 16, lowFor = 0, highFor = 0;
+let ftAvg = 16, lowFor = 0, highFor = 0; const PRA = { t: 0, upAt: -99, downAt: -99, cap: 9 };
 function frame() {
   const raw = clock.getDelta();
   let dt = Math.min(raw, 1 / 30);
@@ -8224,11 +8224,14 @@ function frame() {
     camera.position.set(0, 60, 120); camera.lookAt(0, 0, 0);
   }
   if (collider) { slodStep(); dtlStep(raw); mtTvRender(dt); }
+  // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down. It's changed BEFORE this frame is drawn (resizing the
+  // canvas clears it, and done after drawing that showed as a blank frame: a flicker), and once a step up has had to be taken back
+  // the ceiling stays down (on a 90/120 Hz screen it would otherwise bounce up and down every few seconds)
+  ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05; PRA.t += raw;
+  if (collider && ftAvg > 20 && pixelRatio > PR_MIN) { lowFor += raw; highFor = 0; if (lowFor > 2) { if (PRA.t - PRA.upAt < 15) PRA.cap = Math.min(PRA.cap, pixelRatio - 0.25); pixelRatio = Math.max(PR_MIN, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); lowFor = 0; PRA.downAt = PRA.t; } }
+  else { lowFor = 0; if (collider && ftAvg < 12.5 && pixelRatio < Math.min(DPR, PRA.cap) && PRA.t - PRA.downAt > 20) { highFor += raw; if (highFor > 8) { pixelRatio = Math.min(DPR, PRA.cap, pixelRatio + 0.25); renderer.setPixelRatio(pixelRatio); highFor = 0; PRA.upAt = PRA.t; } } else highFor = 0; }
+  if (RSZ.want) applyResize();
   fmxCine(raw); chStep(dt); renderer.render(scene, camera); bubDom();
-  // adaptive resolution: if we can't hold ~50 fps, step the pixel ratio down
-  ftAvg = ftAvg * 0.95 + raw * 1000 * 0.05;
-  if (collider && ftAvg > 20 && pixelRatio > PR_MIN) { lowFor += raw; highFor = 0; if (lowFor > 2) { pixelRatio = Math.max(PR_MIN, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); lowFor = 0; } }
-  else { lowFor = 0; if (collider && ftAvg < 12.5 && pixelRatio < DPR) { highFor += raw; if (highFor > 8) { pixelRatio = Math.min(DPR, pixelRatio + 0.25); renderer.setPixelRatio(pixelRatio); highFor = 0; } } else highFor = 0; }
   window.__game.fps = 1000 / ftAvg;
 }
 renderer.setAnimationLoop(frame);
@@ -8375,10 +8378,15 @@ function slodStep() {
   }
 }
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight); placeStickHome(); placeStickRHome();
-});
+// a resize clears the canvas, so it's applied at the start of the next frame, right before that frame is drawn (done in the event, a
+// phone's address bar sliding about showed as blank frames: a flicker), and only when the size really changed
+const RSZ = { want: false, v: new THREE.Vector2() };
+addEventListener('resize', () => { RSZ.want = true; });
+function applyResize() {
+  RSZ.want = false; const w = innerWidth, h = innerHeight, sz = renderer.getSize(RSZ.v);
+  if (sz.x !== w || sz.y !== h) { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); }
+  placeStickHome(); placeStickRHome();
+}
 
 window.__au = () => ({ ctx: AU.ctx && AU.ctx.state, busy: AU.busy, eng: Object.keys(AU.eng), sr: AU.sr });
 /* ================================================================
@@ -10960,11 +10968,12 @@ function melTarget(r) {
   for (const n of NPC.list) { if (!npcAlive(n) || n.st === 'drive') continue; const d = Math.hypot(n.pos.x - F.pos.x, n.pos.z - F.pos.z); if (d < bd) { bd = d; best = n; } }
   return best;
 }
-function melCan() { if (typeof bpTapMode === 'function' && bpTapMode()) return true; if (typeof mtWelding === 'function' && mtWelding()) return true; return activeName === 'foot' && F.dead <= 0 && !wpnArmed() && (F.mode === 'walk' || F.mode === 'air' || !!MEL.cur); }
+function melCan() { if (typeof bpTapMode === 'function' && bpTapMode()) return true; if (typeof saLeilMode === 'function' && saLeilMode()) return true; if (typeof mtWelding === 'function' && mtWelding()) return true; return activeName === 'foot' && F.dead <= 0 && !wpnArmed() && (F.mode === 'walk' || F.mode === 'air' || !!MEL.cur); }
 function melPop(txt) { if (typeof motoPop === 'function') motoPop('<b>' + txt + '</b>', 1.1, 'pre'); }
 function melStart(btn = 'punch') {
   if (typeof mtWelding === 'function' && mtWelding()) return;                                                         // the torch: WELD is held (see MT.held)
   if (typeof bpTapMode === 'function' && bpTapMode()) { if (btn === 'punch') bpTap(); return; }         // bench day: it's SPOT, or PUSH
+  if (typeof saLeilMode === 'function' && saLeilMode()) { if (btn === 'punch') saAct('sa:water'); return; }      // in the sauna: it's LEIL
   if (btn === 'punch' && typeof bbNailTarget === 'function' && bbNailTarget()) { bbSwing(); return; }        // at the bunks with a sheet: it's the hammer
   if (wpnArmed() || activeName !== 'foot' || F.mode !== 'walk' || F.dead > 0) return;
   if (MEL.cur || MEL.cd > 0) { MEL.queued = btn; return; }
@@ -15539,6 +15548,14 @@ function wlBuild() {
   legs(1.0, 0.75); legs(1.9, 0.75); const bar = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.06), M.barkD); bar.position.set(1.45, 0.78, 0.75); st.add(bar);
   WL.roundsG = new THREE.Group(); WL.roundsG.position.set(0.9, 0, -0.55); st.add(WL.roundsG);
   WL.pileG = new THREE.Group(); WL.pileG.position.set(-0.95, 0, -0.35); st.add(WL.pileG);
+  // the round up on the block waiting for the axe (cut face up), and the two halves it bursts into
+  const onB = new THREE.Group(); onB.position.y = 0.462; onB.visible = false; st.add(onB); WL.onBlock = onB;
+  const rnd = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.15, 0.36, 12), M.bark); rnd.position.y = 0.18; onB.add(rnd);
+  const rf = new THREE.Mesh(new THREE.CircleGeometry(0.135, 12), M.cut); rf.rotation.x = -Math.PI / 2; rf.position.y = 0.362; onB.add(rf);
+  WL.halves = [1, -1].map(sd => { const p = new THREE.Group(); p.visible = false; st.add(p);
+    const h = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.15, 0.36, 10, 1, false, sd > 0 ? 0 : Math.PI, Math.PI), M.split); h.position.set(0, 0.18, 0); p.add(h);
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(0.29, 0.36), M.split); f.rotation.y = Math.PI / 2; f.position.set(0, 0.18, 0); p.add(f); return { p, sd }; });
+  WL.splitT = 0;
   st.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const bp = addPart(group, { kind: 'wltree', obj: blk, fixed: true }); boxPart(bp, new THREE.Vector3(S0.x, gy + 0.23, S0.z), eXw, eYw, eZw, 0.3, 0.23, 0.3);
   // the log you drag, and the marker over whatever's next
@@ -15656,7 +15673,15 @@ function wlStep(dt) {
   if (showLog) { const L = q.log, ya = groundAt(L[0], L[1], 30, 0) + 0.15, yb = groundAt(L[2], L[3], 30, 0) + 0.13;
     WL.log.position.set((L[0] + L[2]) / 2, (ya + yb) / 2, (L[1] + L[3]) / 2); WL.log.quaternion.setFromUnitVectors(eYw, _w3.set(L[0] - L[2], ya - yb, L[1] - L[3]).normalize()); }
   // the rounds waiting by the block, and the split pile
-  const rounds = q && q.step === 'split' ? WL.ROUNDS - (q.split || 0) : 0, pile = q && ['split', 'light', 'heat', 'sweat', 'plunge'].includes(q.step) ? (q.split || 0) : 0;
+  const left = q && q.step === 'split' ? WL.ROUNDS - (q.split || 0) : 0, rounds = Math.max(0, left - 1), pile = q && ['split', 'light', 'heat', 'sweat', 'plunge'].includes(q.step) ? (q.split || 0) : 0;
+  if (WL.onBlock) { const was = WL.lastSplit == null ? (q ? q.split || 0 : 0) : WL.lastSplit, now = q ? q.split || 0 : 0;
+    if (q && now > was && (q.step === 'split' || q.step === 'light')) WL.splitT = 0.001; WL.lastSplit = now;          // (that one's through: it bursts)
+    if (WL.splitT > 0) { WL.splitT += dt; const u = Math.min(1, WL.splitT / 0.45);
+      const drop = THREE.MathUtils.clamp((WL.splitT - 0.3) / 0.25, 0, 1);                                                   // tipping out over the edges, then off onto the dirt
+      for (const H of WL.halves) { H.p.visible = WL.splitT < 1.4; H.p.position.set(H.sd * (0.04 + 0.32 * u), 0.462 * (1 - drop * drop), 0); H.p.rotation.z = -H.sd * 1.45 * u; }
+      if (WL.splitT >= 1.4) { WL.splitT = 0; for (const H of WL.halves) H.p.visible = false; } }
+    WL.onBlock.visible = left > 0 && WL.splitT === 0 || (left > 0 && WL.splitT > 0.6);                                  // (the next one goes up once the halves are off)
+    if (WL.onBlock.visible && WL.hitIn > 0 && WL.hitA === 'split') WL.onBlock.rotation.z = Math.sin(WL.t * 60) * 0.02; else WL.onBlock.rotation.z = 0; }
   if (rounds !== WL.shown.rounds) { WL.shown.rounds = rounds; while (WL.roundsG.children.length) WL.roundsG.remove(WL.roundsG.children[0]);
     for (let k = 0; k < rounds; k++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.15, 0.36, 10), WL.mats.bark); r.position.set((k % 2) * 0.34, 0.18 + Math.floor(k / 2) * 0.36, (k % 3) * 0.05); r.castShadow = true; WL.roundsG.add(r); } }
   if (pile !== WL.shown.pile) { WL.shown.pile = pile; while (WL.pileG.children.length) WL.pileG.remove(WL.pileG.children[0]);
@@ -15765,6 +15790,13 @@ function saSoloTick(dt) {
   SA.solo = { t: 45 + Math.random() * 25 }; SA.lit = true; SA.litT = Math.max(SA.litT, 90); dmSay(n, 'talk');
 }
 function saSoloEnd() { SA.solo = null; }
+// in the sauna with the stove going: the big round button (where FIRE sits) throws the leil, and there's no jumping about
+function saLeilMode() { return !!SA.root && SA.lit && activeName === 'foot' && F.dead <= 0 && saInside(F.pos) && (F.mode === 'walk' || F.mode === 'air' || saSitting() === 'bench') && !(typeof wpnArmed === 'function' && wpnArmed()); }
+function saPunchLabel() {
+  const inn = !!SA.root && activeName === 'foot' && saInside(F.pos), on = inn && saLeilMode(); document.body.classList.toggle('saIn', inn); document.body.classList.toggle('saLeil', on);
+  if (!SA.leilCss) { SA.leilCss = true; const st = document.createElement('style'); st.textContent = 'body.saIn #jump,body.saLeil #mKick,body.saLeil #mHead{display:none!important}#mPunch.leil{background:rgba(52,128,190,.92)}'; document.head.appendChild(st); }
+  const el = $('mPunch'); if (!el || SA.punchOn === on) return; SA.punchOn = on; const sp = el.querySelector('span'); if (sp) sp.textContent = on ? 'LEIL' : 'PUNCH'; el.classList.toggle('leil', on); el.setAttribute('aria-label', on ? 'Throw water on the rocks' : 'Punch');
+}
 function saActions(items) {
   if (!SA.root) return;
   if (saTalkable() && !seqBusy()) items.push({ id: 'sa:talk', label: 'Talk to Dima', cls: 'warn' });
@@ -15777,7 +15809,7 @@ function saActions(items) {
   if (saInside(F.pos)) {
     const noWood = SA.q && ['chop', 'fell', 'drag', 'split'].includes(SA.q.step);
     if (!SA.lit) items.push({ id: 'sa:light', label: noWood ? 'No firewood yet' : wq && wq.step === 'light' ? 'Load the firewood & light it' : 'Light the stove', cls: 'warn' });
-    else items.push({ id: 'sa:water', label: 'Throw water on the rocks', cls: 'warn' });
+    else if (!saLeilMode()) items.push({ id: 'sa:water', label: 'Throw water on the rocks', cls: 'warn' });      // (otherwise it's the big LEIL button)
     items.push(sit ? { id: 'sa:stand', label: 'Stand up', cls: 'dark' } : { id: 'sa:sit', label: 'Sit on the bench', cls: 'warn' });
   }
   if (!sit && F.mode === 'walk' && Math.hypot(F.pos.x - SA.tub.x, F.pos.z - SA.tub.z) < SA.tub.R + 1.1) items.push({ id: 'sa:tub', label: 'Get in the cold tub', cls: 'warn' });
@@ -15826,7 +15858,7 @@ function saPuff(burst) { const p = SA.puffs.find(p => p.life <= 0); if (!p) retu
   const [sx, sz] = saW(0.85 + (Math.random() - 0.5) * 0.3, 0.55 + (Math.random() - 0.5) * 0.3), c = Math.cos(SA.yaw); p.sp.position.set(sx, SA.gy + SA.fl + 0.75, sz);
   p.v = new THREE.Vector3(c * ((Math.random() - 0.5) * 0.5 - (burst ? 0.4 : 0.1)), burst ? 0.9 : 0.35, c * ((Math.random() - 0.5) * 0.5 - (burst ? 0.35 : 0.1))); p.burst = burst; p.sp.visible = true; }
 function saStep(dt) {
-  if (!SA.root) return; dt = Math.min(dt, 0.05);
+  if (!SA.root) return; dt = Math.min(dt, 0.05); saPunchLabel();
   if (!DM.ready && NPC.ready && DG.root) dmBuild();
   if (SA.lit) { SA.litT -= dt; if (SA.litT <= 0 && !SA.q && !SA.solo) SA.lit = false; }
   SA.temp += ((SA.lit ? 86 : 24) - SA.temp) * Math.min(1, dt / (SA.lit ? 20 : 45)); SA.steam = Math.max(0, SA.steam - dt * 0.22);
