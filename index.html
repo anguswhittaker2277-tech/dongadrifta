@@ -2549,11 +2549,11 @@ SPECS.ute = Object.assign({}, SPECS.x5, { top: 150 / 3.6, rev: 22 / 3.6, accel: 
   camBack: 9.4, camUp: 3.8, camPivot: 1.5, look: 2.6, lookH: 1.1 });
 SPECS.x5.drift = Object.assign({}, DRIFT, { m: 2200, Iz: 3600, a: 1.5, Cf: 74000, Cr: 68000, mu: 0.95, drive: 7.2, top: 200 / 3.6, rev: 24 / 3.6, steer: 0.56, steerFast: 0.22, kick: 2.2 });
 SPECS.bmw.drift = Object.assign({}, SPECS.x5.drift, { drive: 11.5, top: 235 / 3.6, Cf: 76000, Cr: 70000, mu: 0.97 });      // the M-car: a lot more go
-SPECS.buggy = Object.assign({}, SPECS.x5, { top: 70 / 3.6, rev: 15 / 3.6, accel: 4.0, brake: 8, wb: BUGGY_META.wb, steer: 0.6, steerFast: 0.18, steerRate: 2.4,
+SPECS.buggy = Object.assign({}, SPECS.x5, { top: 235 / 3.6, rev: 24 / 3.6, accel: 5.2, brake: 10, wb: BUGGY_META.wb, steer: 0.6, steerFast: 0.18, steerRate: 2.4,
   front: 1.7, rear: 0.38, halfW: 0.62, rayH: [0.25, 0.6, 1.1], lanes: [-0.5, 0, 0.5], noseLane: 1,
   rF: BUGGY_META.R, rR: BUGGY_META.R, step: 0.25, trackR: 0.5, trackF: 0.5, roll: 0.015, rollMax: 0.07, grip: 8, susK: 150, susC: 9,
   camBack: 5.6, camUp: 2.4, camPivot: 0.9, look: 2.0, lookH: 0.8 });
-SPECS.buggy.drift = Object.assign({}, SPECS.x5.drift, { m: 650, Iz: 420, a: 0.7, Cf: 22000, Cr: 20000, mu: 0.95, drive: 5.5, top: 70 / 3.6, rev: 15 / 3.6, steer: 0.62, steerFast: 0.24, kick: 2.0 });
+SPECS.buggy.drift = Object.assign({}, SPECS.x5.drift, { m: 650, Iz: 420, a: 0.7, Cf: 22500, Cr: 20800, mu: 0.97, drive: 11.5, top: 235 / 3.6, rev: 24 / 3.6, steer: 0.6, steerFast: 0.22, kick: 2.0 });   // as quick as the BMW
 SPECS.ute.drift = Object.assign({}, SPECS.x5.drift, { m: 2300, Iz: 4300, a: 1.62, Cf: 70000, Cr: 63000, mu: 0.9, drive: 6.0, top: 150 / 3.6, rev: 22 / 3.6, steer: 0.54, steerFast: 0.2, kick: 2.0 });
 SPECS.trophy.drift = Object.assign({}, DRIFT, { m: 2700, Iz: 4300, a: 1.75, Cf: 70000, Cr: 64000, mu: 0.9, drive: 8.6, top: 165 / 3.6, rev: 25 / 3.6, steer: 0.58, steerFast: 0.3, kick: 2.8 });
 /* ================================================================
@@ -4189,7 +4189,6 @@ const PARK = {
   // second row, behind the first and clear of the yard loop; the truck and tipper along the front of the machinery shed
   dozer:   { at: [-13, -26], dir: [0, 1] },
   trophy:  { at: [-6, -26], dir: [0, 1] },
-  buggy:   { at: [-6, -26], dir: [0, 1] },
   dirtbike: { at: [-1, -26], dir: [0, 1] },
   truck:   { at: [21, -18], dir: [1, 0] },
   racer:   { at: [22.5, -38], dir: [0, 1] },
@@ -4213,7 +4212,8 @@ function shedParking() {
   HOME.truck = { x: -56, z: 28, yaw: Math.PI };
   HOME.combine = { x: -150, z: 46, yaw: Math.PI };
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
-  HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
+  HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };
+  HOME.buggy = { x: 166.3, z: 40.6, yaw: -Math.PI / 2 };         // the buggy at the south end of the dongas' gravel, beside the 4WD, nose out         // on the gravel by the dongas, nose out to the open ground
   { const [x, z] = dgW(0, 0.12, DN); HOME.farmer = { x, z, yaw: DN.yaw, indoors: true, dunny: true }; }   // you wake up in the dunny south of the water tanks, facing the door (not in the bunks: they might be on fire)
   HOME.ute = { x: 166.3, z: 50.4, yaw: -Math.PI / 2 };   // on the gravel beside the BMW, nose out to the open ground (tailgate to the dongas)   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
@@ -15082,7 +15082,10 @@ function mmBarkSfx(i, pos, tier) {
   return AU.buf[name].duration / rate;
 }
 ENG.ute = Object.assign({}, ENG.suv, { cyl: 4, seed: 93, idle: 760, rough: 0.075, wClat: 0.24 });
-ENG.buggy = Object.assign({}, ENG.suv, { cyl: 1, seed: 107, idle: 1250, rough: 0.12, wClat: 0.3 });     // the buggy's little single
+// the buggy: a deep, lumpy big V-twin (uneven firing, low idle, heavy low end) and a long crank on start-up
+ENG.buggy = Object.assign({}, ENG.suv, { cyl: 2, idle: 850, rated: 6500, max: 7200, rpms: [850, 1700, 2900, 4100, 5400, 7000], seed: 107,
+  res: [[48, 2.2, 1.2], [110, 3, 0.9], [240, 3, 0.4], [520, 2.2, 0.12]], bodyLP: 140, wBody: 1.25, rough: 0.11, wClat: 0.07, clatF: 1500, wTick: 0.008, bright: 1800, gain: 0.85,
+  pattern: [[0, 1.0], [0.375, 0.85]], turbo: { f0: 1000, f1: 1000, g: 0, spool: 1 }, crankHz: 10, crankSec: 0.9 });
 
 /* ---------- the Dongas block is outside the old walk grid: walkable where the ground is low and drivable ---------- */
 const DGW = new Map();
