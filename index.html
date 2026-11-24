@@ -12122,13 +12122,14 @@ function npcThink(n, dt) {
   if (F.dead > 0 && (n.st === 'chase' || n.st === 'fight')) { n.st = 'wander'; npcSay(n, npcPick(NPC_L.win), 2.6); n.angry = false; return; }
   if (n.st === 'chase' || n.st === 'fight') {
     if (!hostile) { n.st = 'wander'; return; }
-    if (dP > 34) { n.farT += dt; if (n.farT > 6) { n.st = 'wander'; n.angry = false; n.farT = 0; return; } } else n.farT = 0;
+    if (dP > 34) { n.farT += dt; if (n.farT > (n.cmOn ? 25 : 6)) { n.st = 'wander'; n.angry = false; n.farT = 0; return; } } else n.farT = 0;      // (the long way round a shed takes him further off for a while)
     n.sayT -= dt; if (n.sayT <= 0) { n.sayT = (n.dima ? 7 : 5) + Math.random() * 3; npcSay(n, npcPick(NPC_L.angry), 2.8); }
     if (activeName !== 'foot' && dP < 2.6) { npcFace(n, F.pos.x, F.pos.z, 8, dt); n.sp *= 0.8; return; }      // you're in a machine: they stand there shaking a fist
     if (n.st === 'chase') { const spd = dP > 5 ? 4.6 : 3.6;
       // straight at you when there's a clear run; round the sheds and fences by a route when there isn't
       n.losT = (n.losT || 0) - dt; if (n.losT <= 0) { n.losT = 0.4; n.losOk = dP < 4 || walkLOS(n.pos.x, n.pos.z, F.pos.x, F.pos.z); }
-      if (n.losOk || npcGoTo(n, F.pos.x, F.pos.z, spd, dt, 5) === 'fail') { n.route = null; npcWalk(n, faSteer(n, Math.atan2(dpx, dpz), 2), spd, dt, 9); }
+      if (n.chaseMove && n.chaseMove(n, spd, dt)) { /* (Matt in his shed: his own routes round the benches) */ }
+      else if (n.losOk || npcGoTo(n, F.pos.x, F.pos.z, spd, dt, 5) === 'fail') { n.route = null; npcWalk(n, faSteer(n, Math.atan2(dpx, dpz), 2), spd, dt, 9); }
       if (dP < 2.2) { n.st = 'fight'; n.t = 0; n.atk = 0.5; n.atkPh = ''; } return; }
     // fight: square up, wind up, throw
     npcFace(n, F.pos.x, F.pos.z, 12, dt); n.sp *= 0.85;
@@ -14955,7 +14956,7 @@ function mtBuild() {
   const tape = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.035), M.yellow); tape.position.set(0.19, 0.05, 0.02); (P.body || P.root).add(tape);
   const n = { npc: true, matt: true, name: 'Matt', P, root: P.root, pack: new THREE.Group(), look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'home', t: 0, hp: 110, max: 110, tilt: 0, gy: 0, gT: 0, ph: 0, side: 1, stuck: 0, tgt: null,
     veh: null, vehT: 1e9, driveT: 1e9, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null, lookH: 0, angry: false };
-  npcBubble(n); MT.n = n; NPC.list.push(n); mtPlace();
+  npcBubble(n); n.chaseMove = mtChaseMove; MT.n = n; NPC.list.push(n); mtPlace();
 }
 function mtPlace() {
   const n = MT.n; if (!n) return; const S0 = MT_SPOT.bench, [x, z] = mtW(S0[0], S0[1]); scene.attach(n.root); n.root.scale.setScalar(n.s);
@@ -14990,6 +14991,35 @@ function mtPathTo(u1, v1) {
   else if (v1 > -1) { P.push([u0, MT_AISLE], [door, MT_AISLE], [door, 12], [u1, v1]); return P; }
   else P.push([u0, MT_AISLE]);
   P.push([u1, MT_AISLE], [u1, v1]); return P;
+}
+// chasing you with either of you inside the shed: the farm's walking map doesn't know the benches and walls, so he goes by his own
+// routes (along the aisle, through the door), straight at you once there's a clear couple of metres between you
+const mtInShed = (u, v) => Math.abs(u) < 15.4 && v > -16 && v < 18, mtNearShed = (u, v) => Math.abs(u) < 24 && v > -26 && v < 28;
+// out to someone just outside the walls: out the front, round the corner, along the side (and the back)
+function mtPathOut(pu, pv) {
+  const [u0, v0] = mtUV(MT.n.pos.x, MT.n.pos.z), su = pu >= 0 ? 1 : -1, side = su * 17.6, P = [];
+  if (mtInShed(u0, v0)) P.push(...mtPathTo(1.5, 21));
+  if (!(Math.abs(u0) > 15.4 && Math.sign(u0) === su && v0 < 21)) P.push([side, 21]);
+  if (pv < 21) P.push([side, Math.max(pv, -18.2)]);
+  P.push([pu, pv]); return P;
+}
+function mtChaseMove(n, spd, dt) {
+  const [pu, pv] = mtUV(F.pos.x, F.pos.z), [mu, mv] = mtUV(n.pos.x, n.pos.z), pin = mtInShed(pu, pv), min = mtInShed(mu, mv), pnear = !pin && mtNearShed(pu, pv) && mtNearShed(mu, mv);
+  if (!pin && !min && !pnear) { MT.cPath = null; n.cmOn = false; return false; }                                  // both out in the yard: the usual chase
+  n.cmOn = true;
+  const dP = Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z);
+  if (dP < 3 && walkLOS(n.pos.x, n.pos.z, F.pos.x, F.pos.z)) { dgMove(n, F.pos.x, F.pos.z, spd, dt); MT.cPath = null; }
+  else { MT.cT = (MT.cT || 0) - dt; const far = !pin && !pnear, tu = far ? 1.5 : pu, tv = far ? 21 : pv;        // (you've got right away: out through the door after you)
+    // a fresh route when there isn't one, you've moved off from where it ends, or he's stuck; the corners he's already past are dropped
+    // (a fresh one starts back at the aisle, which had him turning round every half second)
+    const moved = !MT.cEnd || Math.hypot(tu - MT.cEnd[0], tv - MT.cEnd[1]) > 2.5;
+    if (!MT.cPath || !MT.cPath.length || moved || MT.cT <= 0) { MT.cT = 2.5; MT.cEnd = [tu, tv]; MT.cPath = pin || far ? mtPathTo(tu, tv) : mtPathOut(tu, tv);
+      let on = -1; for (let i = 0; i + 1 < MT.cPath.length; i++) { const [a0, b0] = mtW(...MT.cPath[i]), [a1, b1] = mtW(...MT.cPath[i + 1]), ex = a1 - a0, ez = b1 - b0, l2 = ex * ex + ez * ez || 1;      // already on a leg of it: from that leg's end
+        const k = THREE.MathUtils.clamp(((n.pos.x - a0) * ex + (n.pos.z - b0) * ez) / l2, 0, 1); if (Math.hypot(a0 + ex * k - n.pos.x, b0 + ez * k - n.pos.z) < 1.0) on = i; }
+      if (on >= 0) MT.cPath = MT.cPath.slice(on + 1); }
+    const [u, v] = MT.cPath[0], [x, z] = mtW(u, v); dgMove(n, x, z, spd, dt); if (Math.hypot(x - n.pos.x, z - n.pos.z) < 0.6) MT.cPath.shift(); }
+  n.gT -= dt; if (n.gT <= 0) { n.gT = 0.12; n.gy = mtFloor(n.pos.x, n.pos.z); }
+  return true;
 }
 function mtGo(spot) { MT.spot = spot; const S0 = MT_SPOT[spot]; MT.path = mtPathTo(S0[0], S0[1]); MT.n.st = 'mtWalk'; MT.n.t = 0; MT.walkT = 0; MT.walkBest = 1e9; }
 function mtWalk(n, dt) {        // true while still walking
