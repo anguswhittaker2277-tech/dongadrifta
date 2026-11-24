@@ -443,7 +443,7 @@ body.fight #hpbar{display:block}
 
 #wDraw{right:calc(max(16px,env(safe-area-inset-right,0px)) + 18px);bottom:calc(160px + env(safe-area-inset-bottom,0px));height:40px;border-radius:999px;border:0;background:var(--ink);color:#fff;box-shadow:var(--shadow);padding:0 14px 0 12px;gap:8px;align-items:center;font:700 13px var(--font);cursor:pointer}
 @media (max-height:360px){#wDraw{height:34px;bottom:calc(128px + env(safe-area-inset-bottom,0px))}}
-body.armed #xhair{display:block}body.armed #wFire,body.armed #wPill,body.armed #wHolster{display:flex}
+body.armed #xhair{display:block}body.armed #wFire,body.armed #wPill,body.armed #wHolster{display:flex}body.armed #wAlt.on{display:grid}
 #xhair{left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;pointer-events:none;z-index:6}
 #xhair i{position:absolute;background:#fff;box-shadow:0 0 2px rgba(0,0,0,.8)}#xhair i:nth-child(1){left:21px;top:2px;width:2px;height:12px}#xhair i:nth-child(2){left:21px;bottom:2px;width:2px;height:12px}
 #xhair i:nth-child(3){top:21px;left:2px;width:12px;height:2px}#xhair i:nth-child(4){top:21px;right:2px;width:12px;height:2px}#xhair b{position:absolute;left:20px;top:20px;width:4px;height:4px;border-radius:50%;background:#fff}
@@ -5338,8 +5338,8 @@ const lookZ = $('lookZone'); let lookId = null, lkx = 0, lky = 0;
 lookZ.addEventListener('pointerdown', e => { if (lookId !== null) return; lookId = e.pointerId; try { lookZ.setPointerCapture(e.pointerId); } catch (_) {} lkx = e.clientX; lky = e.clientY; dismissHint(); });
 lookZ.addEventListener('pointermove', e => {
   if (e.pointerId !== lookId) return;
-  if (MH.pax) { const q = MH.aimQ || (MH.aimQ = [0, 0]), s2 = WPN.scope ? 0.0019 : 0.0058; q[0] += (e.clientX - lkx) * s2; q[1] += (e.clientY - lky) * s2 * 0.7; lkx = e.clientX; lky = e.clientY; lookIdleT = 0; return; }
-  const ls = WPN.cur ? (WPN.scope ? 0.0022 : 0.0062) : 0.0075; camYawF -= (e.clientX - lkx) * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + (e.clientY - lky) * ls * 0.68, camPitchLo(), 1.15);
+  if (MH.pax) { const q = MH.aimQ || (MH.aimQ = [0, 0]), s2 = WPN.scope ? 0.0008 : 0.0058; q[0] += (e.clientX - lkx) * s2; q[1] += (e.clientY - lky) * s2 * 0.7; lkx = e.clientX; lky = e.clientY; lookIdleT = 0; return; }
+  const ls = WPN.cur ? (WPN.scope ? 0.0009 : 0.0062) : 0.0075; camYawF -= (e.clientX - lkx) * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + (e.clientY - lky) * ls * 0.68, camPitchLo(), 1.15);
   lkx = e.clientX; lky = e.clientY; lookIdleT = 0;
 });
 const endLook = e => { if (e.pointerId === lookId) lookId = null; };
@@ -5356,8 +5356,8 @@ const pclMenus = () => ['menuPanel', 'mpSheet', 'chalSheet', 'wSheet', 'wWheel',
 function pclLook(dx, dy) {
   if (Math.abs(dx) > 300 || Math.abs(dy) > 300) return;            // (a browser's first event after locking can jump)
   lookIdleT = 0; PCL.vT = 0;
-  if (MH.pax) { const q = MH.aimQ || (MH.aimQ = [0, 0]), s2 = WPN.scope ? 0.0009 : 0.0028; q[0] += dx * s2; q[1] += dy * s2 * 0.7; return; }
-  if (activeName === 'foot') { const ls = WPN.cur ? (WPN.scope ? 0.0009 : 0.0026) : 0.0032; camYawF -= dx * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + dy * ls * 0.68, camPitchLo(), 1.15); return; }
+  if (MH.pax) { const q = MH.aimQ || (MH.aimQ = [0, 0]), s2 = WPN.scope ? 0.0004 : 0.0028; q[0] += dx * s2; q[1] += dy * s2 * 0.7; return; }
+  if (activeName === 'foot') { const ls = WPN.cur ? (WPN.scope ? 0.0004 : 0.0026) : 0.0032; camYawF -= dx * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + dy * ls * 0.68, camPitchLo(), 1.15); return; }
   const v = activeVeh(); if (v && v.kind === 'ground') { PCL.vyaw -= dx * 0.004; PCL.vyaw = Math.atan2(Math.sin(PCL.vyaw), Math.cos(PCL.vyaw)); PCL.vpitch = THREE.MathUtils.clamp(PCL.vpitch + dy * 0.003, -0.3, 0.6); }
 }
 // driving: the look-round settles back behind the machine a second after the mouse stops
@@ -9958,6 +9958,7 @@ function wpnGunModel(id) {
   else if (id === 'flamer') { C(0.02, 0.55, WMAT.gun, 0, 0.02, 0.22); C(0.045, 0.3, WMAT.red, 0, -0.06, -0.05, 10); B(0.03, 0.1, 0.04, WMAT.gun, 0, -0.03, 0.08); }
   return g;
 }
+const SCOPE_FOV = 5;      // the sniper's scope: about 12x (it was 14 deg, about 4x)
 function wpnHold(av, id, cache) {
   // the gun lives in the right hand; its barrel runs along the forearm
   if (cache.id === id) return; if (cache.g) cache.g.parent && cache.g.parent.remove(cache.g); cache.g = null; cache.id = id; if (!id) return;
@@ -10648,18 +10649,20 @@ function wpnHud(force) {
   if (!armed && !force) return;
   if (W) { const a = WPN.ammo[id] || 0, am = W.kind === 'gun' ? (W.reload ? (WPN.mag[id] || 0) + ' / ' + a : String(a)) : W.kind === 'flame' ? Math.ceil(a) + ' s' : W.kind === 'melee' ? '' : String(a);
     const alt = W.scope ? (WPN.scope ? 'UNSCOPE' : 'SCOPE') : (id === 'sticky' && WPN.sticks.length) ? 'BOOM' : '', fl = W.kind === 'throw' ? 'THROW' : W.kind === 'flame' ? 'BURN' : W.kind === 'melee' ? 'SWING' : 'FIRE', key = W.label + am + alt + fl + (WPN.reloadT > 0 ? 'r' : '');
-    if (key !== WPN.hudKey) { WPN.hudKey = key; $('wName').textContent = W.label; $('wAmmo').textContent = WPN.reloadT > 0 ? 'reloading' : am; $('wAlt').style.display = alt ? 'grid' : 'none'; $('wAlt').textContent = alt; $('wFire').querySelector('span').textContent = fl; } }
+    if (key !== WPN.hudKey) { WPN.hudKey = key; $('wName').textContent = W.label; $('wAmmo').textContent = WPN.reloadT > 0 ? 'reloading' : am; $('wAlt').classList.toggle('on', !!alt); $('wAlt').textContent = alt; $('wFire').querySelector('span').textContent = fl; } }
 }
 function wpnCam(dt) {
   if (MH.pax) { mhCam(dt); return; }
   if (wpnArmed() && WEAPONS[WPN.cur].kind === 'melee') {            // an axe: no aiming down it, the usual camera, carried in the right hand
-    if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; } if (DAZZA.can) DAZZA.can.visible = false; return; }
-  if (!wpnArmed()) { if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; } if (DAZZA.root.visible === false && activeName === 'foot' && WPN.hidFarmer) { DAZZA.root.visible = true; WPN.hidFarmer = false; } return; }
+    if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; WPN.fovNow = null; } if (DAZZA.can) DAZZA.can.visible = false; return; }
+  if (!wpnArmed()) { if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; WPN.fovNow = null; } if (DAZZA.root.visible === false && activeName === 'foot' && WPN.hidFarmer) { DAZZA.root.visible = true; WPN.hidFarmer = false; } return; }
   const yaw = camYawF, pit = camPitchF, cp = Math.cos(pit), sp = Math.sin(pit);
   const f = _w1.set(Math.sin(yaw) * cp, -sp, Math.cos(yaw) * cp), right = _w2.set(-Math.cos(yaw), 0, Math.sin(yaw));
   const pivot = _w3.set(F.pos.x, F.pos.y + 1.58, F.pos.z);
   const fpIn = activeName === 'foot' && !lookSheetOn() && (fpPref() || (typeof dgUnder === 'function' && dgUnder(F.pos))); if (fpIn) { F.fpK = 1; F.fp = true; }            // under the dongas' roofs you aim through his eyes (a camera over the shoulder ends up in the ceiling)
-  const want = WPN.scope ? 14 : fpIn ? 76 : 58; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
+  // its own zoom, set outright each frame (eased on its own): eased onto whatever the walking camera had just set, the two met halfway
+  const want = WPN.scope ? SCOPE_FOV : fpIn ? 76 : 58; WPN.fovNow = WPN.fovNow == null ? camera.fov : WPN.fovNow; WPN.fovNow += (want - WPN.fovNow) * Math.min(1, dt * 14);
+  if (Math.abs(camera.fov - WPN.fovNow) > 0.01) { camera.fov = WPN.fovNow; camera.updateProjectionMatrix(); WPN.fovMod = true; }
   let back = WPN.scope ? -0.25 : fpIn ? -0.05 : 2.3, side = WPN.scope || fpIn ? 0 : 0.62;
   const desired = _w4.copy(pivot).addScaledVector(f, -back).addScaledVector(right, side); desired.y += WPN.scope ? 0.05 : fpIn ? 0 : 0.25;
   const dv = desired.clone().sub(pivot), L = dv.length(); dv.normalize(); const hit = castHit(pivot, dv, L + 0.3); if (hit) desired.copy(pivot).addScaledVector(dv, Math.max(0.3, hit.distance - 0.25));
@@ -10701,7 +10704,7 @@ function wpnStep(dt) {
     if (F.dead <= 0) { $('wasted').classList.remove('show'); const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); F.hp = 100; camInit = false; toast('Back on your feet', 1.4); } }
   // firing
   wpnJobStep(); const armed = wpnArmed(); wpnHud(false);
-  if (!armed) { WPN.fire = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); wpnViewModel(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
+  if (!armed) { WPN.fire = false; WPN.scope = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); wpnViewModel(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
   if (WPN.cache.id !== WPN.cur) wpnHold(DAZZA, WPN.cur, WPN.cache);
   wpnCam(dt); WPN.camDone = true;          // the aiming camera before the shot: the shot goes out along what's drawn (the on-foot camera from earlier in the frame can look elsewhere)
   const id = WPN.cur, W = WEAPONS[id], fire = (WPN.fire || keys.has('f')) && (F.mode === 'walk' || F.mode === 'air' || MH.pax);
@@ -12122,13 +12125,14 @@ function npcThink(n, dt) {
   if (F.dead > 0 && (n.st === 'chase' || n.st === 'fight')) { n.st = 'wander'; npcSay(n, npcPick(NPC_L.win), 2.6); n.angry = false; return; }
   if (n.st === 'chase' || n.st === 'fight') {
     if (!hostile) { n.st = 'wander'; return; }
-    if (dP > 34) { n.farT += dt; if (n.farT > 6) { n.st = 'wander'; n.angry = false; n.farT = 0; return; } } else n.farT = 0;
+    if (dP > 34) { n.farT += dt; if (n.farT > (n.cmOn ? 25 : 6)) { n.st = 'wander'; n.angry = false; n.farT = 0; return; } } else n.farT = 0;      // (the long way round a shed takes him further off for a while)
     n.sayT -= dt; if (n.sayT <= 0) { n.sayT = (n.dima ? 7 : 5) + Math.random() * 3; npcSay(n, npcPick(NPC_L.angry), 2.8); }
     if (activeName !== 'foot' && dP < 2.6) { npcFace(n, F.pos.x, F.pos.z, 8, dt); n.sp *= 0.8; return; }      // you're in a machine: they stand there shaking a fist
     if (n.st === 'chase') { const spd = dP > 5 ? 4.6 : 3.6;
       // straight at you when there's a clear run; round the sheds and fences by a route when there isn't
       n.losT = (n.losT || 0) - dt; if (n.losT <= 0) { n.losT = 0.4; n.losOk = dP < 4 || walkLOS(n.pos.x, n.pos.z, F.pos.x, F.pos.z); }
-      if (n.losOk || npcGoTo(n, F.pos.x, F.pos.z, spd, dt, 5) === 'fail') { n.route = null; npcWalk(n, faSteer(n, Math.atan2(dpx, dpz), 2), spd, dt, 9); }
+      if (n.chaseMove && n.chaseMove(n, spd, dt)) { /* (Matt in his shed: his own routes round the benches) */ }
+      else if (n.losOk || npcGoTo(n, F.pos.x, F.pos.z, spd, dt, 5) === 'fail') { n.route = null; npcWalk(n, faSteer(n, Math.atan2(dpx, dpz), 2), spd, dt, 9); }
       if (dP < 2.2) { n.st = 'fight'; n.t = 0; n.atk = 0.5; n.atkPh = ''; } return; }
     // fight: square up, wind up, throw
     npcFace(n, F.pos.x, F.pos.z, 12, dt); n.sp *= 0.85;
@@ -14955,7 +14959,7 @@ function mtBuild() {
   const tape = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.035), M.yellow); tape.position.set(0.19, 0.05, 0.02); (P.body || P.root).add(tape);
   const n = { npc: true, matt: true, name: 'Matt', P, root: P.root, pack: new THREE.Group(), look: L, s, pos: new THREE.Vector3(), yaw: 0, vel: new THREE.Vector3(), sp: 0, st: 'home', t: 0, hp: 110, max: 110, tilt: 0, gy: 0, gT: 0, ph: 0, side: 1, stuck: 0, tgt: null,
     veh: null, vehT: 1e9, driveT: 1e9, mode: 'zig', modeT: 0, atk: 0, atkPh: '', hitsDone: 0, sayT: 0, downT: 0, aware: 0, farT: 0, wpt: null, lookH: 0, angry: false };
-  npcBubble(n); MT.n = n; NPC.list.push(n); mtPlace();
+  npcBubble(n); n.chaseMove = mtChaseMove; MT.n = n; NPC.list.push(n); mtPlace();
 }
 function mtPlace() {
   const n = MT.n; if (!n) return; const S0 = MT_SPOT.bench, [x, z] = mtW(S0[0], S0[1]); scene.attach(n.root); n.root.scale.setScalar(n.s);
@@ -14990,6 +14994,35 @@ function mtPathTo(u1, v1) {
   else if (v1 > -1) { P.push([u0, MT_AISLE], [door, MT_AISLE], [door, 12], [u1, v1]); return P; }
   else P.push([u0, MT_AISLE]);
   P.push([u1, MT_AISLE], [u1, v1]); return P;
+}
+// chasing you with either of you inside the shed: the farm's walking map doesn't know the benches and walls, so he goes by his own
+// routes (along the aisle, through the door), straight at you once there's a clear couple of metres between you
+const mtInShed = (u, v) => Math.abs(u) < 15.4 && v > -16 && v < 18, mtNearShed = (u, v) => Math.abs(u) < 24 && v > -26 && v < 28;
+// out to someone just outside the walls: out the front, round the corner, along the side (and the back)
+function mtPathOut(pu, pv) {
+  const [u0, v0] = mtUV(MT.n.pos.x, MT.n.pos.z), su = pu >= 0 ? 1 : -1, side = su * 17.6, P = [];
+  if (mtInShed(u0, v0)) P.push(...mtPathTo(1.5, 21));
+  if (!(Math.abs(u0) > 15.4 && Math.sign(u0) === su && v0 < 21)) P.push([side, 21]);
+  if (pv < 21) P.push([side, Math.max(pv, -18.2)]);
+  P.push([pu, pv]); return P;
+}
+function mtChaseMove(n, spd, dt) {
+  const [pu, pv] = mtUV(F.pos.x, F.pos.z), [mu, mv] = mtUV(n.pos.x, n.pos.z), pin = mtInShed(pu, pv), min = mtInShed(mu, mv), pnear = !pin && mtNearShed(pu, pv) && mtNearShed(mu, mv);
+  if (!pin && !min && !pnear) { MT.cPath = null; n.cmOn = false; return false; }                                  // both out in the yard: the usual chase
+  n.cmOn = true;
+  const dP = Math.hypot(F.pos.x - n.pos.x, F.pos.z - n.pos.z);
+  if (dP < 3 && walkLOS(n.pos.x, n.pos.z, F.pos.x, F.pos.z)) { dgMove(n, F.pos.x, F.pos.z, spd, dt); MT.cPath = null; }
+  else { MT.cT = (MT.cT || 0) - dt; const far = !pin && !pnear, tu = far ? 1.5 : pu, tv = far ? 21 : pv;        // (you've got right away: out through the door after you)
+    // a fresh route when there isn't one, you've moved off from where it ends, or he's stuck; the corners he's already past are dropped
+    // (a fresh one starts back at the aisle, which had him turning round every half second)
+    const moved = !MT.cEnd || Math.hypot(tu - MT.cEnd[0], tv - MT.cEnd[1]) > 2.5;
+    if (!MT.cPath || !MT.cPath.length || moved || MT.cT <= 0) { MT.cT = 2.5; MT.cEnd = [tu, tv]; MT.cPath = pin || far ? mtPathTo(tu, tv) : mtPathOut(tu, tv);
+      let on = -1; for (let i = 0; i + 1 < MT.cPath.length; i++) { const [a0, b0] = mtW(...MT.cPath[i]), [a1, b1] = mtW(...MT.cPath[i + 1]), ex = a1 - a0, ez = b1 - b0, l2 = ex * ex + ez * ez || 1;      // already on a leg of it: from that leg's end
+        const k = THREE.MathUtils.clamp(((n.pos.x - a0) * ex + (n.pos.z - b0) * ez) / l2, 0, 1); if (Math.hypot(a0 + ex * k - n.pos.x, b0 + ez * k - n.pos.z) < 1.0) on = i; }
+      if (on >= 0) MT.cPath = MT.cPath.slice(on + 1); }
+    const [u, v] = MT.cPath[0], [x, z] = mtW(u, v); dgMove(n, x, z, spd, dt); if (Math.hypot(x - n.pos.x, z - n.pos.z) < 0.6) MT.cPath.shift(); }
+  n.gT -= dt; if (n.gT <= 0) { n.gT = 0.12; n.gy = mtFloor(n.pos.x, n.pos.z); }
+  return true;
 }
 function mtGo(spot) { MT.spot = spot; const S0 = MT_SPOT[spot]; MT.path = mtPathTo(S0[0], S0[1]); MT.n.st = 'mtWalk'; MT.n.t = 0; MT.walkT = 0; MT.walkBest = 1e9; }
 function mtWalk(n, dt) {        // true while still walking
@@ -17272,7 +17305,7 @@ function mhCam(dt) {
   MH.camY = MH.camY === undefined ? st.pos.y : MH.camY + (st.pos.y - MH.camY) * Math.min(1, dt * 6);
   const piv = _w3.set(st.pos.x + lx * (W.x + 0.2 * side) + fx * W.z, MH.camY + W.y + 0.12, st.pos.z + lz * (W.x + 0.2 * side) + fz * W.z);
   const scoped = WPN.scope;
-  const want = scoped ? 14 : 60; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
+  const want = scoped ? SCOPE_FOV : 60; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
   // over the shoulder: back along the aim, up a bit, then kept out past the door on the passenger side
   // GTA drive-by style: the camera swings round the ute with your aim, high enough to look over the cab, so you see
   // the ute (and yourself at the window) in the foreground and the pigs beyond. Scoped, it moves to the window.
