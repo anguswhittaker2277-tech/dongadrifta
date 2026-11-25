@@ -1688,9 +1688,9 @@ Object.assign(SPECS, {
               front: 3.9, rear: 1.1, halfW: 1.08, rayH: [0.3, 0.75, 1.35], lanes: [-0.95, 0, 0.95], noseLane: 1,
               rF: 0.375, rR: 0.375, step: 0.28, trackR: 0.88, trackF: 0.88, roll: 0.012, rollMax: 0.06, grip: 8, susK: 160, susC: 10,
               camBack: 8.6, camUp: 3.4, camPivot: 1.35, look: 2.6, lookH: 1.0 },
-  dirtbike: { top: 125 / 3.6, rev: 6 / 3.6, accel: 7.2, brake: 8.5, wb: 1.48, steer: 0.62, steerFast: 0.09, steerRate: 2.6,
-              front: 1.9, rear: 0.42, halfW: 0.42, rayH: [0.45, 1.0], lanes: [-0.25, 0, 0.25], noseLane: 1,
-              rF: 0.36, rR: 0.33, step: 0.5, trackR: 0.04, trackF: 0.04, roll: 0, rollMax: 0, grip: 9, susK: 90, susC: 7,
+  dirtbike: { top: 125 / 3.6, rev: 6 / 3.6, accel: 7.2, brake: 8.5, wb: 1.49, steer: 0.62, steerFast: 0.09, steerRate: 2.6,
+              front: 1.85, rear: 0.36, halfW: 0.42, rayH: [0.45, 1.0], lanes: [-0.25, 0, 0.25], noseLane: 1,
+              rF: 0.37, rR: 0.375, step: 0.5, trackR: 0.04, trackF: 0.04, roll: 0, rollMax: 0, grip: 9, susK: 90, susC: 7,
               camBack: 5.4, camUp: 2.2, camPivot: 1.3, look: 2.4, lookH: 1.0, lean: 0.8 },
   trophy:   { top: 165 / 3.6, rev: 25 / 3.6, accel: 6, brake: 9, wb: 3.3, steer: 0.6, steerFast: 0.3, steerRate: 3.2,
               front: 4.35, rear: 1.25, halfW: 1.25, rayH: [0.55, 1.2, 1.9], lanes: [-1.0, 0, 1.0], noseLane: 0.85,
@@ -1722,34 +1722,34 @@ function knobby(R, w) {
   for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2; for (const s of [-1, 1]) kb.add(GMAT.rubber, box(w * 0.42, 0.03, 0.035), s * w * 0.22, Math.cos(a) * R, Math.sin(a) * R, -a, 0, 0); }
   kb.build(spin); return spin;
 }
+/* ---------- the dirt bike: Husqvarna FE501, from the FS25 mod "Husqvarna FE501" (fe501.glb + fe501-wheels.glb, made by
+   tools/fs-mod/build_vehicle.py). The mod's bike is about 88% of the real one, so it's scaled up to the real 1.49 m wheelbase.
+   The fork turns on the mod's raked steering head (handlebarRot); the tyres come from the mod's own wheel file. The
+   handling, wheelies and leaning are the game's own (SPECS.dirtbike). */
+const FE_S = 1.14, FE_REAR = [0, 0.308, -0.661], FE_RAKE = -25.5848 * Math.PI / 180;
 function buildDirtBike() {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-  const RR = 0.33, RF = 0.36, WB = 1.48, b = Batch();
-  const HT = V3(0, 1.02, 1.12), SW = V3(0, 0.5, 0.52), BB = V3(0, 0.36, 0.68);
-  tubeG(b, HT, V3(0, 0.45, 0.92), 0.03, GB.black); tubeG(b, HT, V3(0, 0.86, 0.6), 0.03, GB.black); tubeG(b, V3(0, 0.86, 0.6), SW, 0.03, GB.black);
-  b.add(GB.alloy, box(0.24, 0.34, 0.36), 0, 0.5, 0.76);                         // engine cases
-  b.add(GB.black, box(0.2, 0.3, 0.22), 0, 0.73, 0.82, 0.3, 0, 0);               // cylinder
-  b.add(GB.orange, box(0.32, 0.2, 0.42), 0, 1.0, 0.82, 0.1, 0, 0);              // tank
-  for (const s of [-1, 1]) b.add(GB.orange, box(0.04, 0.28, 0.34), s * 0.17, 0.88, 0.96, 0.2, 0, 0);   // radiator shrouds
-  b.add(GB.seat, box(0.24, 0.08, 0.86), 0, 1.02, 0.36, -0.06, 0, 0);
-  b.add(GB.orange, box(0.22, 0.04, 0.6), 0, 1.0, -0.1, -0.15, 0, 0);            // rear fender
-  b.add(GB.white, box(0.26, 0.16, 0.04), 0, 0.86, -0.05);                      // side number boards
-  tubeG(b, V3(-0.12, 0.62, 0.9), V3(-0.13, 0.62, 0.35), 0.04, GB.alloy); tubeG(b, V3(-0.13, 0.62, 0.35), V3(-0.13, 0.84, -0.15), 0.05, GB.alloy);   // exhaust
-  for (const s of [-1, 1]) tubeG(b, SW, V3(s * 0.07, RR, 0), 0.035, GB.alloy);  // swingarm
-  tubeG(b, V3(0, 0.88, 0.48), SW.clone().add(V3(0, 0.04, -0.15)), 0.035, GB.gold);    // shock
-  b.build(body);
-  const wheels = [], steerPivots = [];
-  const rw = knobby(RR, 0.11); rw.position.set(0, RR, 0); body.add(rw); wheels.push({ spin: rw, r: RR, rear: true });
-  const fork = new THREE.Group(); fork.position.set(0, RF, WB); body.add(fork);
-  const fw = knobby(RF, 0.09); fork.add(fw); wheels.push({ spin: fw, r: RF });
-  const fb = Batch();
-  for (const s of [-1, 1]) { const g = cyl(0.025, 0.025, 0.85, 8); g.translate(0, 0.42, 0); g.rotateX(-0.46); fb.add(GB.gold, g, s * 0.085, 0, 0); }
-  fb.add(GB.orange, box(0.14, 0.03, 0.55), 0, 0.5, 0.1, 0.25, 0, 0);            // front fender, up high
-  fb.add(GB.white, box(0.24, 0.24, 0.03), 0, 0.82, -0.38, -0.4, 0, 0);          // number plate
-  fb.add(GB.black, cyl(0.014, 0.014, 0.8, 8), 0, 0.86, -0.46, 0, 0, Math.PI / 2);
-  for (const x of [-0.36, 0.36]) fb.add(GMAT.grip, cyl(0.02, 0.02, 0.1, 8), x, 0.86, -0.46, 0, 0, Math.PI / 2);
-  fb.build(fork);
-  return { root, body, wheels, steerPivots, halo: null, dome: null, door: null, exhaustTip: new THREE.Vector3(-0.13, 0.84, -0.15), fork };
+  const frame = new THREE.Group(); frame.scale.setScalar(FE_S); frame.position.set(0, -FE_REAR[1] * FE_S + 0.375, -FE_REAR[2] * FE_S); body.add(frame);
+  // the game spins wheels and turns the fork from the start; the real nodes take over once the model's in
+  const wheels = [{ spin: new THREE.Group(), r: 0.375, rear: true }, { spin: new THREE.Group(), r: 0.37 }];
+  let hb = null;
+  const fork = { rotation: { set y(v) { if (hb) hb.rotation.set(FE_RAKE, v, 0, 'XYZ'); }, get y() { return hb ? hb.rotation.y : 0; } } };
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  const get = u => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.arrayBuffer(); }).then(buf => new Promise((ok, no) => loader.parse(buf, '', ok, no)));
+  Promise.all([get('fe501.glb'), get('fe501-wheels.glb')]).then(([g, w]) => {
+    const N = {}, cache = new Map();
+    const conv = sc => sc.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); if (o.material.map) { m.map = o.material.map; m.alphaTest = o.material.alphaTest || (o.material.transparent ? 0.4 : 0); } cache.set(o.material, m); }
+        o.material = m; if (o.isSkinnedMesh) { o.frustumCulled = false; o.userData.nodent = true; } } });
+    conv(g.scene); frame.add(g.scene);
+    const tyres = {}; w.scene.traverse(o => { if (o.name === 'motorcycleTire_front' || o.name === 'motorcycleTire_back') tyres[o.name] = o; if (/^mudMesh/.test(o.name)) o.visible = false; }); conv(w.scene);
+    hb = N.handlebarRot; const wf = N.wheelFrontHandlebar, wr = N.wheelBack;
+    if (tyres.motorcycleTire_front && wf) { const t = tyres.motorcycleTire_front; t.position.set(0, 0, 0); wf.add(t); }
+    if (tyres.motorcycleTire_back && wr) { const t = tyres.motorcycleTire_back; t.position.set(0, 0, 0); wr.add(t); }
+    if (wr) wheels[0].spin = wr; if (wf) wheels[1].spin = wf;
+    root.userData.ready = true;
+  }).catch(e => console.warn('FE501 model', e));
+  return { root, body, wheels, steerPivots: [], halo: null, dome: null, door: null, exhaustTip: new THREE.Vector3(-0.11, 0.83, 0.03), fork };
 }
 
 /* ---------- trophy truck ---------- */
