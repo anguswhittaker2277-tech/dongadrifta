@@ -4724,6 +4724,12 @@ const SHED_PARK = [['bmw', 0, 1], ['tractor', 0, -1], ['tele', 1, -1], ['dozer',
 function homeY(x, z) { const sf = STRUCTS.ready ? shedFloorAt(x, z) : null; return groundAt(x, z, sf !== null ? sf + 2.5 : 30, 0); }    // under a shed roof, start below it
 // where you start (and get back up): the dunny by the dongas, or out the front of the machinery shed (menu: Start at)
 let START_AT = (() => { try { return localStorage.getItem('wfy.start') === 'shed' ? 'shed' : 'dongas'; } catch (_) { return 'dongas'; } })();
+function startSet(at, quiet) {
+  START_AT = at === 'shed' ? 'shed' : 'dongas'; try { localStorage.setItem('wfy.start', START_AT); } catch (_) {}
+  const ml = document.querySelector('#startbtn .mlbl'); if (ml) ml.textContent = 'Start at: ' + (START_AT === 'shed' ? 'Machinery shed' : 'Dongas');
+  for (const b of document.querySelectorAll('#lookBody .lr[data-k="start"] button')) b.classList.toggle('on', b.dataset.v === START_AT);
+  if (!quiet) toast(START_AT === 'shed' ? 'You\u2019ll start at the machinery shed. Reset to go there now' : 'You\u2019ll wake up in the dunny by the dongas. Reset to go there now', 2.6);
+}
 function startSpot() { return START_AT === 'shed' && HOME.shedStart ? HOME.shedStart : HOME.farmer; }
 function farmerHomeY(h0) { const h = h0 || startSpot(); if (h.dunny && DN.root) return groundAt(h.x, h.z, DN.gy + 1.4, DN.gy); return h.indoors && typeof DG !== 'undefined' && DG.root ? groundAt(h.x, h.z, DG.gy + 1.5, DG.gy) : homeY(h.x, h.z); }      // under a roof: look for the floor from head height
 function shedParking() {
@@ -10491,8 +10497,7 @@ const HUDS = { dT: 0, live: false };
   const st = document.createElement('button'); st.type = 'button'; st.id = 'startbtn';
   const stLbl = () => '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg><span class="mlbl">Start at: ' + (START_AT === 'shed' ? 'Machinery shed' : 'Dongas') + '</span>';
   st.innerHTML = stLbl(); panel.appendChild(st);
-  st.addEventListener('click', () => { START_AT = START_AT === 'shed' ? 'dongas' : 'shed'; try { localStorage.setItem('wfy.start', START_AT); } catch (_) {} st.innerHTML = stLbl();
-    toast(START_AT === 'shed' ? 'You\u2019ll start at the machinery shed. Reset to go there now' : 'You\u2019ll wake up in the dunny by the dongas. Reset to go there now', 2.6); });
+  st.addEventListener('click', () => startSet(START_AT === 'shed' ? 'dongas' : 'shed'));
   const rs = $('reset'); if (rs) { rs.childNodes.forEach(n => { if (n.nodeType === 3) n.textContent = ''; }); lbl('reset', 'Reset everything'); }
   const open = on => { panel.classList.toggle('show', on); shade.classList.toggle('show', on); btn.setAttribute('aria-expanded', String(on)); };
   btn.addEventListener('click', e => { e.stopPropagation(); open(!panel.classList.contains('show')); });
@@ -12119,6 +12124,10 @@ function lookUIBuild() {
   sh.innerHTML = '<div class="lh"><h2>Customise Dazza</h2><button id="lookX" type="button" aria-label="Close">&times;</button></div><div class="lb" id="lookBody"></div><div class="lf"><button type="button" id="lookRnd">Surprise me</button><button type="button" id="lookRst">Reset</button><button type="button" id="lookOk" class="pri">Done</button></div>';
   document.body.appendChild(sh);
   const body = sh.querySelector('#lookBody'); lookUIRows(body);
+  { const row = document.createElement('div'); row.className = 'lr'; row.dataset.k = 'start';
+    row.innerHTML = '<div class="ll">Start at</div><div class="lc"><button type="button" data-v="dongas">Dongas</button><button type="button" data-v="shed">Machinery shed</button></div>';
+    for (const b of row.querySelectorAll('button')) b.addEventListener('click', () => startSet(b.dataset.v, CRE.on));     // (making your character: no need to say reset)
+    body.prepend(row); }
   lookUIButtons();
 }
 function lookUIRows(body) {
@@ -12165,7 +12174,7 @@ function lookUIFill() {
     const k = row.dataset.k, v = LOOK[k], inp = row.querySelector('input');
     if (k === 'fh') row.style.display = LOOK.g === 'f' ? 'none' : '';
     if (inp) inp.value = Math.round(v * 100);
-    for (const b of row.querySelectorAll('button')) b.classList.toggle('on', String(b.dataset.v) === String(v));
+    for (const b of row.querySelectorAll('button')) b.classList.toggle('on', k === 'start' ? b.dataset.v === START_AT : String(b.dataset.v) === String(v));
   }
 }
 // Dazza, or Shazza: the sheet's title and the menu button follow the body you picked
