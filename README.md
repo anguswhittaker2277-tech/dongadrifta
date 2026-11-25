@@ -54,7 +54,7 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
   - the dozer: MB trac 1400 turbo running idle (440508) by **jmagiera**;
   - the telehandler: Back Hoe Tractor (462878) by **DrDufus**;
   - the ute: Diesel idle 1 (565598) by **C-V**;
-  - the SUV and the X5: Car Arriving Idling And Pulling Away (429405) by **leonelmail**;
+  - the SUV: Car Arriving Idling And Pulling Away (429405) by **leonelmail**;
   - the trophy truck: Ford Mustang Engine (1985) (119449) by **lmbubec**;
   - the dirt bike and the buggy: Motocross bike starting and ticking over (175964) by **kristian321**;
   - the gyrocopter: Engine, motor (loopable) (398675) by **Dominik_W**.
@@ -91,6 +91,12 @@ They were trimmed, layered, compressed and level-matched, and converted to MP3 h
 Madman's, the backpackers' and Dima's voices were generated with [Kokoro-82M](https://github.com/hexgrad/kokoro)
 (Apache-2.0), using phonemes from espeak-ng. See `tools/voices/README.md` for how the voice pack is made.
 Matt's voice was made in Voicebox from his own voice profile (the recordings are in `tools/voices/rec_mt/`).
+
+## The BMW
+
+The BMW is an E70 X5, from the Sketchfab model ["1999 BMW X5"](https://sketchfab.com/3d-models/1999-bmw-x5-4d504448006b417ba6193d35adbe446d)
+(an E70 despite the name), converted to `e70.glb` with its driver figure and its own wheels taken out. The paint is matched to
+the owner's own car, the interior is mirrored to right-hand drive, and the 20" Style 214 wheels and tyres are made in the game.
 
 ## The cotton picker
 
