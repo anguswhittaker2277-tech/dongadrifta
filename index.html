@@ -2318,46 +2318,56 @@ function cpApplyCfg(C) {
    Frame: origin on the ground under the middle of the back tracks, +Z forward, +X left, like every other vehicle.
    ================================================================ */
 const RX_BACK_Z = -2.6115, RX_HINGE_Z = -0.567, RX_POD = { x: 1.12, y: 0.563, half: 0.941, R: 0.5 };
-function rxTrackPod(mats) {
-  // belt loop: two half circles (radius R about the idlers) joined top and bottom, as a function of distance s
-  const R = RX_POD.R, h = RX_POD.half, W = 0.76, L = 2 * Math.PI * R + 4 * h;
-  const at = (s, r) => { s = ((s % L) + L) % L; const top = 2 * h, arc = Math.PI * R;          // returns [z, y, angle] on a loop of radius r
-    if (s < top) return [h - s, r, 0];                                        // top run, front to back
-    if (s < top + arc) { const a = (s - top) / R; return [-h - Math.sin(a) * r, Math.cos(a) * r, a]; }   // round the back idler
-    if (s < 2 * top + arc) return [-h + (s - top - arc), -r, Math.PI];       // bottom run, back to front
-    const a = (s - 2 * top - arc) / R + Math.PI; return [h - Math.sin(a) * r, Math.cos(a) * r, a]; };
+function rxTrackPod(mats, inner) {
+  // the 9RX's pod: a big drive wheel up high at the inner end (towards the hinge), idlers at both ends on the ground,
+  // mid rollers between; the belt is the hull round the wheels (top run sloping down to the outer idler)
+  const h = RX_POD.half, W = 0.76, T = 0.05;                       // inner: +1 = drive wheel at the pod's +Z end, -1 = at -Z
+  const wheelsDef = [{ z: inner * 0.5, y: 0.44, r: 0.6 }, { z: inner * h, y: 0, r: 0.44 }, { z: -inner * h, y: 0, r: 0.44 }];
+  // hull of the three circles (belt centre line) -> cumulative length, so at(s) gives a point and its direction
+  const pts = [];
+  for (const c of wheelsDef) for (let k = 0; k < 96; k++) { const a = k / 96 * Math.PI * 2; pts.push([c.z + Math.cos(a) * (c.r + T), c.y + Math.sin(a) * (c.r + T)]); }
+  pts.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], hi = [];
+  for (const p of pts) { while (lo.length > 1 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (let k = pts.length - 1; k >= 0; k--) { const p = pts[k]; while (hi.length > 1 && cross(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
+  const hull = lo.slice(0, -1).concat(hi.slice(0, -1)), cum = [0];
+  for (let k = 1; k <= hull.length; k++) { const a = hull[k - 1], b = hull[k % hull.length]; cum.push(cum[k - 1] + Math.hypot(b[0] - a[0], b[1] - a[1])); }
+  const L = cum[hull.length];
+  const at = (s, off = 0) => { s = ((s % L) + L) % L; let k = 1; while (cum[k] < s) k++; const a = hull[k - 1], b = hull[k % hull.length], u = (s - cum[k - 1]) / (cum[k] - cum[k - 1] || 1);
+    const dz = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dz, dy) || 1, nz = dy / l, ny = -dz / l;        // outward normal (hull runs counter-clockwise in z,y)
+    return [a[0] + dz * u + nz * off, a[1] + dy * u + ny * off, Math.atan2(ny, nz)]; };
   const g = new THREE.Group();
-  // the belt: a closed ribbon (outer face, inner face, two sides)
-  const N = 120, pos = [], idx = [], push = (z, y, x) => pos.push(x, y, z);
-  for (let i = 0; i <= N; i++) { const s = i / N * L, [zo, yo] = at(s, R + 0.03), [zi, yi] = at(s, R - 0.03);
-    push(zo, yo, W / 2); push(zo, yo, -W / 2); push(zi, yi, W / 2); push(zi, yi, -W / 2); }
+  // belt ribbon
+  const N = 160, pos = [], idx = [], push = (z, y, x) => pos.push(x, y, z);
+  for (let i = 0; i <= N; i++) { const s = i / N * L, [zo, yo] = at(s, T), [zi, yi] = at(s, -T); push(zo, yo, W / 2); push(zo, yo, -W / 2); push(zi, yi, W / 2); push(zi, yi, -W / 2); }
   for (let i = 0; i < N; i++) { const a = i * 4, b = a + 4;
-    idx.push(a, b, a + 1, a + 1, b, b + 1, a + 2, a + 3, b + 2, a + 3, b + 3, b + 2, a, a + 2, b, a + 2, b + 2, b, a + 1, b + 1, a + 3, a + 3, b + 1, b + 3); }
+    idx.push(a, a + 1, b, a + 1, b + 1, b, a + 2, b + 2, a + 3, a + 3, b + 2, b + 3, a, b, a + 2, a + 2, b, b + 2, a + 1, a + 3, b + 1, a + 3, b + 3, b + 1); }
   const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); bg.setIndex(idx); bg.computeVertexNormals();
-  g.add(new THREE.Mesh(bg, mats.rubber));
-  // lugs: chevron bars on the outside of the belt, moved round it by the distance driven
-  const lugA = new THREE.BoxGeometry(W * 0.47, 0.05, 0.075); lugA.translate(W * 0.235, 0.025, 0); lugA.rotateY(-0.32);
-  const lugB = new THREE.BoxGeometry(W * 0.47, 0.05, 0.075); lugB.translate(-W * 0.235, 0.025, 0); lugB.rotateY(0.32);
-  const lug = mergeGeometries([lugA, lugB]), NL = Math.round(L / 0.16), lugs = new THREE.InstancedMesh(lug, mats.rubber, NL);
-  lugs.frustumCulled = false; g.add(lugs);
-  // guide lugs inside the belt, idlers, mid rollers and the undercarriage beam
-  const idl = new THREE.CylinderGeometry(R - 0.035, R - 0.035, 0.3, 28); idl.rotateZ(Math.PI / 2);
-  const hubG = new THREE.CylinderGeometry(0.17, 0.2, 0.08, 16); hubG.rotateZ(Math.PI / 2);
-  const idlers = [];
-  for (const z of [h, -h]) { const w = new THREE.Group(); w.position.set(0, 0, z); g.add(w); idlers.push(w);
-    for (const x of [0.22, -0.22]) { const d = new THREE.Mesh(idl, mats.wheel); d.position.x = x; w.add(d); }
-    for (const x of [0.39, -0.39]) { const hb = new THREE.Mesh(hubG, mats.dark); hb.position.x = x; w.add(hb); }
-    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2, b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.06), mats.steel); b.position.set(0.38, Math.cos(a) * 0.32, Math.sin(a) * 0.32); w.add(b); } }
-  const rol = new THREE.CylinderGeometry(0.16, 0.16, 0.26, 18); rol.rotateZ(Math.PI / 2);
-  for (const z of [-0.5, 0, 0.5]) for (const x of [0.22, -0.22]) { const r = new THREE.Mesh(rol, mats.wheel); r.position.set(x, -R + 0.19, z); g.add(r); }
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 2 * h + 0.2), mats.paint); beam.position.y = -0.12; g.add(beam);
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.55), mats.paint); arm.position.set(0, 0.08, 0); g.add(arm);
-  // drive: s is the belt distance travelled (from the game's wheel spin angle times radius)
+  const belt = new THREE.Mesh(bg, mats.rubber); belt.material.side = THREE.DoubleSide; g.add(belt);
+  // bold angled tread bars, alternating from each edge past the middle
+  const bar = new THREE.BoxGeometry(W * 0.62, 0.065, 0.085); bar.translate(W * 0.19, 0.0325, 0); bar.rotateY(-0.42);
+  const bar2 = bar.clone(); bar2.scale(-1, 1, 1);
+  const lugA = bar, lugB = bar2, NL = Math.round(L / 0.2);
+  const lugs = [new THREE.InstancedMesh(lugA, mats.rubber, Math.ceil(NL / 2)), new THREE.InstancedMesh(lugB, mats.rubber, Math.floor(NL / 2))];
+  for (const m of lugs) { m.frustumCulled = false; g.add(m); }
+  // wheels in JD yellow: drive wheel, idlers, mid rollers; green undercarriage between them
+  const disc = (r, w) => { const d = new THREE.Group(), rim = new THREE.CylinderGeometry(r, r, w, 32); rim.rotateZ(Math.PI / 2);
+    for (const x of [w * 0.62, -w * 0.62]) { const m = new THREE.Mesh(rim, mats.yellow); m.position.x = x; d.add(m); }
+    const hub = new THREE.CylinderGeometry(r * 0.32, r * 0.36, w * 3.1, 18); hub.rotateZ(Math.PI / 2); d.add(new THREE.Mesh(hub, mats.dark));
+    for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2, hole = new THREE.CylinderGeometry(r * 0.12, r * 0.12, w * 3.15, 10); hole.rotateZ(Math.PI / 2);
+      const m = new THREE.Mesh(hole, mats.dark); m.position.set(0, Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6); d.add(m); }
+    return d; };
+  const spinners = [];
+  // (the inner ground idler isn't drawn: it hides behind the drive wheel)
+  for (const c of [wheelsDef[0], wheelsDef[2]]) { const d = disc(c.r - 0.01, 0.2); d.position.set(0, c.y, c.z); g.add(d); spinners.push([d, c.r]); }
+  for (const z of [-0.47, 0, 0.47].map(v => v - inner * 0.05)) { const d = disc(0.17, 0.12); d.position.set(0, -0.44 + 0.17 + T, z); g.add(d); spinners.push([d, 0.17]); }
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 2 * h), mats.paint); beam.position.set(0, -0.08, 0); g.add(beam);
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.6, 0.32), mats.paint); leg.position.set(0, 0.22, inner * 0.28); leg.rotation.x = -inner * 0.5; g.add(leg);
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), SC = new THREE.Vector3(1, 1, 1), X = new THREE.Vector3(1, 0, 0);
   const pod = { g, L, last: NaN, set(s) {
     if (Math.abs(s - pod.last) < 1e-4) return; pod.last = s;
-    for (let i = 0; i < NL; i++) { const [z, y, a] = at(s + i / NL * L, R + 0.03); P.set(0, y, z); Q.setFromAxisAngle(X, -a); M.compose(P, Q, SC); lugs.setMatrixAt(i, M); }
-    lugs.instanceMatrix.needsUpdate = true; for (const w of idlers) w.rotation.x = s / R; } };
+    for (let i = 0; i < NL; i++) { const [z, y, a] = at(-s + i / NL * L, T); P.set(0, y, z); Q.setFromAxisAngle(X, Math.PI / 2 - a); M.compose(P, Q, SC); lugs[i % 2].setMatrixAt(i >> 1, M); }
+    for (const m of lugs) m.instanceMatrix.needsUpdate = true; for (const [d, r] of spinners) d.rotation.x = s / r; } };
   pod.set(0);
   return pod;
 }
@@ -2368,12 +2378,13 @@ function buildRX() {
   const mats = { rubber: new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.92 }), wheel: new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6, metalness: 0.3, envMap: env, envMapIntensity: 0.5 }),
     dark: new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.7 }), steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1, envMap: env }),
     paint: new THREE.MeshStandardMaterial({ color: new THREE.Color(0.0236, 0.2133, 0.027).multiplyScalar(0.72), roughness: 0.3, envMap: env, envMapIntensity: 0.5 }) };
+  mats.yellow = new THREE.MeshStandardMaterial({ color: new THREE.Color(1, 0.7428, 0).multiplyScalar(0.72), roughness: 0.32, envMap: env, envMapIntensity: 0.5 });
   for (const m of Object.values(mats)) m.userData.wet = 1;
   // the front half turns about the hinge: everything forward of it hangs off this pivot
   const pivot = new THREE.Group(); pivot.position.z = RX_HINGE_Z; frame.add(pivot);
   const wheels = [], pods = [];
   for (const [zc, front] of [[(2.949 + 1.067) / 2, true], [RX_BACK_Z, false]]) for (const s of [1, -1]) {
-    const pod = rxTrackPod(mats); pod.g.position.set(s * RX_POD.x, RX_POD.y, zc - (front ? RX_HINGE_Z : 0)); (front ? pivot : frame).add(pod.g);
+    const pod = rxTrackPod(mats, front ? -1 : 1); pod.g.position.set(s * RX_POD.x, RX_POD.y, zc - (front ? RX_HINGE_Z : 0)); (front ? pivot : frame).add(pod.g);
     // the game spins a wheel by rotation.x (distance / radius); the pod reads it back as belt distance when it's drawn
     const spin = new THREE.Group(); pod.g.add(spin); pods.push({ pod, spin });
     wheels.push({ spin, r: RX_POD.R + 0.06, rear: !front });
