@@ -123,8 +123,11 @@ for c in scene:
 def load_png(rel):
     im = Image.open(os.path.join(MOD, rel)); im.load(); return im.convert('RGBA')
 
-def local(path):           # a texture the mod ships (not $data/...)
-    return path and not path.startswith('$') and os.path.exists(os.path.join(MOD, path))
+def local(path):           # a texture the mod ships (not $data/...): its path, or the .dds FS swaps in for a .png
+    if not path or path.startswith('$'): return None
+    for p in (path, os.path.splitext(path)[0] + '.dds'):
+        if os.path.exists(os.path.join(MOD, p)): return p
+    return None
 
 # ---------------------------------------------------------------- glTF writer
 BIN = bytearray()
@@ -179,7 +182,7 @@ def material(mid):
     white = diff.endswith('white_diffuse.png') or not diff
     tag = 'plastic'; col = cs[:]; metal = 0.0; rough = 0.5; alpha = None; texi = None; a = 1.0
     if local(diff):
-        im = load_png(diff); has_a = im.getextrema()[3][0] < 250
+        diff = local(diff); im = load_png(diff); has_a = im.getextrema()[3][0] < 250
         texi = tex(os.path.basename(diff), im); col = [1, 1, 1] if 'colorScale' not in P or not has_a else cs
         tag = 'decal' if has_a else 'textured'
         if has_a: alpha = 'MASK'
