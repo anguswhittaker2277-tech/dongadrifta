@@ -50,7 +50,7 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
   - the tractor tyre lugs: thumps from the two body-fall recordings above.
 - Engines, also from Freesound, each idling recording pitched with the revs (the BMW is Angus's own recording):
   - the truck: Truck Engine Idle Loops (187564) by **qubodup**;
-  - the tractor and harvester: tractor idling (149193) by **videog**;
+  - the tractor and the cotton picker: tractor idling (149193) by **videog**;
   - the dozer: MB trac 1400 turbo running idle (440508) by **jmagiera**;
   - the telehandler: Back Hoe Tractor (462878) by **DrDufus**;
   - the ute: Diesel idle 1 (565598) by **C-V**;
