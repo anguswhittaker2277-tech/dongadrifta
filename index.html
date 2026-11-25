@@ -608,6 +608,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 
 /* ================================================================
@@ -2016,7 +2018,7 @@ SPECS.combine = Object.assign({}, SPECS.tractor, { top: 20 / 3.6, rev: 8 / 3.6, 
   front: 7.05, rear: 1.55, halfW: 3.3, rayH: [0.5, 1.2, 2.4, 3.4], lanes: [-2.9, -1.4, 0, 1.4, 2.9], noseLane: 0.5, rF: 0.86, rR: 0.62, step: 0.5,
   trackR: 0.92, trackF: 1.18, roll: 0.012, rollMax: 0.05, grip: 3.2, camBack: 16, camUp: 8.0, camPivot: 3.2, look: 4.2, lookH: 2.6 });
 // the Field 6 harvest block + its headlands and the strip across to the yard: ground machines may drive here
-function hvIn(x, z) { return x > -196 && x < -84 && z > -68 && z < 58; }
+function hvIn(x, z) { return x > -292 && x < -84 && z > -68 && z < 58; }          // (out to x -292: the cotton block west of the wheat, and its headland)
 function harvGlb(src, onScene) {
   try { const bin = Uint8Array.from(atob(src), c => c.charCodeAt(0));
     new GLTFLoader().parse(bin.buffer, '', g => { g.scene.updateMatrixWorld(true);
@@ -2049,6 +2051,273 @@ function buildCombine() {
 }
 
 /* ================================================================
+   THE COTTON PICKER, MODEL: John Deere CP690 / 7760 round-module picker
+   From the Farming Simulator 25 mod "John Deere Roller Pickers 2008-2021" by Jolly Farms Modding, decoded and
+   packed into cp690.glb by tools/fs-mod (see the README there). The GLB keeps the mod's own node names, so the
+   animations below are the mod's XML animations (times in seconds, rotations in degrees, i3d Euler order) and the
+   moving parts are the mod's <movingParts>: a part points its local Z at a reference point, a ram's punch slides
+   to keep its length, a steering arm stretches. The wheels came from the base game's shared library, which isn't
+   in the mod, so they're built here (520/85R42 duals up front, 460/85R34 steering wheels at the back).
+   Frame: i3d is already +Z forward, +X left, metres. cpModel() wraps it so the origin sits on the ground under the
+   rear (steering) axle, like every other vehicle in the game.
+   ================================================================ */
+const CP_ANIM = {"wiperFrontAnimation":[["wiperArm01","r",0.0,0.25,[0.0,0.0,0.0],[-2.116,1.455,13.933]],["wiperArm01","r",0.25,0.5,[-2.116,1.455,13.933],[-2.345,1.798,37.463]],["wiperArm01","r",0.5,1.0,[-2.345,1.798,37.463],[0.0,0.0,75.0]],["wiperPart01","r",0.0,1.0,[0.0,0.0,0.0],[-60.0,0.0,0.0]],["wiperPart02","r",0.0,0.25,[0.0,0.0,0.0],[0.0,0.0,2.426]],["wiperPart02","r",0.25,0.5,[0.0,0.0,2.426],[0.0,0.0,4.275]],["wiperPart02","r",0.5,0.75,[0.0,0.0,4.275],[0.0,0.0,1.33]],["wiperPart02","r",0.75,1.0,[0.0,0.0,1.33],[0.0,0.0,-2.561]]],"folding":[["pickerJoint","t",0.0,1.0,[0.0,1.35,1.928],[0.0,1.62,1.928]],["pickerJoint","r",0.0,1.0,[0.0,0.0,0.0],[-7.5,0.0,0.0]],["grid01","r",0.0,1.0,[0.0,0.0,-14.0],[0.0,0.0,-34.11]],["grid02","r",0.0,1.0,[0.0,0.0,-66.0],[0.0,0.0,-38.76]],["grid03","r",0.0,1.0,[50.0,0.0,0.0],[58.81,0.0,0.0]],["preChamber","t",5.521,10.043,[-0.0,0.0,0.0],[-0.0,-0.789,0.0]],["baleChamber","r",2.417,5.368,[0.0,0.0,0.0],[-18.0,0.0,0.0]],["baleChamber","r",5.368,5.912,[-18.0,0.0,0.0],[-23.8,0.0,0.0]],["baleChamber","r",5.912,6.203,[-23.8,0.0,0.0],[-24.5,0.0,0.0]],["baleChamber","r",6.203,6.893,[-24.5,0.0,0.0],[-29.73,0.0,0.0]],["baleChamber","r",6.893,7.571,[-29.73,0.0,0.0],[-34.885,0.0,0.0]],["baleChamber","r",7.571,8.476,[-34.885,0.0,0.0],[-41.682,0.0,0.0]],["baleChamber","r",8.476,10.736,[-41.682,0.0,0.0],[-57.403,0.0,0.0]],["baleChamber","r",10.736,12.093,[-57.403,0.0,0.0],[-65.578,0.0,0.0]],["baleChamber","r",12.093,12.997,[-65.578,0.0,0.0],[-70.6,0.0,0.0]],["backDoorArm","r",1.679,5.368,[0.0,0.0,0.0],[86.804,0.0,0.0]],["backDoorArm","r",5.368,6.203,[86.804,0.0,0.0],[88.0,0.0,0.0]],["backDoorArm","r",6.203,6.893,[88.0,0.0,0.0],[93.309,0.0,0.0]],["backDoorArm","r",6.893,7.571,[93.309,0.0,0.0],[98.404,0.0,0.0]],["backDoorArm","r",7.571,8.476,[98.404,0.0,0.0],[104.758,0.0,0.0]],["backDoorArm","r",8.476,9.38,[104.758,0.0,0.0],[110.295,0.0,0.0]],["backDoorArm","r",9.38,10.736,[110.295,0.0,0.0],[117.651,0.0,0.0]],["backDoorArm","r",10.736,12.093,[117.651,0.0,0.0],[122.594,0.0,0.0]],["backDoorArm","r",12.093,12.997,[122.594,0.0,0.0],[124.9,0.0,0.0]],["baleDropper","r",1.0,2.417,[110.0,0.0,0.0],[85.0,0.0,0.0]],["baleDropper","r",6.203,12.997,[85.0,0.0,0.0],[25.0,0.0,0.0]]],"unloadBale":[["backDoorArm","r",1.945,5.984,[0.0,0.0,0.0],[110.0,0.0,0.0]],["baleNode","r",3.302,4.954,[0.0,0.0,0.0],[0.0,0.0,-25.0]],["baleNode","t",3.302,4.954,[0.0,0.0,0.0],[0.518,-0.437,-0.0]],["baleNode","r",4.954,5.929,[0.0,0.0,-25.0],[0.0,0.0,-67.654]],["baleNode","t",4.954,5.929,[0.518,-0.437,-0.0],[1.403,-0.664,0.0]],["baleNode","r",5.929,6.263,[0.0,0.0,-67.654],[0.0,0.0,-83.082]],["baleNode","t",5.929,6.263,[1.403,-0.664,0.0],[1.762,-0.76,0.0]],["baleNode","r",6.263,7.597,[0.0,0.0,-83.082],[0.0,0.0,-130.343]],["baleNode","t",6.263,7.597,[1.762,-0.76,0.0],[2.723,-0.79,0.0]],["baleNode","r",7.597,8.332,[0.0,0.0,-130.343],[0.0,0.0,-142.03]],["baleNode","t",7.597,8.332,[2.723,-0.79,0.0],[2.9234,-1.0483,-0.0]],["baleNode","r",8.332,9.166,[0.0,0.0,-142.03],[0.0,0.0,-155.281]],["baleNode","t",8.332,9.166,[2.9234,-1.0483,-0.0],[3.0912,-1.351,-0.0]],["baleNode","r",9.166,9.583,[0.0,0.0,-155.281],[0.0,0.0,-161.907]],["baleNode","t",9.166,9.583,[3.0912,-1.351,-0.0],[3.1469,-1.5086,-0.0]],["baleNode","r",9.583,10.0,[0.0,0.0,-161.907],[0.0,0.0,-168.532]],["baleNode","t",9.583,10.0,[3.1469,-1.5086,-0.0],[3.2062,-1.6726,-0.0]],["baleDropper","r",0.0,1.945,[110.0,0.0,0.0],[60.0,0.0,0.0]],["baleDropper","r",7.629,10.0,[60.0,0.0,0.0],[26.0,0.0,0.0]],["baleDropperCollision01","r",9.9,10.0,[0.0,0.0,0.0],[60.0,0.0,0.0]],["backDoorJointRot","r",0.0,3.333,[-66.0,0.0,0.0],[-57.662,0.0,0.0]],["backDoorJointRot","r",3.333,4.583,[-57.662,0.0,0.0],[-37.791,0.0,0.0]],["backDoorJointRot","r",4.583,5.0,[-37.791,0.0,0.0],[-12.5,0.0,0.0]],["backDoorJointRot","r",5.0,5.417,[-12.5,0.0,0.0],[6.245,0.0,0.0]],["backDoorJointRot","r",5.417,5.833,[6.245,0.0,0.0],[30.0,0.0,0.0]],["backDoorJointRot","r",5.833,7.5,[30.0,0.0,0.0],[0.0,0.0,0.0]],["beltTensionerJointDoor","r",0.0,3.333,[66.0,0.0,0.0],[55.165,0.0,0.0]],["beltTensionerJointDoor","r",3.333,4.583,[55.165,0.0,0.0],[-16.71,0.0,0.0]],["beltTensionerJointDoor","r",4.583,5.0,[-16.71,0.0,0.0],[-36.551,0.0,0.0]],["beltTensionerJointDoor","r",5.0,5.417,[-36.551,0.0,0.0],[-34.798,0.0,0.0]],["beltTensionerJointDoor","r",5.417,5.833,[-34.798,0.0,0.0],[-30.0,0.0,0.0]],["beltTensionerJointDoor","r",5.833,7.5,[-30.0,0.0,0.0],[0.0,0.0,0.0]],["beltTensionerJointChamber","r",3.333,5.0,[-33.329,0.0,0.0],[-43.635,0.0,0.0]],["beltTensionerJointChamber","r",5.0,5.833,[-43.635,0.0,0.0],[-47.94,0.0,0.0]],["beltTensionerJointChamber","r",5.833,7.5,[-47.94,0.0,0.0],[0.0,0.0,0.0]],["baleChamberJointRot","r",3.333,5.0,[19.616,0.0,0.0],[0.186,0.0,0.0]],["baleChamberJointRot","r",5.0,5.833,[0.186,0.0,0.0],[-24.049,0.0,0.0]],["baleChamberJointRot","r",5.833,7.5,[-24.049,0.0,0.0],[0.0,0.0,0.0]],["beltTensioner","r",5.833,7.5,[0.0,0.0,0.0],[-50.0,0.0,0.0]]],"closeDoor":[["backDoorArm","r",0.0,4.0,[110.0,0.0,0.0],[0.0,0.0,0.0]],["baleNode","r",0.0,4.0,null,[0.0,0.0,0.0]],["baleNode","t",0.0,4.0,null,[0.0,0.0,0.0]]],"dropBale":[["baleDropper","r",0.0,2.0,[26.0,0.0,0.0],[5.0,0.0,0.0]],["baleDropperCollision01","r",0.0,2.0,[60.0,0.0,0.0],[0.0,0.0,0.0]],["baleDropperCollision02","r",1.0,2.5,[0.0,0.0,0.0],[-45.0,0.0,0.0]],["baleDropperCollision02","r",2.5,4.0,[-45.0,0.0,0.0],[0.0,0.0,0.0]],["baleDropperCollision01","r",3.5,5.0,[0.0,0.0,0.0],[60.0,0.0,0.0]],["baleDropper","r",4.0,8.0,[5.0,0.0,0.0],[110.0,0.0,0.0]]],"tensionerAnimation":[["beltTensioner","r",0.0,1.0,[-50.0,0.0,0.0],[0.0,0.0,0.0]],["backDoorJointRot","r",0.0,1.0,[0.0,0.0,0.0],[-66.0,0.0,0.0]],["beltTensionerJointDoor","r",0.0,1.0,[0.0,0.0,0.0],[66.0,0.0,0.0]],["beltTensionerJointChamber","r",0.0,1.0,[0.0,0.0,0.0],[-33.329,0.0,0.0]],["baleChamberJointRot","r",0.0,1.0,[0.0,0.0,0.0],[19.616,0.0,0.0]]]};
+CP_ANIM.closeDoor[0][1] = 'r';
+const CP_ANIM_LEN = Object.fromEntries(Object.entries(CP_ANIM).map(([k, P]) => [k, Math.max(...P.map(p => p[3]))]));
+// <movingParts> in solve order: [node, referencePoint, referenceFrame, translating punch, stretch (scaleZ)]
+const CP_MP = [
+  ['pickerUnitsLowerArm', 'pickerUnitsLowerArmRef', 'pickerUnitsLowerArmRefFrame'],
+  ['pickerUnits', 'pickerUnitsRef', 'pickerUnitsRefFrame'],
+  ['pickerUnitsUpperArm', 'pickerUnitsUpperArmRef', 'backDoorOrientationRefFrame'],
+  ['airPipe01', 'airPipe01Ref', 'airPipe01Ref', 'airPipe01Trans'], ['airPipe02', 'airPipe02Ref', 'airPipe02Ref', 'airPipe02Trans'],
+  ['airPipe03', 'airPipe03Ref', 'airPipe03Ref', 'airPipe03Trans'], ['airPipe04', 'airPipe04Ref', 'airPipe04Ref', 'airPipe04Trans'],
+  ['airPipe05', 'airPipe05Ref', 'airPipe05Ref', 'airPipe05Trans'], ['airPipe06', 'airPipe06Ref', 'airPipe06Ref', 'airPipe06Trans'],
+  ['airPipe08', 'airPipe08Ref', 'airPipe08Ref', 'airPipe08Trans'], ['airPipe07', 'airPipe07Ref', 'airPipe07Ref'],
+  ['backDoor', 'backDoorRef', 'backDoorRefFrame'], ['backDoorOrientation', 'backDoorRef', 'backDoorOrientationRefFrame'],
+  ['beltTensionerHydraulic', 'beltTensionerHydraulicRef', 'beltTensionerHydraulicRef', 'beltTensionerHydraulicPunch'],
+  ['backDoorJointRotOrientation', 'backDoorJointRotOrientationRef', 'backDoorJointRotOrientationRefFrame'],
+  ['baleChamberJointRotOrientation', 'baleChamberJointRotOrientationRef', 'baleChamberJointRotOrientationRef'],
+  ['beltTensionerJointDoorOrientation', 'beltTensionerJointDoorOrientationRef', 'beltTensionerJointDoorOrientationRefFrame'],
+  ['beltTensionerJointChamberOrientation', 'beltTensionerJointChamberOrientationRef', 'beltTensionerJointChamberOrientationRef'],
+  ['baleDropperHydraulic', 'baleDropperHydraulicRef', 'baleDropperHydraulicRefFrame', 'baleDropperHydraulicPunch'],
+  ['backDoorHydraulics', 'backDoorHydraulicsRef', 'backDoorHydraulicsRef', 'backDoorHydraulicsPunch'],
+  ['steeringArmLeft', 'steeringArmLeftRef', 'steeringArmLeftRef', null, true], ['steeringArmRight', 'steeringArmRightRef', 'steeringArmRightRef', null, true],
+  ['wiperArm02', 'wiperArm02Ref', 'wiperArm02Ref'],
+];
+const CP_REAR_Z = -3.5341;          // i3d z of the rear axle: the game frame's origin
+const CP_WRAPS = ['yellow', 'pink', 'green', 'orange', 'lightBlue'];
+const CP_WRAP_RGB = { yellow: 0xf1dc2a, pink: 0xf09ab8, green: 0x52d05a, orange: 0xf08a3c, lightBlue: 0x4cb4d8 };
+
+let CP_ENV = null;
+function cpEnv() {
+  if (CP_ENV) return CP_ENV;
+  const pm = new THREE.PMREMGenerator(renderer); CP_ENV = pm.fromScene(new RoomEnvironment(), 0.04).texture; pm.dispose();
+  return CP_ENV;
+}
+
+// ---------- tyres and rims (base-game assets in FS, so made here) ----------
+function cpTyre(R, rimR, W, lugs, mats) {
+  const g = [], half = W / 2, sh = Math.min(0.09, W * 0.18), tread = R - 0.045;
+  // carcass: a lathe of the cross-section (bead -> sidewall -> rounded shoulder -> crown), turned to spin about X
+  const prof = [];
+  const P = (r, x) => prof.push(new THREE.Vector2(r, x));
+  P(rimR - 0.01, -half * 0.86); P(rimR + 0.05, -half * 0.94); P(tread - sh * 1.6, -half); P(tread - sh * 0.5, -half * 0.97); P(tread - sh * 0.1, -half * 0.88);
+  P(tread, -half * 0.7); P(tread + 0.004, 0); P(tread, half * 0.7); P(tread - sh * 0.1, half * 0.88); P(tread - sh * 0.5, half * 0.97); P(tread - sh * 1.6, half); P(rimR + 0.05, half * 0.94); P(rimR - 0.01, half * 0.86);
+  const lathe = new THREE.LatheGeometry(prof, 56); lathe.rotateZ(-Math.PI / 2);   // lathe axis Y -> X
+  // R1W lugs: bars from each shoulder angled ~45 deg towards the centre, staggered side to side
+  const lugGeo = [];
+  for (let side = -1; side <= 1; side += 2) for (let i = 0; i < lugs; i++) {
+    const a = (i + (side > 0 ? 0.5 : 0)) / lugs * Math.PI * 2, len = W * 0.62, b = new THREE.BoxGeometry(len, 0.048, 0.07);
+    b.translate(0, 0.024, 0);
+    const m = new THREE.Matrix4().makeRotationX(a).multiply(new THREE.Matrix4().makeTranslation(side * (half - len * 0.5 * 0.7 - 0.01), tread - 0.004, 0))
+      .multiply(new THREE.Matrix4().makeRotationY(side * 0.72));
+    b.applyMatrix4(m); lugGeo.push(b.index ? b.toNonIndexed() : b);
+  }
+  const carcass = new THREE.Mesh(lathe, mats.rubber), lugM = new THREE.Mesh(mergeGeometries(lugGeo.map(x => { x.deleteAttribute('uv'); return x; })), mats.rubber);
+  // rim: dished disc + barrel in JD yellow, a hub with studs
+  const rim = new THREE.Group();
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(rimR, rimR, W * 0.9, 40, 1, true), mats.rim); barrel.rotation.z = Math.PI / 2; barrel.material.side = THREE.DoubleSide;
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(rimR * 0.97, rimR * 0.97, 0.025, 40), mats.rim); disc.rotation.z = Math.PI / 2; disc.position.x = W * 0.08;
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(rimR * 0.33, rimR * 0.38, 0.16, 20), mats.rim); hub.rotation.z = Math.PI / 2; hub.position.x = W * 0.08 + 0.08;
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(rimR * 0.15, rimR * 0.2, 0.12, 16), mats.steel); cap.rotation.z = Math.PI / 2; cap.position.x = W * 0.08 + 0.2;
+  rim.add(barrel, disc, hub, cap);
+  for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2, s = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.05, 6), mats.steel); s.rotation.z = Math.PI / 2; s.position.set(W * 0.08 + 0.17, Math.cos(a) * rimR * 0.27, Math.sin(a) * rimR * 0.27); rim.add(s); }
+  // hand holes in the disc
+  for (let i = 0; i < 8; i++) { const a = (i + 0.5) / 8 * Math.PI * 2, h = new THREE.Mesh(new THREE.CylinderGeometry(rimR * 0.1, rimR * 0.1, 0.03, 12), mats.dark); h.rotation.z = Math.PI / 2; h.position.set(W * 0.08 + 0.003, Math.cos(a) * rimR * 0.66, Math.sin(a) * rimR * 0.66); rim.add(h); }
+  const t = new THREE.Group(); t.add(carcass, lugM, rim);
+  return t;
+}
+
+// ---------- materials from the exporter's tags ----------
+function cpMaterial(src, cfg) {
+  const tag = (src.name || '').split('_').slice(1).join('_') || 'plastic', env = cpEnv();
+  const base = { color: src.color.clone(), roughness: src.roughness, metalness: src.metalness, envMap: env, envMapIntensity: 0.4 };
+  let m;
+  switch (tag) {
+    case 'paint': m = new THREE.MeshStandardMaterial({ ...base, color: base.color.multiplyScalar(0.72), roughness: 0.3, envMapIntensity: 0.5 }); break;
+    case 'glass': case 'glass1': case 'glass2':
+      m = new THREE.MeshStandardMaterial({ ...base, transparent: true, opacity: src.opacity, depthWrite: false, roughness: 0.05, metalness: 0, envMapIntensity: 1.4, side: THREE.DoubleSide }); break;
+    case 'lens': m = new THREE.MeshStandardMaterial({ ...base, transparent: true, opacity: 0.45, depthWrite: false, roughness: 0.05, emissive: src.color.clone().multiplyScalar(0.25), envMapIntensity: 1.2 }); break;
+    case 'lamp': m = new THREE.MeshStandardMaterial({ ...base, emissive: src.color.clone().multiplyScalar(0.35), envMapIntensity: 1.1 }); break;
+    case 'mirror': m = new THREE.MeshStandardMaterial({ ...base, envMapIntensity: 1.6 }); break;
+    case 'chrome': case 'steel': m = new THREE.MeshStandardMaterial({ ...base, envMapIntensity: 1.0 }); break;
+    case 'decal': case 'sfdecal': case 'numbers':
+      m = new THREE.MeshStandardMaterial({ ...base, map: src.map, alphaTest: 0.4, transparent: false, roughness: 0.4, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, envMapIntensity: 0.6 }); break;
+    case 'grille': m = new THREE.MeshStandardMaterial({ ...base, roughness: 0.6 }); break;
+    case 'reflector': m = new THREE.MeshStandardMaterial({ ...base, emissive: src.color.clone().multiplyScalar(0.25) }); break;
+    case 'wrap': m = new THREE.MeshStandardMaterial({ ...base, color: new THREE.Color(CP_WRAP_RGB[cfg.wrap] || 0x0a5285), roughness: 0.3 }); break;
+    default: m = new THREE.MeshStandardMaterial(base);
+  }
+  m.name = src.name; m.userData.tag = tag; m.userData.wet = 1;
+  return m;
+}
+
+// ---------- the moving-part solver ----------
+const _mpA = new THREE.Vector3(), _mpB = new THREE.Vector3(), _mpUp = new THREE.Vector3(), _mpM = new THREE.Matrix4(), _mpX = new THREE.Vector3(), _mpY = new THREE.Vector3(), _mpPI = new THREE.Matrix4();
+function cpSolve(C) {
+  C.glb.updateMatrixWorld(true);
+  for (const p of C.mp) {
+    const n = p.n;
+    n.parent.updateMatrixWorld(true);
+    n.getWorldPosition(_mpA); p.ref.getWorldPosition(_mpB);
+    const dir = _mpB.sub(_mpA); const len = dir.length(); if (len < 1e-6) continue;
+    _mpUp.set(0, 1, 0).transformDirection(p.frame.matrixWorld);
+    _mpPI.copy(n.parent.matrixWorld).invert();
+    dir.transformDirection(_mpPI); _mpUp.transformDirection(_mpPI);
+    // setDirection: z = dir, x = up x z, y = z x x
+    _mpX.crossVectors(_mpUp, dir).normalize(); _mpY.crossVectors(dir, _mpX).normalize();
+    _mpM.makeBasis(_mpX, _mpY, dir); n.quaternion.setFromRotationMatrix(_mpM);
+    if (p.stretch) n.scale.z = len / p.len0;
+    if (p.punch) p.punch.position.z = p.punch0 + (len - p.len0);
+    n.updateMatrixWorld(true);
+  }
+}
+
+// ---------- the FS animation player ----------
+function cpAnimApply(C, name, t, prevT) {
+  const P = CP_ANIM[name]; if (!P) return;
+  const seen = C._seen || (C._seen = new Set()); seen.clear();
+  // per node+kind: the part that covers t, else the latest part ended before t, else the first part's start
+  const best = new Map();
+  for (const p of P) {
+    const key = p[0] + p[1];
+    const cur = best.get(key);
+    let score;
+    if (t >= p[2] && t <= p[3]) score = 1e9; else if (t > p[3]) score = p[3]; else score = -1e9 + (1e6 - p[2]);
+    if (!cur || score > cur.s) best.set(key, { s: score, p });
+  }
+  for (const { p } of best.values()) {
+    const n = C.nodes[p[0]]; if (!n) continue;
+    let from = p[4];
+    if (!from) { const k = name + p[0] + p[1]; from = C.startVals[k] || (C.startVals[k] = p[1] === 'r' ? [n.rotation.x, n.rotation.y, n.rotation.z].map(THREE.MathUtils.radToDeg) : n.position.toArray()); }
+    const u = p[3] > p[2] ? THREE.MathUtils.clamp((t - p[2]) / (p[3] - p[2]), 0, 1) : 1, v = [0, 1, 2].map(i => from[i] + (p[5][i] - from[i]) * u);
+    if (p[1] === 'r') n.rotation.set(v[0] * Math.PI / 180, v[1] * Math.PI / 180, v[2] * Math.PI / 180, 'ZYX');
+    else n.position.set(v[0], v[1], v[2]);
+  }
+}
+function cpPlay(C, name, from) { const A = C.anim[name]; A.t = from !== undefined ? from : 0; A.on = true; for (const k in C.startVals) if (k.startsWith(name)) delete C.startVals[k]; }
+
+// ---------- build ----------
+function cpModel(cfg) {
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const frame = new THREE.Group(); frame.position.z = -CP_REAR_Z; body.add(frame);
+  const C = { root, body, frame, glb: null, nodes: {}, mp: [], anim: {}, startVals: {}, ready: false, cfg, mats: [], tex: {},
+    steerPivots: [], halo: null, dome: null, door: null, exhaustTip: new THREE.Vector3(1.68, 2.05, 4.11 + CP_REAR_Z) };
+  for (const k in CP_ANIM) C.anim[k] = { t: 0, on: false, speed: 1 };
+  const mats = { rubber: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.93, metalness: 0 }), rim: new THREE.MeshStandardMaterial({ color: 0xf2b705, roughness: 0.32, metalness: 0, envMap: cpEnv(), envMapIntensity: 0.8 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1, envMap: cpEnv() }), dark: new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.8 }) };
+  for (const m of Object.values(mats)) m.userData.wet = 1;
+  // wheel anchors live in root (not the sprung body) so the tyres stay planted while the body leans
+  const wheels = [], steer = [];
+  const front = [[1.15495, 1.0], [-1.155, 1.0]], fz = 0.774456 - CP_REAR_Z;      // 2.7 cm under the i3d hub: the tyre's squat
+  for (const [x, y] of front) {
+    const s = Math.sign(x), spin = new THREE.Group(); spin.position.set(x, y, fz); root.add(spin);
+    const inner = cpTyre(1.0, 0.54, 0.52, 23, mats); if (s < 0) inner.scale.x = -1; spin.add(inner);
+    const outer = cpTyre(1.0, 0.54, 0.52, 23, mats); outer.position.x = s * 0.8; if (s < 0) outer.scale.x = -1; spin.add(outer);
+    wheels.push({ spin, r: 1.0 });
+  }
+  const rearPiv = [];
+  for (const s of [1, -1]) {
+    const piv = new THREE.Group(); piv.position.set(s * 1.0605, 0.83, 0); root.add(piv);
+    const spin = new THREE.Group(); piv.add(spin); const t = cpTyre(0.825, 0.44, 0.46, 20, mats); if (s < 0) t.scale.x = -1; spin.add(t);
+    wheels.push({ spin, r: 0.83, rear: true }); rearPiv.push({ piv, s });
+  }
+  C.wheels = wheels; C.rearPiv = rearPiv; C.tyreMats = mats;
+  C.steer = 0;
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);   // (the GLB is meshopt-compressed and quantised)
+  fetch(cfg.url || 'cp690.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    const glb = g.scene; C.glb = glb; frame.add(glb);
+    const matCache = new Map();
+    glb.traverse(o => {
+      if (o.name) C.nodes[o.name] = o;
+      if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh && o.name === 'module') return;
+      if (o.isMesh && o.material.name.startsWith('tex_')) { const t = o.material.map; if (t) C.tex[o.material.name.slice(4)] = t; return; }
+      if (o.isMesh) {
+        const src = o.material; let m = matCache.get(src);
+        if (src.map && src.name.endsWith('_decal')) C.tex.decal7760 = src.map;
+        if (!m) { m = cpMaterial(src, cfg); matCache.set(src, m); C.mats.push(m); }
+        o.material = m; o.frustumCulled = !o.isSkinnedMesh;
+        if (o.isSkinnedMesh) { o.frustumCulled = false; o.userData.nodent = true; }
+      }
+    });
+    if (C.nodes.texrack) C.nodes.texrack.parent.remove(C.nodes.texrack);
+    const mod = C.nodes.module; if (mod) { mod.parent.remove(mod); C.moduleSrc = mod; }
+    // the picker header (component 3) hangs off pickerJoint
+    const comp3 = C.nodes.cp690_picker_component3, pj = C.nodes.pickerJoint;
+    glb.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(glb.matrixWorld).invert();
+    const mw = o => new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
+    C.comp3Off = new THREE.Matrix4().multiplyMatrices(mw(pj).invert(), mw(comp3)); comp3.matrixAutoUpdate = false;
+    for (const d of CP_MP) {
+      const n = C.nodes[d[0]], ref = C.nodes[d[1]], frame = C.nodes[d[2]]; if (!n || !ref || !frame) { console.warn('cp moving part', d); continue; }
+      const len0 = n.getWorldPosition(new THREE.Vector3()).distanceTo(ref.getWorldPosition(new THREE.Vector3()));
+      const punch = d[3] ? C.nodes[d[3]] : null;
+      C.mp.push({ n, ref, frame, len0, punch, punch0: punch ? punch.position.z : 0, stretch: !!d[4] });
+    }
+    // initial pose: each animation at its start, the tensioner at an empty chamber
+    for (const k of ['folding', 'unloadBale', 'closeDoor', 'dropBale', 'tensionerAnimation']) cpAnimApply(C, k, 0);
+    cpAnimApply(C, 'folding', cfg.fold || 0);
+    cpPose(C);
+    // spinning parts
+    C.spinners = ['pickerDrum01', 'pickerDrum02', 'pickerDrum03', 'pickerDrum04', 'pickerDrum05', 'pickerDrum06', 'pickerDrum07', 'pickerDrum08', 'pickerDrum09', 'pickerDrum10', 'pickerDrum11', 'pickerDrum12'].map(k => C.nodes[k]).filter(Boolean);
+    // the beacon is a base-game asset in FS: an amber dome on the cab roof here, lit while picking
+    const bn = C.nodes.beaconLight01;
+    if (bn) { const bm = new THREE.MeshStandardMaterial({ color: 0xff9a1a, emissive: 0xff8a00, emissiveIntensity: 0.2, roughness: 0.25, transparent: true, opacity: 0.92 });
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.085, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), bm); dome.scale.y = 1.5; const base = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.05, 16), mats.dark); base.position.y = -0.02;
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex([255, 170, 60], true), color: 0xffa040, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })); glow.scale.set(1.1, 1.1, 1.1); glow.position.y = 0.06;
+      bn.add(dome, base, glow); dome.userData.nodent = base.userData.nodent = true; C.beacon = dome; C.beaconGlow = glow; }
+    cpApplyCfg(C);
+    C.ready = true; root.userData.ready = true;
+    if (C.onReady) C.onReady(C);
+  }, e => console.warn('cp690 model', e))).catch(e => console.warn('cp690 file', e));
+  return C;
+}
+function cpPose(C) {
+  const comp3 = C.nodes.cp690_picker_component3, pj = C.nodes.pickerJoint;
+  C.glb.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(C.glb.matrixWorld).invert();
+  const pjm = new THREE.Matrix4().multiplyMatrices(inv, pj.matrixWorld);
+  comp3.matrix.multiplyMatrices(pjm, C.comp3Off); comp3.matrixWorldNeedsUpdate = true;
+  // rear steering: knuckles turn about Y, the track rod slides
+  const s = C.steer, aL = C.nodes.axisBackLeft, aR = C.nodes.axisBackRight, bar = C.nodes.steeringBar;
+  if (aL && aR) {
+    // Ackermann about a point on the front axle line (rotCenter 0 3.0 in the mod): the inside wheel turns more
+    const L = 4.31, T = 2.12, k = Math.tan(Math.abs(s)), inner = Math.atan(k * L / Math.max(1e-4, L - k * T / 2)), outer = Math.atan(k * L / (L + k * T / 2));
+    const left = s > 0 ? outer : inner, right = s > 0 ? inner : outer, sg = Math.sign(s) || 1;      // (back wheels pointing left = turning right: the right one is inside)
+    aL.rotation.y = sg * left; aR.rotation.y = sg * right;
+    if (bar) bar.position.x = 3.3e-5 + THREE.MathUtils.clamp(-s / 0.6, -1, 1) * 0.12;
+    for (const r of C.rearPiv) r.piv.rotation.y = r.s > 0 ? aL.rotation.y : aR.rotation.y;
+  }
+  cpSolve(C);
+}
+function cpApplyCfg(C) {
+  const cfg = C.cfg, N = C.nodes, vis = (k, v) => { if (N[k]) N[k].visible = v; };
+  const m = cfg.model || 'cp690';
+  vis('decals_CP690', m.startsWith('cp690')); vis('decals_7760', m.startsWith('7760'));
+  vis('2012-2017', m === '7760b' || m === 'cp690'); vis('2018-2022', m === 'cp690b'); vis('2009-2011', true);
+  const atlas = C.tex[m.startsWith('cp690') ? 'decalCP690' : 'decal7760'];
+  for (const mm of C.mats) if (mm.userData.tag === 'decal' && atlas) { mm.map = atlas; mm.needsUpdate = true; }
+  // window tint: plain / light / dark copies of each pane
+  const tint = cfg.tint || 0;
+  for (const w of ['windowFront', 'windowLeft', 'windowRight', 'windowBack']) { vis(w, tint === 0); vis(w + '1', tint === 1); vis(w + '2', tint === 2); }
+  vis('starFire3000', cfg.gps !== 'none');
+  // side numbers 1-9 on the picking unit or the cotton bin
+  const groups = [N.numbers, N['numbers~2']];
+  groups.forEach((g, gi) => { if (!g) return; g.visible = gi === 0 ? cfg.numLoc !== 'bin' : cfg.numLoc === 'bin'; g.children.forEach((c, i) => { c.visible = cfg.num === i + 1; }); });
+  for (const mm of C.mats) if (mm.userData.tag === 'wrap') mm.color.set(CP_WRAP_RGB[cfg.wrap] || 0xf1dc2a);
+}
+
+const CP_CFG_DEF = { model: 'cp690', wrap: 'yellow', tint: 0, gps: 'sf3000', num: 0, numLoc: 'picker' };
+const CP_CFG = (() => { let o = {}; try { o = JSON.parse(localStorage.getItem('wfy.cp') || '{}') || {}; } catch (_) {} const c = Object.assign({}, CP_CFG_DEF, o);
+  for (const k in CP_CFG_DEF) if (typeof c[k] !== typeof CP_CFG_DEF[k]) c[k] = CP_CFG_DEF[k]; return c; })();
+// handling: a 26 t rear-steer machine; 25 km/h on the road (10 picking, see cpStep), 12 back; the back wheels steer (rs)
+SPECS.picker = Object.assign({}, SPECS.tractor, { top: 25 / 3.6, rev: 12 / 3.6, accel: 1.2, brake: 5.0, wb: 4.31, steer: 0.62, steerFast: 0.3, steerRate: 1.1, rs: true,
+  front: 11.4, rear: 2.95, halfW: 2.3, rayH: [0.5, 1.3, 2.6, 3.8], lanes: [-2.9, -1.45, 0, 1.45, 2.8], noseLane: 0.5, rF: 1.0, rR: 0.83, step: 0.55,
+  trackR: 1.06, trackF: 1.55, roll: 0.01, rollMax: 0.04, grip: 3.0, susK: 120, susC: 11, camBack: 19, camUp: 8.6, camPivot: 3.4, look: 5.2, lookH: 3.0 });
+
+
+/* ================================================================
    MADMAN'S UTE: Angus's photo scan of the Hilux (13 Nov 2026), stood up, levelled on its wheel centres,
    the ground and the ragged scraps underneath cut away, wheels cut free so they spin and steer, textures
    packed into one atlas. It drives on the X5's scan-car loader.
@@ -2072,6 +2341,7 @@ const UTE_GLB = "Z2xURgIAAABkThAA+A8AAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6ImdsVEY
 
 const VEHICLES = { x5: buildX5(), bmw: buildX5(BMW_META, BMW_GLB), tractor: buildTractor(), suv: buildSuv(), tele: buildTele(), scooter: buildScooter(), bike: buildBike(), dozer: buildDozer(), dirtbike: buildDirtBike(), trophy: buildTrophy(), truck: buildTruck() };
 VEHICLES.combine = buildCombine();
+VEHICLES.picker = cpModel(CP_CFG);
 VEHICLES.ute = buildX5(UTE_META, UTE_GLB);
 /* THE BUGGY: the owner's own youth side-by-side, cut out of their photo scan of it under the carport (buggy-v1.glb, built by
    tools in the session that made it: the buggy boxed out of the scan, the ground and the reflective blob on the roof dropped,
@@ -2626,7 +2896,8 @@ const HND = {
   buggy:   { g: 1.35, cs: 17, fw: 0.45, h: 0.75, drv: 'a', lk: 1.2 },
   trophy:  { g: 1.45, cs: 16, fw: 0.5, h: 0.85, drv: 'r', lk: 1.15 },  tractor: { g: 1.0, cs: 11, fw: 0.42, h: 1.1, drv: 'a', lk: 1.1 },
   tele:    { g: 1.0, cs: 11, fw: 0.5, h: 1.2, drv: 'a', lk: 1.1 },     truck:   { g: 0.85, cs: 10, fw: 0.45, h: 1.3, drv: 'r', lk: 1.1 },
-  combine: { g: 0.8, cs: 10, fw: 0.6, h: 1.6, drv: 'f', lk: 1 },       def:     { g: 1.25, cs: 14, fw: 0.5, h: 0.8, drv: 'a', lk: 1.1 } };
+  combine: { g: 0.8, cs: 10, fw: 0.6, h: 1.6, drv: 'f', lk: 1 },       picker:  { g: 0.72, cs: 9, fw: 0.55, h: 1.9, drv: 'a', lk: 1 },
+        def:     { g: 1.25, cs: 14, fw: 0.5, h: 0.8, drv: 'a', lk: 1.1 } };
 const tyreCurve = (x) => x / Math.sqrt(1 + x * x);          // rises straight, then leans over to the limit: no cliff to fall off
 function carMotion(dt, throttle, steerIn, braking, handbrake) {
   const H = HND[activeName] || HND.def, DS = V.drift || (activeName === 'suv' ? DRIFT : null), dm = DMG.v[activeName];
@@ -2638,7 +2909,7 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
   const sn0 = S.steerN || 0, off = Math.abs(steerIn) < Math.abs(sn0) || steerIn * sn0 < 0, sr = (input.kx ? (off ? 12 : 9.5) : 24) * dt;
   S.steerN = sn0 + THREE.MathUtils.clamp(steerIn - sn0, -sr, sr);
   const sp0 = Math.hypot(S.vx, S.vz), lock = Math.min(V.steer * (H.lk || 1), Math.atan(wb * H.g * g * 1.5 / Math.max(sp0 * sp0, 16)) + (loose ? 3.4 : 3.0) / H.cs);      // the turn the tyres can hold, plus the slip it takes to get there
-  const n = Math.max(2, Math.ceil(dt / 0.005)), h = dt / n;
+  const n = Math.max(2, Math.ceil(dt / 0.005)), h = dt / n, RS = !!V.rs;      // RS: the back wheels steer (the cotton picker)
   // the machine's origin is its rear axle; the sums are done at its centre of mass, b ahead of that, so it turns about its middle
   let yaw = S.yaw, r = S.r || 0, vx = S.vx + r * b * Math.cos(yaw), vz = S.vz - r * b * Math.sin(yaw), x = S.pos.x + b * Math.sin(yaw), z = S.pos.z + b * Math.cos(yaw), vF = 0, vL = 0, axF = S.axF || 0, d = 0, slipR = 0, spin = false;
   const grade = -g * Math.sin(-S.pitch) * 0.6;              // gravity along the slope
@@ -2662,21 +2933,21 @@ function carMotion(dt, throttle, steerIn, braking, handbrake) {
     const Fhb = handbrake ? MU * Nr * 0.3 : 0, roll = Math.sign(vF) * Math.min(1, Math.abs(vF) / 0.4);
     const Fx = Fd - roll * (Fb + Fhb + m * coast) - 0.0022 * m * vF * Math.abs(vF);
     // across the car: each axle's tyres against its own sideways slip
-    const vyf = vL + r * a, cd = Math.cos(d), sd = Math.sin(d), den = Math.max(Math.abs(vF), 2.5);
-    const slipF = Math.atan2(vyf * cd - vF * sd, Math.max(Math.abs(vF * cd + vyf * sd), 2.5)); slipR = Math.atan2(vL - r * b, den);
+    const dF = RS ? 0 : d, dR = RS ? -d : 0, vyf = vL + r * a, vyr = vL - r * b, cd = Math.cos(dF), sd = Math.sin(dF), cR = Math.cos(dR), sR = Math.sin(dR), den = Math.max(Math.abs(vF), 2.5);
+    const slipF = Math.atan2(vyf * cd - vF * sd, Math.max(Math.abs(vF * cd + vyf * sd), 2.5)); slipR = RS ? Math.atan2(vyr * cR - vF * sR, Math.max(Math.abs(vF * cR + vyr * sR), 2.5)) : Math.atan2(vyr, den);
     // power through an axle uses up some of its cornering grip (rear-drive cars step out, front-drive push; all-wheel drive only in drift mode)
     const used = Math.min(1, Math.abs(Fd) * (loose && H.drv === 'a' ? 0.8 * (Nf + Nr) / Nr : 1) / Math.max(1, grip)), ck = loose ? 1 : 0.55, cut = Math.sqrt(Math.max(0.2, 1 - ck * used * used));
     const capF = MU * Nf * (H.drv === 'f' ? cut : 1), capR = MU * rearK * Nr * (H.drv === 'r' || (loose && H.drv === 'a') ? cut : 1) * (handbrake ? (loose ? 0.12 : 0.3) : 1);
     const Fyf = -capF * tyreCurve(H.cs * Nf * slipF / Math.max(1, capF)), Fyr = -capR * tyreCurve(H.cs * Nr * slipR / Math.max(1, capR));
-    const aF = (Fx - Fyf * sd) / m + grade + vL * r, aL = (Fyf * cd + Fyr) / m - vF * r;
-    let torque = a * Fyf * cd - b * Fyr - (0.8 + 0.035 * speed) * r * Iz;                       // (plus the damping a real chassis has)
+    const aF = (Fx - Fyf * sd - Fyr * sR) / m + grade + vL * r, aL = (Fyf * cd + Fyr * cR) / m - vF * r;
+    let torque = a * Fyf * cd - b * Fyr * cR - (0.8 + 0.035 * speed) * r * Iz;                       // (plus the damping a real chassis has)
     if (handbrake && Math.abs(steerIn) > 0.15 && speed > 5) torque += -steerIn * (loose ? 1.8 : 1.0) * Iz * Math.min(1, speed / 10);      // a handbrake flick swings the tail
     S.hbT = handbrake ? 0.8 : Math.max(0, (S.hbT || 0) - h);
     const lim = loose ? 0.72 : S.hbT > 0 ? 0.85 : 0.3; if (speed > 4 && vF > 0 && Math.abs(beta) > lim) torque += Math.sign(beta) * (Math.abs(beta) - lim) * (loose ? 26 : 30) * Iz;   // past a big slide angle it pulls itself back into line
     vF += aF * h; vL += aL * h; r += torque / Iz * h;
-    axF += ((Fx - Fyf * sd) / m - axF) * Math.min(1, 9 * h);
+    axF += ((Fx - Fyf * sd - Fyr * sR) / m - axF) * Math.min(1, 9 * h);
     // at walking pace it just rolls where the wheels point, and it sits still once it's stopped
-    if (speed < 2.5) { const kk = (1 - Math.exp(-12 * h)) * (1 - speed / 2.5), rk = vF / wb * Math.tan(d); r += (rk - r) * kk; vL += (r * b - vL) * kk; }
+    if (speed < 2.5) { const kk = (1 - Math.exp(-12 * h)) * (1 - speed / 2.5), rk = vF / wb * Math.tan(d); r += (rk - r) * kk; vL += ((RS ? -r * a : r * b) - vL) * kk; }
     if (Math.abs(vF) < 0.12 && Math.abs(throttle) < 0.02 && Math.abs(grade) < 1.2) { vF = 0; vL *= 0.8; r *= 0.8; }
     r = THREE.MathUtils.clamp(r, -4.5, 4.5);
     yaw += r * h;
@@ -4293,6 +4564,7 @@ function shedParking() {
   }
   HOME.truck = { x: -56, z: 28, yaw: Math.PI };
   HOME.combine = { x: -150, z: 46, yaw: Math.PI };
+  HOME.picker = { x: -239, z: -60.5, yaw: 0 };                  // the cotton picker: on the south headland of the cotton, facing up the rows
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
   HOME.buggy = { x: 166.3, z: 53.4, yaw: -Math.PI / 2 };       // the buggy: north end of the dongas' gravel past Madman's ute, nose out, its driver's side (left) to the open ground
@@ -4382,7 +4654,7 @@ VEH.suv.model.door.userData.hole.visible = false;
 VEH.flyer.range = 3;
 
 /* ---------- the new machines join the yard ---------- */
-const GROUND = ['x5', 'bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'dozer', 'dirtbike', 'trophy', 'truck', 'combine', 'ute'], AIRS = ['drone', 'flyer', 'spray', 'duster', 'gyro', 'racer'];
+const GROUND = ['x5', 'bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'dozer', 'dirtbike', 'trophy', 'truck', 'combine', 'ute', 'picker'], AIRS = ['drone', 'flyer', 'spray', 'duster', 'gyro', 'racer'];
 VEH.tractor.pose = VEH.suv.pose = 'wheel'; VEH.flyer.pose = 'stick';
 Object.assign(VEH, {
   tele:    { name: 'tele', kind: 'ground', label: 'the telehandler', model: VEHICLES.tele, spec: SPECS.tele, state: null, pose: 'wheel', coast: false,
@@ -4407,6 +4679,8 @@ Object.assign(VEH, {
              seat: UTE_RIG.driver, exit: [[-1.95, UTE_RIG.door.z], [1.95, UTE_RIG.door.z], [0, -2.4]], range: 3.0, top: UTE_RIG.size.top, icon: ['U', '#8a5a2b'] },
   combine: { name: 'combine', kind: 'ground', label: 'the combine', model: VEHICLES.combine, spec: SPECS.combine, state: null, pose: 'wheel', coast: false,
              seat: { x: 0, hip: 2.6, z: 4.25, k: 0.85 }, exit: [[2.5, 4.3], [-2.5, 4.3], [0, -2.6]], range: 4.5, top: 4.3, icon: ['H', '#2e7d32'] },
+  picker:  { name: 'picker', kind: 'ground', label: 'the cotton picker', model: VEHICLES.picker, spec: SPECS.picker, state: null, pose: 'wheel', coast: false,
+             seat: { x: -0.14, hip: 2.82, z: 5.09, k: 0.85 }, exit: [[3.5, 5.0], [-3.6, 5.0], [0, -3.7]], range: 5.5, top: 5.9, icon: ['C', '#367c2b'] },
   truck:   { name: 'truck', kind: 'ground', label: 'the truck', model: VEHICLES.truck, spec: SPECS.truck, state: null, pose: 'wheel', coast: false,
              seat: { x: -0.6, hip: 2.35, z: 3.0, k: 0.85 }, exit: [[-2.4, 3.0], [2.4, 3.0], [0, 8.0]], range: 4.5, top: 4.3, icon: ['R', '#9c1b1b'] },
   gyro: makeAircraft('gyro', buildGyro()),
@@ -4461,6 +4735,12 @@ Object.assign(DOORS, {
     inn: v => ({ end: 2.0, ev: [], keys: [K(0, 2.35, 0, 4.3, -HP), K(0.35, 2.3, 0, 4.3, -HP, { reach: 1 }), K(0.85, 1.6, 1.05, 4.3, -HP, { climb: 1 }),
       K(1.35, 0.85, 1.9, 4.3, -1.2, { climb: 0.5, duck: 0.3, sc: 0.85 }), seatKey(v, 1.9)] }),
     out: v => ({ end: 1.7, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.75, 0.85, 1.9, 4.3, 1.2, { duck: 0.3, sc: 0.85 }), K(1.2, 1.6, 1.05, 4.3, HP, { climb: 1 }), K(1.7, 2.35, 0, 4.3, HP)] }) },
+  // the picker: up the ladder by the left front wheel, along the platform, in the cab door
+  picker: { side: 1, max: 0, bail: [2.6, 2.35, 5.0],
+    inn: v => ({ end: 3.2, ev: [], keys: [K(0, 3.25, 0, 4.95, -HP), K(0.35, 3.05, 0, 4.95, -HP, { reach: 1 }), K(0.95, 2.85, 0.8, 4.95, -HP, { climb: 1 }), K(1.6, 2.65, 1.6, 4.95, -HP, { climb: 1 }),
+      K(2.15, 2.15, 2.36, 4.95, -HP, { climb: 0.4 }), K(2.7, 1.05, 2.36, 5.1, -1.2, { duck: 0.3, sc: 0.85 }), seatKey(v, 3.2)] }),
+    out: v => ({ end: 2.9, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.8, 1.05, 2.36, 5.1, 1.2, { duck: 0.3, sc: 0.85 }), K(1.35, 2.15, 2.36, 4.95, HP, { climb: 0.4 }),
+      K(1.95, 2.65, 1.6, 4.95, HP, { climb: 1 }), K(2.5, 2.85, 0.8, 4.95, HP, { climb: 1 }), K(2.9, 3.25, 0, 4.95, HP)] }) },
   dozer: { side: 1, max: 0, bail: [1.7, 1.4, 0.6],
     inn: v => ({ end: 1.9, ev: [], keys: [K(0, 2.15, 0, 0.9, -HP), K(0.35, 2.1, 0, 0.9, -HP, { reach: 1 }), K(0.8, 1.35, 1.0, 0.8, -HP, { climb: 1 }),
       K(1.25, 0.75, 1.38, 0.55, -1.2, { climb: 0.5, duck: 0.3, sc: 0.85 }), seatKey(v, 1.75)] }),
@@ -4480,7 +4760,7 @@ const DOOR_VEH = () => [VEH.tractor, VEH.suv, VEH.tele, VEH.truck];
 
 /* ---------- easy to spot: a name pin over every vehicle you're not in, and a tall whip flag on the drone ---------- */
 const PINS = {};
-const PIN_NAMES = { ute: 'Madman\u2019s ute', combine: 'Combine', x5: 'X5', bmw: 'BMW', buggy: 'Buggy', dirtbike: 'Dirt bike', trophy: 'Trophy truck', truck: 'Truck', gyro: 'Gyro', racer: 'Racing drone', dozer: 'Dozer', tractor: 'Tractor', suv: '4WD', tele: 'Telehandler', scooter: 'E-scooter', bike: 'Bike', drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster' };
+const PIN_NAMES = { ute: 'Madman\u2019s ute', combine: 'Combine', picker: 'Cotton picker', x5: 'X5', bmw: 'BMW', buggy: 'Buggy', dirtbike: 'Dirt bike', trophy: 'Trophy truck', truck: 'Truck', gyro: 'Gyro', racer: 'Racing drone', dozer: 'Dozer', tractor: 'Tractor', suv: '4WD', tele: 'Telehandler', scooter: 'E-scooter', bike: 'Bike', drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster' };
 function pinTex(letter, color, label) {
   const c = document.createElement('canvas'); c.width = 320; c.height = 88; const x = c.getContext('2d');
   x.font = '800 34px -apple-system, system-ui, "Segoe UI", Roboto, sans-serif'; const w = label ? Math.min(300, 92 + x.measureText(label).width) : 70;
@@ -5210,10 +5490,11 @@ function updateActions() {
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
+      cpFootItems(items);
       const v = nearestVehicle();
       if (v) {
         const far = isRemote(v) ? F.pos.distanceTo(v.st.pos) : 0;
-        const LBL = { ute: 'Get in Madman\u2019s ute', combine: 'Drive the combine', x5: 'Drive the X5', bmw: 'Drive the BMW', buggy: 'Drive the buggy', drone: 'Fly the drone', spray: 'Fly the spray drone', suv: 'Drive the 4WD', scooter: 'Ride the e-scooter', bike: 'Ride the bike', duster: 'Fly the crop duster', tele: 'Drive the telehandler', dozer: 'Drive the dozer', dirtbike: 'Ride the dirt bike', trophy: 'Drive the trophy truck', truck: 'Drive the truck', gyro: 'Fly the gyro', racer: 'Fly the racing drone' };
+        const LBL = { ute: 'Get in Madman\u2019s ute', combine: 'Drive the combine', picker: 'Drive the cotton picker', x5: 'Drive the X5', bmw: 'Drive the BMW', buggy: 'Drive the buggy', drone: 'Fly the drone', spray: 'Fly the spray drone', suv: 'Drive the 4WD', scooter: 'Ride the e-scooter', bike: 'Ride the bike', duster: 'Fly the crop duster', tele: 'Drive the telehandler', dozer: 'Drive the dozer', dirtbike: 'Ride the dirt bike', trophy: 'Drive the trophy truck', truck: 'Drive the truck', gyro: 'Fly the gyro', racer: 'Fly the racing drone' };
         items.push({ id: 'in:' + v.name, label: LBL[v.name] || 'Get in ' + v.label, sub: far > 10 ? Math.round(far / 5) * 5 + ' m away' : '' });
       }
     }
@@ -5235,6 +5516,7 @@ function updateActions() {
         }
       }
       if (v.name === 'combine') harvItems(items);
+      if (v.name === 'picker') cpItems(items);
       if (v.name === 'truck') { items.push({ id: 'tip', label: TIP.tiltT > 0 ? 'Lower the bin' : TIP.load > 0.5 ? 'Tip it out' : 'Bin empty', cls: 'ghost', pressed: TIP.tiltT > 0 });
         items.push({ id: 'jake', label: AU.eng.truck && AU.eng.truck.jakeOn === false ? 'Jake off' : 'Jake on', cls: 'ghost', pressed: !(AU.eng.truck && AU.eng.truck.jakeOn === false) }); }
       if (v.name === 'tele') { items.push({ id: 'extOut', label: 'Boom out', cls: 'ghost hold' }); items.push({ id: 'extIn', label: 'Boom in', cls: 'ghost hold' }); }
@@ -5257,7 +5539,7 @@ function updateActions() {
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
-  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa):|^radio$/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
+  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa):|^radio$|^cp:(on|hdr|drop|wrap)$/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
   if (items.length > 3) { const keep = items.filter(pri), rest = items.filter(it => !pri(it));
     if (rest.length) items = ACT.more ? [...keep, { id: 'more', label: '\u2715', cls: 'more' }, ...rest] : [...keep, { id: 'more', label: '\u22ef', cls: 'more' }]; }
   const key = JSON.stringify(items); if (key === actKey) return; actKey = key;
@@ -5294,6 +5576,7 @@ function doAction(id) {
   else if (id === 'sport' && v && v.name === 'drone') v.st.sport = !v.st.sport;
   else if (id === 'flip' && v && v.name === 'racer' && !v.st.landed && !(v.st.flipT > 0)) { v.st.flipT = 0.5; }
   else if (id === 'unload' && v && v.name === 'combine') harvUnload();
+  else if (id.startsWith('cp:')) cpAct(id);
   else if (id === 'tip' && v && v.name === 'truck') { if (TIP.tiltT > 0) TIP.tiltT = 0; else if (TIP.load > 0.5) { TIP.tiltT = 0.85; if (!TIP.told) { TIP.told = true; toast('Tipping out the left side. Keep rolling slowly for a windrow, or sit still for one big heap', 3); } } else toast('Bin\u2019s empty. Load it with the telehandler bucket', 2.4); }
   else if (id === 'hook' && v && v.name === 'tractor') { const I = implNear(); if (I) implHook(I); }
   else if (id === 'unhook' && v && v.name === 'tractor') implUnhook();
@@ -5417,6 +5700,7 @@ function setStickLabels(name) {
 const HINTS = {
   ute: ['Madman\u2019s ute. <b>Hold GAS</b> to go; <b>Brake</b> reverses when stopped. Drive off in it and he\u2019ll come after you in whatever he can find.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
   combine: ['<b>Left thumb</b> drives. Drive into the <b>wheat</b> and the header cuts it; the grain bin fills as you go. When it\u2019s full, pull up beside the <b>chaser trailer</b> on the headland and tap <b>Unload grain</b>.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
+  picker:  ['<b>Left thumb</b> drives; the <b>back wheels steer</b>, so the tail swings wide. <b>Start picking</b>, <b>Lower header</b> and drive up the cotton rows. The basket dumps into the chamber, a full chamber wraps a <b>module</b> and rolls it onto the handler: <b>Drop module</b> where you want it. <b>Configure</b> (stopped) picks the model and wrap colour.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out &middot; buttons for the picker'],
   dirtbike: ['<b>Left thumb</b> steers and shifts your weight. <b>GAS</b> and <b>Brake</b> on the right. Lean back + gas = <b>wheelie</b>. Jumps: lean back up the face, <b>flick forward at the lip</b>. Stopped? Hold <b>Brake</b> to back up.', '<b>W</b> gas &middot; <b>S</b> brake &middot; <b>A/D</b> steer &middot; <b>&uarr;/&darr;</b> lean &middot; <b>Q</b> camera &middot; <b>E</b> get off'],
   buggy:   ['The buggy: same go as the BMW. <b>Hold GAS</b>, steer into a corner and <b>tap Handbrake</b> to hang the tail out. <b>Brake</b> reverses when stopped.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
   bmw:     ['The BMW. <b>Hold GAS</b>, steer into a corner and <b>tap Handbrake</b> to hang the tail out. <b>Brake</b> reverses when stopped.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
@@ -5612,7 +5896,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
+  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) { drawMinimap(); if (CHAT.open && CHAT.map) drawMinimap(CHAT.map, CHAT.R); }
@@ -5872,10 +6156,10 @@ function spatial() {
       ramp(pan.pan, THREE.MathUtils.clamp((dx * rx + dz * rz) / Math.max(3, d), -0.7, 0.7), 0.05); }
   } };
 }
-const CRANK_REAL = { tractor: 'crankDiesel', truck: 'crankDiesel', dozer: 'crankDiesel', tele: 'crankDiesel', combine: 'crankDiesel', ute: 'crankDiesel',
+const CRANK_REAL = { tractor: 'crankDiesel', truck: 'crankDiesel', dozer: 'crankDiesel', tele: 'crankDiesel', combine: 'crankDiesel', picker: 'crankDiesel', ute: 'crankDiesel',
   suv: 'crankCar', x5: 'crankCar', trophy: 'crankCar', buggy: 'crankCar', dirtbike: 'crankCar', gyro: 'crankCar' };
 // real engine recordings (idling, so the recording's pitch is the engine's idle): which one each engine uses. The BMW has its own
-const REAL_ENG = { truck: 'e_trk', tractor: 'e_trac', combine: 'e_trac', dozer: 'e_doz', tele: 'e_tele', ute: 'e_ute', suv: 'e_car', x5: 'e_car',
+const REAL_ENG = { truck: 'e_trk', tractor: 'e_trac', combine: 'e_trac', picker: 'e_trac', dozer: 'e_doz', tele: 'e_tele', ute: 'e_ute', suv: 'e_car', x5: 'e_car',
   trophy: 'e_big8', dirtbike: 'e_mx', buggy: 'e_big8', gyro: 'e_gyro' };      // the buggy: the deep big-V8 recording
 const realEng = (name) => { const k = REAL_ENG[name], A = AU.real; return !!(k && A && A[k] && A[k + 'On']); };
 function realEngApply(V, name) {           // one real loop pair (off and on throttle) pitched by rpm, the way the BMW's recording runs
@@ -5905,7 +6189,7 @@ function makeEngineVoice(name, loops) {
   // turbo: compressor whistle plus intake rush
   V.tOsc = realOsc('whistle'); V.tOsc.type = 'sine'; V.tG = gn(0); V.tOsc.connect(V.tG); V.tG.connect(bus); V.tOsc.start();
   V.tN = src(AU.buf.noise, true); V.tBp = filt('bandpass', 1500, 1.1); V.tNG = gn(0); V.tN.connect(V.tBp); V.tBp.connect(V.tNG); V.tNG.connect(bus); V.tN.start();
-  if (name === 'tractor' || name === 'tele') {   // big viscous fan and the hydrostatic pump
+  if (name === 'tractor' || name === 'tele' || name === 'picker') {   // big viscous fan and the hydrostatic pump
     V.fan = src(AU.buf.noise, true); V.fanF = filt('lowpass', 420, 0.7); V.fanG = gn(0); V.fan.connect(V.fanF); V.fanF.connect(V.fanG); V.fanG.connect(bus); V.fan.start();
     V.hyd = realOsc('motor'); V.hyd.type = 'sawtooth'; V.hydF = filt('bandpass', 600, 6); V.hydG = gn(0); V.hyd.connect(V.hydF); V.hydF.connect(V.hydG); V.hydG.connect(bus); V.hyd.start();
   }
@@ -6070,7 +6354,7 @@ function hornStart(kind) {
   if (kind === 'bike' || kind === 'scooter') { sfx('bikeBell', activeVeh() ? S.pos : F.pos, 0.9); return; }
   AU.hornOn = true;
   // real horns: the truck's air horns, one electric horn on the farm machines (higher on the dirt bike), the usual car horn on the rest
-  const hk = kind === 'truck' ? 'horn_truck' : ['tractor', 'tele', 'dozer', 'combine', 'dirtbike'].includes(kind) ? 'horn_one' : 'horn_car', hb = AU.real && AU.real[hk];
+  const hk = kind === 'truck' ? 'horn_truck' : ['tractor', 'tele', 'dozer', 'combine', 'picker', 'dirtbike'].includes(kind) ? 'horn_one' : 'horn_car', hb = AU.real && AU.real[hk];
   if (hb) { const c = AU.ctx, out = gn(0), sp = spatial(); out.connect(sp.in); const v = activeVeh(); sp.place(v ? S.pos : F.pos, 8, 1);
     const s = src(hb, true); s.playbackRate.value = kind === 'dirtbike' ? 1.35 : 1; s.connect(out); s.start();
     out.gain.setValueAtTime(0, c.currentTime); out.gain.linearRampToValueAtTime(0.45, c.currentTime + 0.02); AU.horn = { out, oscs: [s], sp }; return; }
@@ -6117,7 +6401,7 @@ function audioInit() {
     () => { AU.buf.noise = AU.buf.noise || toBuf(noiseLoop(4.3, 1)); }, () => { AU.buf.gravel = AU.buf.gravel || toBuf(gravelLoop(5, 900, 1)); }, () => { AU.buf.scrab = AU.buf.scrab || toBuf(gravelLoop(6, 5200, 1.25)); },
     () => { AU.buf.lug = AU.buf.lug || toBuf((() => { const sr = AU.sr, n = Math.round(sr / 40) * 40, d = new Float32Array(n), lp = bq('lp', 160, 0.9, sr), r = rng(8); for (let k = 0; k < 2; k++) for (let i = 0; i < n; i++) { const t = (i % (n / 40)) / sr; const y = lp(Math.exp(-t / 0.004) * (1 + 0.2 * (r() - 0.5)) + (r() - 0.5) * 0.05); if (k) d[i] = y; } return normRms(d, 0.25); })()); }, () => shotBufs(0), () => shotBufs(1), () => shotBufs(4), () => shotBufs(2), () => shotBufs(3), () => shotBufs(5),
     () => { AU.tyre = makeTyreVoice(); AU.wind = makeWindVoice(); },
-    ...['suv', 'x5', 'bmw', 'buggy', 'tractor', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'gyro', 'combine', 'ute'].flatMap(name => {
+    ...['suv', 'x5', 'bmw', 'buggy', 'tractor', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'gyro', 'combine', 'ute', 'picker'].flatMap(name => {
       const L = ENG[name].rpms.map(r => ({ r, on: null, off: null }));
       return [...L.flatMap(l => [() => { if (!realEng(name)) l.on = toBuf(synthEngineLoop(ENG[name], l.r, true)); }, () => { if (!realEng(name)) l.off = toBuf(synthEngineLoop(ENG[name], l.r, false)); }]),   // (no made-up loops for an engine with a real recording)
               () => { AU.eng[name] = makeEngineVoice(name, L); }];
@@ -6131,6 +6415,7 @@ function audioInit() {
     () => { AU.rl.gyroProp = AU.rl.gyroProp || toBuf(rotorLoop(113, 1300, false)); }, () => { AU.rl.gyroRotor = AU.rl.gyroRotor || toBuf(rotorLoop(12.7, 1311, true)); AU.gyroV = makeGyroVoice(); }, () => { AU.racerV = makeRacerVoice(); });
   jobs.push(() => { AU.buf.tin = AU.buf.tin || toBuf(synthTin(3)); }, () => { AU.buf.tin2 = AU.buf.tin2 || toBuf(synthTin(11)); }, () => { AU.buf.boom = AU.buf.boom || toBuf(synthBoom()); }, () => { AU.buf.fire = AU.buf.fire || toBuf(synthFire()); AU.fireV = makeFireVoice(); });
   jobs.push(() => { AU.rl.duster = AU.rl.duster || [0, 1].map(k => toBuf(rotorLoop(110, 900 + k * 7, true))); }, () => { AU.tp = makeTurbopropVoice(); AU.ev = makeElecVoice(); AU.bk = makeBikeVoice(); AU.beep = makeBeeper(); });
+  jobs.push(() => { AU.cpV = makePickerVoice(); });
   jobs.push(() => realAssign());       // last: the real one-shots go back over the made-up banks above
   const run = () => { const j = jobs.shift(); if (!j) { AU.busy = false; return; } const t0 = performance.now(); let r; try { r = j(); } catch (e) { console.warn('sound', e); } (AU.jt = AU.jt || []).push(Math.round(performance.now() - t0));
     if (r && r.then) Promise.race([r, new Promise(ok => setTimeout(ok, 6000))]).then(() => setTimeout(run, 16), () => setTimeout(run, 16)); else setTimeout(run, 16); };   // (a job can hand back a promise to wait on, up to 6 s)
@@ -6190,7 +6475,7 @@ function dozerDrive(thr, v, active) {
 function audioUpdate(dt) {
   if (!AU.ctx || AU.busy || AU.ctx.state !== 'running') return;
   const v = activeVeh();
-  for (const name of ['tractor', 'suv', 'x5', 'bmw', 'buggy', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'combine', 'ute']) {
+  for (const name of ['tractor', 'suv', 'x5', 'bmw', 'buggy', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'combine', 'ute', 'picker']) {
     const veh = VEH[name], V = AU.eng[name]; if (!V) continue;
     const running = veh === v || veh.coast;
     if (running && !V.on) V.start(); if (!running && V.on) V.stop();
@@ -6200,7 +6485,7 @@ function audioUpdate(dt) {
     const spin = veh === v && S.spinRear != null ? (S.spinRear - S.v) * THREE.MathUtils.clamp(((S.slipA || 0) - 1) / 5, 0.15, 1) : 0;   // only real slip spins the revs up
     const vf = name === 'trophy' && veh === v ? Math.hypot(S.vx, S.vz) * Math.sign(S.v || 1) : st.v;
     const r = name === 'suv' ? suvDrive(V, thr, st.v, st.v + spin, dt) : name === 'ute' ? suvDrive(V, thr, st.v, st.v + spin, dt, ENG.ute) : name === 'x5' ? suvDrive(V, thr, st.v, st.v + spin, dt, ENG.x5) : name === 'buggy' ? suvDrive(V, thr, st.v, st.v + spin, dt, ENG.buggy) : name === 'bmw' ? suvDrive(V, thr, st.v, st.v + spin, dt, ENG.bmw) : name === 'dozer' ? dozerDrive(thr, st.v, veh === v) : name === 'dirtbike' ? dirtbikeDrive(V, thr, st.v, dt)
-      : name === 'trophy' ? trophyDrive(V, thr, vf + spin, dt) : name === 'truck' ? truckDrive(V, thr, st.v, dt) : tractorDrive(V, thr, st.v, veh.spec.top, ENG[name], name === 'tele' && veh === v ? TB.hyd : name === 'tractor' && veh === v ? (IMPL.working ? 0.95 : (IMPL.hyd || 0) * 0.5) : 0);
+      : name === 'trophy' ? trophyDrive(V, thr, vf + spin, dt) : name === 'truck' ? truckDrive(V, thr, st.v, dt) : tractorDrive(V, thr, st.v, veh.spec.top, ENG[name], name === 'tele' && veh === v ? TB.hyd : name === 'tractor' && veh === v ? (IMPL.working ? 0.95 : (IMPL.hyd || 0) * 0.5) : name === 'picker' && veh === v ? Math.min(1, CP.drum * 0.85 + CP.hyd * 0.3) : 0);
     if (name === 'truck') { if (AU.jakeV) AU.jakeV.update(!!r.jake && running, r.rpm, st.pos);
       // air brakes: a hiss as you pull up, and the big one when the park brake goes on
       if (V.prevV > 2 && Math.abs(st.v) < 0.4) sfx('airhiss', st.pos, 0.8, 1, 14); V.prevV = Math.abs(st.v); }
@@ -6212,7 +6497,8 @@ function audioUpdate(dt) {
   for (const name of ['drone', 'flyer', 'spray']) if (AU.rot[name]) AU.rot[name].update(dt, VEH[name]);
   if (AU.tp) AU.tp.update(dt, VEH.duster);
   for (const [nm, voice] of [['scooter', AU.ev], ['bike', AU.bk]]) if (voice) { const veh = VEH[nm], st = veh === v ? S : veh.state; voice.update(veh === v || veh.coast, st ? st.v : 0, veh === v ? Math.max(0, S.thr || 0) : 0, st ? st.pos : null); }
-  if (AU.beep) AU.beep.update(dt, (activeName === 'tele' || activeName === 'dozer') && S.v < -0.15, v && (v.name === 'tele' || v.name === 'dozer') ? S.pos : null);
+  if (AU.beep) AU.beep.update(dt, (activeName === 'tele' || activeName === 'dozer' || activeName === 'picker') && S.v < -0.15, v && (v.name === 'tele' || v.name === 'dozer' || v.name === 'picker') ? S.pos : null);
+  if (AU.cpV) { const pv = VEH.picker, pst = pv === v ? S : pv.state; AU.cpV.update(dt, CP.drum, CP.hyd, CP.pickT > 0, pst ? pst.pos : null); }
   if (AU.racerV) AU.racerV.update(dt, VEH.racer);
   if (AU.soil) { const I = IMPL.hooked; AU.soil.update(!!IMPL.working, Math.abs(S.v), I && I.D.id === 'disc', I ? I.hitch : null); }
   if (AU.gyroV) AU.gyroV.update(dt, VEH.gyro);
@@ -6679,7 +6965,7 @@ const BOX_DEFS = [
   { id: 'redbox', kind: 'container', cx: 49.8, cz: 3.7, ang: -18.4, L: 6.06, W: 2.44, H: 2.59, mass: 2300, color: 0x9e2a1f },
   { id: 'tank', kind: 'tank', cx: 46.1, cz: -1.6, ang: 84, L: 4.1, W: 2.3, H: 2.6, mass: 3000 },
 ];
-const VEH_MASS = { buggy: 750, ute: 2300, combine: 16000, x5: 2200, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
+const VEH_MASS = { buggy: 750, ute: 2300, combine: 16000, picker: 26000, x5: 2200, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
 const STRUCTS = { ready: false, parts: [], groups: [], debris: [], boxes: {}, fx: [], fires: [], blown: false, slowT: 0, scorch: null };
 
 // ---------- which scan triangles to drop (called while the scan is being set up) ----------
@@ -7787,6 +8073,7 @@ const VIEWS = {
   tele: ['chase', 'operator', 'bucket', 'cine'],
   tractor: ['chase', 'rear', 'cine'],
   combine: ['chase', 'rear', 'cine'],
+  picker: ['chase', 'rear', 'cine'],
   drone: ['chase', 'fpv', 'down', 'cine'],
   spray: ['chase', 'fpv', 'cine'],
   duster: ['chase', 'cockpit', 'wing', 'cine'],
@@ -9874,7 +10161,7 @@ const WPN_ORDER = ['pistol', 'shotgun', 'rifle', 'sniper', 'minigun', 'grenade',
 const WPN = { owned: {}, ammo: {}, mag: {}, cur: null, fire: false, firePrev: false, cd: 0, reloadT: 0, spin: 0, scope: false, shots: 0, flameT: 0,
               proj: [], sticks: [], fires: [], booms: [], decals: [], splats: [], hops: [], VD: {}, hitT: 0, hitKind: '', netT: 0, told: {}, locker: null, ready: false };
 const LOCKER = { x: 41.6, z: -6.4, yaw: -Math.PI / 2 };
-const VEH_HP = { buggy: 180, ute: 300, combine: 520, x5: 260, bmw: 260, tractor: 420, suv: 230, tele: 360, scooter: 60, bike: 45, dozer: 650, dirtbike: 95, trophy: 280, truck: 520, drone: 12, flyer: 90, spray: 70, duster: 220, gyro: 100, racer: 8 };
+const VEH_HP = { buggy: 180, ute: 300, combine: 520, picker: 560, x5: 260, bmw: 260, tractor: 420, suv: 230, tele: 360, scooter: 60, bike: 45, dozer: 650, dirtbike: 95, trophy: 280, truck: 520, drone: 12, flyer: 90, spray: 70, duster: 220, gyro: 100, racer: 8 };
 const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _w3 = new THREE.Vector3(), _w4 = new THREE.Vector3(), _wq = new THREE.Quaternion();
 
 /* ---------- textures and shared materials ---------- */
@@ -10055,7 +10342,7 @@ function wpnReset() {
   for (const f of WPN.fires) wpnFireEnd(f); WPN.fires = [];
   for (const b of WPN.booms) for (const s of b.sp) scene.remove(s.s); WPN.booms = [];
   for (const P of [WPN.spark, WPN.blood, WPN.grain, WPN.flame, WPN.chip]) { P.life.fill(0); P.pos.fill(-1e4); P.m.geometry.attributes.position.needsUpdate = true; }
-  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); mhReset(); mmReset(); saReset(); dmReset(); bpReset(); mtReset(); phReset(); bbReset(); snReset();
+  for (const n of Object.keys(WPN.VD)) wpnUnwreck(n); WPN.VD = {}; WPN.hops = []; dmgResetAll(); npcReset(); fmxReset(); harvReset(); cpReset(); mhReset(); mmReset(); saReset(); dmReset(); bpReset(); mtReset(); phReset(); bbReset(); snReset();
   F.hp = 100; F.dead = 0; WPN.reloadT = 0; WPN.fire = false; WPN.scope = false; WPN.tankBurn = 0;
   $('hurt').style.opacity = 0; $('wasted').classList.remove('show');
 }
@@ -13051,6 +13338,429 @@ function harvReset() {
   HV.cut.fill(0); HV.left = HV.total; HV.bin = 0; HV.unload = false; HV.trailer.fill = 0; HV.told.full = 0;
 }
 ENG.combine = Object.assign({}, ENG.tractor, { seed: 85 });
+ENG.picker = Object.assign({}, ENG.tractor, { seed: 91 });
+
+/* ================================================================
+   COTTON PICKING, FIELD 6 (west of the wheat): the CP690 round-module picker at work
+   The FS25 mod's own cycle, as its XML has it:
+   - start the picker (drums, doffers and the fan spin up over 4 s, down over 3 s) and lower the header; picking caps
+     the speed at 10 km/h (the mod's speedLimit), 25 km/h on the road
+   - six 1 m rows go up the air ducts into the accumulator (2,500 L). Full, it dumps into the module chamber over
+     5 s; four dumps make a module (10,000 L). The belt tensioner arms swing out as the module grows
+   - a full chamber wraps the module in its coloured film, swings the door up and rolls it out onto the handler
+     (unloadBale), closes again (closeDoor), and you carry it. The handler sets it down on its own when the next
+     one is coming, or whenever you tap Drop module (dropBale). Over 1,000 L you can wrap a part module early
+   - the header lifts for the headland in a second (the start of the mod's folding animation); folding for the
+     road tilts the chamber down and lowers the accumulator (the rest of it), only when it's empty and stopped
+   - modules sit where they're dropped: big, heavy, solid. The picker can shove one; anything lighter stops dead
+   - Configure (stopped, or standing by it): model year (7760 / CP690 and their decals and add-on parts), module wrap
+     colour (yellow, pink, green, orange, blue), window tint, StarFire receiver, row-unit numbers and where they go
+   The crop: 66 rows x 92 m of defoliated cotton ready to pick, in 1 m x 2 m cells; each picked cell leaves bare
+   stalks. Every reset regrows it and clears the modules.
+   ================================================================ */
+const CF = { x0: -272, z0: -46, rows: 66, seg: 2, nseg: 46, ready: false, cut: null, left: 0, total: 0, where: null, inst: [] };
+const CP = { on: false, drum: 0, ft: 1.0, ftT: 1.0, acc: 0, ch: 0, phase: 'pick', pt: 0, hand: 'idle', ht: 0, carry: null, inner: null, wrapAmt: 0,
+  mods: [], count: 0, told: {}, chip: null, hyd: 0, fx: null, beacon: 0, wipe: 0, released: false, cfgOpen: false };
+const CP_ACC = 2500, CP_CAP = 10000, CP_CELL_L = 36, CP_PART = 1000, CP_R = 1.19, CP_HALF = 1.19, CP_MID = 1 / CP_ANIM_LEN.folding;  // the mod's foldMiddleAnimTime
+PADDOCKS.push({ t: 2, row: 0.043, poly: [[CF.x0 - 2, CF.z0 - 2], [CF.x0 + CF.rows + 2, CF.z0 - 2], [CF.x0 + CF.rows + 2, CF.z0 + CF.nseg * CF.seg + 2], [CF.x0 - 2, CF.z0 + CF.nseg * CF.seg + 2]] });
+
+// ---------- the crop: alpha cards drawn here (brown sticks, white bolls) plus a few solid bolls for depth ----------
+function cfCardTex(picked) {
+  // one 2 m stretch of row: seven plants of brown sticks; open bolls (white lobes in a dark dry burr) all over a ready plant,
+  // a few torn tufts left on a picked one
+  const W = 512, H = 256, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+  let s = picked ? 91 : 17; const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const boll = (x, y, R) => {
+    g.fillStyle = '#3b2a1e'; for (let l = 0; l < 4; l++) { const a = l / 4 * 6.283 + 0.4; g.beginPath(); g.ellipse(x + Math.cos(a) * R * 0.5, y + Math.sin(a) * R * 0.5 + R * 0.25, R * 0.42, R * 0.22, a, 0, 7); g.fill(); }
+    for (let l = 0; l < 5; l++) { const a = l / 5 * 6.283 + r(), lx = x + Math.cos(a) * R * 0.42, ly = y + Math.sin(a) * R * 0.32 - R * 0.05, rr = R * (0.5 + r() * 0.18);
+      const gr = g.createRadialGradient(lx - rr * 0.35, ly - rr * 0.4, rr * 0.1, lx, ly, rr); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.65, '#f6f3ec'); gr.addColorStop(1, '#d6cfc1');
+      g.fillStyle = gr; g.beginPath(); g.arc(lx, ly, rr, 0, 7); g.fill(); }
+  };
+  const tuft = (x, y, R) => { g.fillStyle = 'rgba(244,241,234,0.95)'; g.beginPath(); g.ellipse(x, y, R, R * 0.6, r() * 3, 0, 7); g.fill(); };
+  const plants = 7, hTop = picked ? 0.25 : 0.04;
+  const stems = [];
+  for (let p = 0; p < plants; p++) {
+    const bx = (p + 0.25 + r() * 0.5) / plants * W, hh = H * (1 - hTop - r() * 0.07), lean = (r() - 0.5) * 18;
+    g.strokeStyle = picked ? '#6b5442' : '#4b3526'; g.lineCap = 'round';
+    g.lineWidth = picked ? 6 : 5; g.beginPath(); g.moveTo(bx, H); g.quadraticCurveTo(bx + lean * 0.3, H - hh * 0.5, bx + lean, H - hh); g.stroke();
+    const br = 11;
+    for (let k = 0; k < br; k++) {
+      const u = 0.16 + 0.8 * k / br, y0 = H - hh * u, x0 = bx + lean * u, len = (26 + r() * 34) * (1 - u * 0.45), side = k % 2 ? 1 : -1, ang = side * (0.55 + r() * 0.55);
+      const x1 = x0 + Math.sin(ang) * len, y1 = y0 - Math.cos(ang) * len * 0.75;
+      g.lineWidth = picked ? 3.5 : 3; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo(x0 + Math.sin(ang) * len * 0.5, y0 - len * 0.12, x1, y1); g.stroke();
+      stems.push([x0, y0, x1, y1]);
+    }
+  }
+  // bolls (or what's left of them) drawn over all the sticks
+  for (const [x0, y0, x1, y1] of stems) {
+    if (picked) { if (r() < 0.35) { const t = 0.6 + r() * 0.4; tuft(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 3 + r() * 4); } if (r() < 0.5) { g.fillStyle = '#3b2a1e'; g.beginPath(); g.arc(x1, y1, 4.5, 0, 7); g.fill(); } continue; }
+    const nb = 2 + Math.floor(r() * 2);
+    for (let b = 0; b < nb; b++) { const t = 1 - b * 0.38, R = 12 + r() * 8; boll(x0 + (x1 - x0) * t + (r() - 0.5) * 4, y0 + (y1 - y0) * t + (r() - 0.5) * 4, R); }
+  }
+  g.fillStyle = '#f7f5ef'; g.fillRect(W - 8, 0, 8, 8);           // a solid white corner for the 3D bolls to sample
+  // see-through texels keep a cotton/stalk colour (not black), so the far-off mipmaps stay white instead of going grey
+  const id = g.getImageData(0, 0, W, H), d = id.data, bleed = picked ? [120, 98, 80] : [236, 232, 224];
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] < 250) { const a = d[i + 3] / 255; for (let c = 0; c < 3; c++) d[i + c] = Math.round(d[i + c] * a + bleed[c] * (1 - a)); }
+  const t = new THREE.DataTexture(new Uint8Array(d.buffer.slice(0)), W, H, THREE.RGBAFormat); t.flipY = true; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.needsUpdate = true; return t;
+}
+function cfCellGeo(picked) {
+  // three cards per cell: one along the row, two crossing it at +/-40 deg (all 1 m tall-ish, uv 0..1)
+  const parts = [], hgt = picked ? 0.85 : 1.15, L = 2.05;
+  const card = (w, ang) => { const p = new THREE.PlaneGeometry(w, hgt); p.translate(0, hgt / 2, 0); p.rotateY(ang); return p; };
+  parts.push(card(L, Math.PI / 2), card(1.25, Math.PI / 2 + 0.7), card(1.25, Math.PI / 2 - 0.7));
+  if (!picked) {      // a handful of real bolls so it isn't flat up close
+    let s = 5; const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    for (let k = 0; k < 5; k++) { const o = new THREE.OctahedronGeometry(0.075 + r() * 0.03, 0); o.scale(1, 0.8, 1); o.translate((r() - 0.5) * 0.36, 0.55 + r() * 0.42, (r() - 0.5) * 1.8); o.deleteAttribute('uv'); o.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(o.attributes.position.count * 2).fill(0.996), 2)); parts.push(o.index ? o.toNonIndexed() : o); }
+  }
+  const g = mergeGeometries(parts.map(p => p.index ? p.toNonIndexed() : p));
+  // foliage normals: (mostly) straight up, so the cards light like the ground under the sun instead of going grey side-on
+  const n = g.attributes.normal; for (let i = 0; i < n.count; i++) { const x = n.getX(i) * 0.25, y = 1, z = n.getZ(i) * 0.25, l = Math.hypot(x, y, z); n.setXYZ(i, x / l, y / l, z / l); }
+  return g;
+}
+function cfBuild() {
+  if (CF.ready || !PAD.grid) return;
+  const matA = new THREE.MeshLambertMaterial({ map: cfCardTex(false), alphaTest: 0.42, side: THREE.DoubleSide }), matB = new THREE.MeshLambertMaterial({ map: cfCardTex(true), alphaTest: 0.42, side: THREE.DoubleSide });
+  matA.userData.wet = matB.userData.wet = 1;
+  for (const m of [matA, matB]) { m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'))
+    .replace('#include <map_fragment>', '#include <map_fragment>\n  diffuseColor.rgb *= mix(0.5, 1.0, smoothstep(0.0, 0.75, vMapUv.y));'); }; m.customProgramCacheKey = () => 'cfcard'; }   // both faces lit from above
+  // the solid bolls sample the texture's last texel; make that white
+  const gA = cfCellGeo(false), gB = cfCellGeo(true), R = CF.rows, N = CF.nseg, CH = 4;
+  CF.cut = new Uint8Array(R * N); CF.where = new Array(R * N);
+  let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const lists = {};
+  for (let j = 0; j < N; j++) for (let i = 0; i < R; i++) { const k = Math.floor(i / (R / CH)) * CH + Math.floor(j / (N / CH)); (lists[k] = lists[k] || []).push([i, j]); }
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), SC = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), Z = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (const k in lists) {
+    const L = lists[k], a = new THREE.InstancedMesh(gA, matA, L.length), b = new THREE.InstancedMesh(gB, matB, L.length);
+    L.forEach(([i, j], n) => {
+      const x = CF.x0 + i + 0.5 + (rnd() - 0.5) * 0.08, z = CF.z0 + (j + 0.5) * CF.seg;
+      P.set(x, padHeight(x, z) - 0.03, z); Q.setFromAxisAngle(UP, rnd() < 0.5 ? 0 : Math.PI); const s = 0.9 + rnd() * 0.2; SC.set(1, s, 1); M.compose(P, Q, SC);
+      a.setMatrixAt(n, M); b.setMatrixAt(n, Z); CF.where[j * R + i] = [a, b, n, M.clone()];
+    });
+    for (const im of [a, b]) { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); im.frustumCulled = true; scene.add(im); CF.inst.push(im); }
+    b.computeBoundingSphere(); b.boundingSphere = a.boundingSphere.clone();
+  }
+  CF.total = CF.left = R * N; CF.ready = true;
+}
+function cfCellAt(x, z) { const i = Math.floor(x - CF.x0), j = Math.floor((z - CF.z0) / CF.seg); return i < 0 || j < 0 || i >= CF.rows || j >= CF.nseg ? -1 : j * CF.rows + i; }
+const _cfZ = new THREE.Matrix4().makeScale(0, 0, 0);
+function cfPick(k) { if (k < 0 || CF.cut[k]) return false; CF.cut[k] = 1; const [a, b, n, M] = CF.where[k]; a.setMatrixAt(n, _cfZ); b.setMatrixAt(n, M); a.instanceMatrix.needsUpdate = b.instanceMatrix.needsUpdate = true; CF.left--; return true; }
+function cfCrush(M) {          // whatever a module sits on is flattened (no cotton gained)
+  if (!CF.ready) return; const ax = M.axis.x, az = M.axis.z;
+  for (let u = -CP_HALF; u <= CP_HALF; u += 0.5) for (let w = -CP_R; w <= CP_R; w += 0.5) { const k = cfCellAt(M.pos.x + ax * u - az * w, M.pos.z + az * u + ax * w); if (k >= 0 && !CF.cut[k]) cfPick(k); }
+}
+function cfReset() { if (!CF.ready) return; for (let k = 0; k < CF.cut.length; k++) if (CF.cut[k]) { const [a, b, n, M] = CF.where[k]; a.setMatrixAt(n, M); b.setMatrixAt(n, _cfZ); a.instanceMatrix.needsUpdate = b.instanceMatrix.needsUpdate = true; } CF.cut.fill(0); CF.left = CF.total; }
+
+// ---------- the module material: cotton, with the wrap film laid over it (wrapAmt 0..1 while it's being wrapped) ----------
+const CP_MODMAT = {};
+function cpModuleMat(C, wrap, live) {
+  const key = wrap + (live ? ':live' : '');
+  if (CP_MODMAT[key]) return CP_MODMAT[key];
+  const src = C.moduleSrc.material, wt = C.tex['wrap_' + wrap] || null, U = { wrapMap: { value: wt }, wrapAmt: { value: 1 } };
+  const m = new THREE.MeshStandardMaterial({ map: src.map, roughness: 0.85, metalness: 0, envMap: cpEnv(), envMapIntensity: 0.5 });
+  m.userData.wet = 1; m.userData.U = U;
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, U);
+    sh.fragmentShader = 'uniform sampler2D wrapMap;\nuniform float wrapAmt;\n' + sh.fragmentShader
+      .replace('#include <map_fragment>', '#include <map_fragment>\n  vec4 wrapC = texture2D(wrapMap, vMapUv); float wrapA = wrapC.a * 0.92 * step(fract(vMapUv.x * 0.999), wrapAmt); diffuseColor.rgb = mix(diffuseColor.rgb, wrapC.rgb, wrapA);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.28, wrapA);');
+  };
+  m.customProgramCacheKey = () => 'cpmod';
+  return (CP_MODMAT[key] = m);
+}
+function cpModuleMesh(C, wrap, live) { const g = new THREE.Mesh(C.moduleSrc.geometry, cpModuleMat(C, wrap, live)); g.name = 'cpModule'; g.userData.nodent = true; return g; }
+
+// ---------- lint and dust: one small sprite pool ----------
+function cpFxInit() {
+  const N = 260, tex = radialTex([246, 244, 238], true), sp = [];
+  for (let i = 0; i < N; i++) { const m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0, color: 0xffffff }); const s = new THREE.Sprite(m); s.visible = false; scene.add(s); sp.push({ s, life: 0, max: 1, v: new THREE.Vector3(), g: 0, s0: 0.2, s1: 1, a: 0.6 }); }
+  CP.fx = { sp, i: 0 };
+}
+function cpFx(p, v, life, s0, s1, a, col, grav) {
+  if (!CP.fx) cpFxInit(); const F = CP.fx, q = F.sp[F.i]; F.i = (F.i + 1) % F.sp.length;
+  q.s.position.copy(p); q.v.copy(v); q.life = q.max = life; q.s0 = s0; q.s1 = s1; q.a = a; q.g = grav || 0; q.s.material.color.set(col || 0xffffff); q.s.visible = true;
+}
+function cpFxStep(dt) {
+  if (!CP.fx) return;
+  for (const q of CP.fx.sp) { if (q.life <= 0) continue; q.life -= dt; if (q.life <= 0) { q.s.visible = false; continue; }
+    const u = 1 - q.life / q.max; q.v.y -= q.g * dt; q.v.multiplyScalar(Math.exp(-0.9 * dt)); q.s.position.addScaledVector(q.v, dt);
+    const sc = q.s0 + (q.s1 - q.s0) * Math.sqrt(u); q.s.scale.set(sc, sc, sc); q.s.material.opacity = q.a * Math.min(1, u * 6) * (1 - u); }
+}
+
+// ---------- the picker's own run of the show ----------
+const _cpA = new THREE.Vector3(), _cpB = new THREE.Vector3(), _cpQ = new THREE.Quaternion();
+function cpC() { return VEHICLES.picker; }
+function cpSt() { return activeName === 'picker' ? S : VEH.picker.state; }
+function cpBusy() { const A = cpC().anim; return A.folding.on || A.unloadBale.on || A.closeDoor.on || A.dropBale.on; }
+function cpSetCfg(k, v) {
+  CP_CFG[k] = v; try { localStorage.setItem('wfy.cp', JSON.stringify(CP_CFG)); } catch (_) {}
+  const C = cpC(); C.cfg = CP_CFG; if (C.ready) cpApplyCfg(C);
+  if (k === 'wrap' && CP.inner) CP.inner.material = cpModuleMat(C, v, true);
+  SPECS.picker.accel = CP_CFG.model.startsWith('7760') ? 1.1 : 1.2;
+}
+function cpItems(items) {
+  const C = cpC(); if (!C.ready) return;
+  const folded = CP.ftT > CP_MID + 0.01, lowered = CP.ftT < 0.01 && CP.ft < 0.02;
+  if (!folded) items.push({ id: 'cp:on', label: CP.on ? 'Stop picking' : 'Start picking', cls: CP.on ? 'warn' : '', pressed: CP.on });
+  if (!folded) items.push({ id: 'cp:hdr', label: lowered ? 'Raise header' : CP.ftT < 0.01 ? 'Lowering…' : 'Lower header', cls: 'ghost', pressed: CP.ftT < 0.01 });
+  if (CP.carry && CP.hand === 'idle') items.push({ id: 'cp:drop', label: 'Drop module', cls: 'warn' });
+  else if (CP.hand === 'drop') items.push({ id: 'cp:drop', label: 'Dropping…', cls: 'ghost', pressed: true });
+  if (CP.phase === 'pick' && CP.ch >= CP_PART && CP.ch + CP.acc < CP_CAP * 0.97) items.push({ id: 'cp:wrap', label: 'Wrap module now', cls: 'ghost' });
+  items.push({ id: 'cp:fold', label: C.anim.folding.on && CP.ftT > CP_MID ? 'Folding…' : folded ? 'Unfold' : 'Fold for road', cls: 'ghost' });
+  items.push({ id: 'cp:cfg', label: 'Configure', cls: 'ghost' });
+}
+function cpFootItems(items) {
+  const C = cpC(); if (!C.ready || !VEH.picker.state) return;
+  const st = VEH.picker.state, d = Math.hypot(F.pos.x - st.pos.x - Math.sin(st.yaw) * 4, F.pos.z - st.pos.z - Math.cos(st.yaw) * 4);
+  if (d < 9) items.push({ id: 'cp:cfg', label: 'Configure the picker', cls: 'ghost' });
+}
+function cpAct(id) {
+  const C = cpC(); if (!C.ready) return;
+  const st = cpSt(), still = !st || Math.abs(st.v) < 0.5;
+  if (id === 'cp:cfg') { if (activeName === 'picker' && !still) { toast('Stop to set the picker up', 1.4); return; } cpCfgOpen(); return; }
+  if (activeName !== 'picker') return;
+  if (id === 'cp:on') {
+    if (!CP.on && CP.ftT > CP_MID + 0.01) { toast('Unfold it first', 1.4); return; }
+    CP.on = !CP.on; if (CP.on && CP.ftT > 0.01) toast('Picker running. Lower the header to start picking', 2.2);
+    else if (CP.on && !CP.told.on) { CP.told.on = 1; toast('Picker running. Drive up the rows: 6 at a time, 10 km/h tops', 2.6); }
+  } else if (id === 'cp:hdr') {
+    if (CP.ftT > CP_MID + 0.01) { toast('Unfold it first', 1.4); return; }
+    cpFoldTo(CP.ftT < 0.01 ? CP_MID : 0);
+  } else if (id === 'cp:fold') {
+    if (CP.ftT > CP_MID + 0.01) { if (!still) { toast('Stop to unfold', 1.4); return; } cpFoldTo(CP_MID); toast('Unfolding: chamber up, accumulator up', 1.8); return; }
+    if (!still) { toast('Stop to fold for the road', 1.4); return; }
+    if (CP.on) { toast('Stop the picker first', 1.4); return; }
+    if (CP.acc + CP.ch > CP_ACC || CP.phase !== 'pick' || CP.carry) { toast(CP.carry ? 'Drop the module off the handler first' : 'Wrap and drop the module before folding', 2); return; }
+    cpFoldTo(1); toast('Folding for the road', 1.4);
+  } else if (id === 'cp:drop') { if (CP.carry && CP.hand === 'idle') cpDrop(); }
+  else if (id === 'cp:wrap') { if (CP.phase === 'pick' && CP.ch >= CP_PART) { CP.ch += CP.acc; CP.acc = 0; cpWrapStart(true); } }
+}
+function cpFoldTo(f) {
+  const C = cpC(), A = C.anim.folding; CP.ftT = f;
+  A.from = CP.ft; A.to = f; A.on = true;
+}
+function cpWrapStart(part) { CP.phase = 'wrap'; CP.pt = 0; CP.partial = !!part; toast(part ? 'Wrapping a part module' : 'Module full: wrapping', 1.8); }
+function cpDrop() {
+  const C = cpC(); if (!CP.carry) return;
+  CP.hand = 'drop'; CP.ht = 0; CP.released = false; cpPlay(C, 'dropBale', 0);
+}
+function cpRelease() {
+  // off the handler and onto the ground: it keeps the machine's speed and rolls back off the tilted handler
+  const C = cpC(), m = CP.carry; if (!m) return; CP.carry = null; CP.released = true;
+  m.updateMatrixWorld(true); m.getWorldPosition(_cpA); m.getWorldQuaternion(_cpQ);
+  scene.add(m); m.position.copy(_cpA); m.quaternion.copy(_cpQ);
+  const st = cpSt(), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
+  const axis = new THREE.Vector3(1, 0, 0).applyQuaternion(_cpQ); axis.y = 0; axis.normalize();      // the module's axis lies across the machine
+  const roll = new THREE.Vector3(-fx, 0, -fz);
+  const v = new THREE.Vector3(st.vx || fx * st.v, 0, st.vz || fz * st.v).addScaledVector(roll, 1.3);
+  CP.mods.push({ m, pos: _cpA.clone(), v, axis, q: _cpQ.clone(), settled: false, t: 0 });
+  CP.count++; CP.told.dropped = CP.told.dropped || (toast('Module down. ' + CP.count + (CP.count === 1 ? ' module' : ' modules') + ' on the ground', 2), 1);
+}
+function cpModStep(dt) {
+  for (const M of CP.mods) {
+    if (M.settled) continue; M.t += dt;
+    M.v.y -= 9.8 * dt; M.pos.addScaledVector(M.v, dt);
+    const gy = groundAt(M.pos.x, M.pos.z, M.pos.y + 1, 0) + CP_R;
+    if (M.pos.y <= gy) { M.pos.y = gy; if (M.v.y < -1.5) sfx('thud', M.pos, Math.min(1, -M.v.y / 5), 0.55, 30); M.v.y = M.v.y < -1.2 ? -M.v.y * 0.18 : 0;
+      // rolling across its axis, sliding along it, both dying away on the dirt
+      const along = M.v.x * M.axis.x + M.v.z * M.axis.z; M.v.x -= M.axis.x * along * Math.min(1, 6 * dt); M.v.z -= M.axis.z * along * Math.min(1, 6 * dt);
+      const k = Math.exp(-1.4 * dt); M.v.x *= k; M.v.z *= k;
+      if (M.t > 0.6 && Math.hypot(M.v.x, M.v.z) < 0.05 && Math.abs(M.v.y) < 0.05) { M.settled = true; cfCrush(M); } }
+    // roll it: about its axis by the distance it travels across it
+    const across = new THREE.Vector3(M.axis.z, 0, -M.axis.x), d = (M.v.x * across.x + M.v.z * across.z) * dt / CP_R;
+    M.q.premultiply(new THREE.Quaternion().setFromAxisAngle(M.axis, -d));
+    // and let it settle level: tip the axis back to horizontal
+    const ax = new THREE.Vector3(1, 0, 0).applyQuaternion(M.q), tilt = Math.asin(THREE.MathUtils.clamp(ax.y, -1, 1));
+    if (Math.abs(tilt) > 1e-3) { const c = new THREE.Vector3().crossVectors(ax, M.axis).normalize(); if (c.lengthSq() > 0.5) M.q.premultiply(new THREE.Quaternion().setFromAxisAngle(c, Math.min(Math.abs(tilt), 2.5 * dt))); }
+    M.m.position.copy(M.pos); M.m.quaternion.copy(M.q);
+  }
+}
+// modules are solid: push the farmer and light vehicles out; the picker (or anything over 10 t) shoves them
+function cpModPush() {
+  if (!CP.mods.length) return;
+  const v = activeVeh();
+  const hitBox = (M, px, pz, r) => { const ax = M.axis.x, az = M.axis.z, dx = px - M.pos.x, dz = pz - M.pos.z, u = dx * ax + dz * az, w = -dx * az + dz * ax, eu = CP_HALF + r - Math.abs(u), ew = CP_R + r - Math.abs(w);
+    if (eu <= 0 || ew <= 0) return null; return eu < ew ? { x: Math.sign(u) * eu * ax, z: Math.sign(u) * eu * az, d: eu } : { x: -Math.sign(w) * ew * az, z: Math.sign(w) * ew * ax, d: ew }; };
+  if (v && v.kind === 'ground' && !SIM.npc) {
+    const sp = v.spec, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), r = Math.min(1.6, sp.halfW || 1), heavy = (VEH_MASS[v.name] || 1500) >= 10000;
+    for (const M of CP.mods) for (let t = -(sp.rear || 1) + r; t <= (sp.front || 3) - r * 0.5; t += Math.max(0.8, r)) {
+      const px = S.pos.x + fx * t, pz = S.pos.z + fz * t, h = hitBox(M, px, pz, r); if (!h) continue;
+      if (heavy && Math.abs(S.v) > 0.05) { M.pos.x -= h.x; M.pos.z -= h.z; M.v.x = fx * S.v * 0.9; M.v.z = fz * S.v * 0.9; M.settled = false; S.v *= 0.97; if (!M.scrapeT || M.t - M.scrapeT > 0.8) { M.scrapeT = M.t; sfx('thud', M.pos, 0.35, 0.6, 18); } }
+      else { S.pos.x += h.x; S.pos.z += h.z; S.v *= -0.15; if (S.vx !== undefined) { S.vx *= -0.15; S.vz *= -0.15; } if (Math.abs(S.v) > 2) sfx('thud', S.pos, 0.6, 0.7, 20); }
+      break;
+    }
+  } else if (activeName === 'foot' && F && F.pos) for (const M of CP.mods) { const h = hitBox(M, F.pos.x, F.pos.z, 0.35); if (h && F.pos.y < M.pos.y + CP_R) { F.pos.x += h.x; F.pos.z += h.z; } }
+}
+
+function cpAnimStep(C, dt) {
+  // folding runs between two times at the mod's own pace; the others play through
+  const A = C.anim.folding;
+  if (A.on) { const dir = Math.sign(A.to - CP.ft); CP.ft = THREE.MathUtils.clamp(CP.ft + dir * dt / CP_ANIM_LEN.folding, Math.min(A.from, A.to), Math.max(A.from, A.to));
+    cpAnimApply(C, 'folding', CP.ft * CP_ANIM_LEN.folding); if (CP.ft === A.to) A.on = false; CP.hyd = 1; }
+  for (const k of ['unloadBale', 'closeDoor', 'dropBale']) { const B = C.anim[k]; if (!B.on) continue; B.t = Math.min(CP_ANIM_LEN[k], B.t + dt); cpAnimApply(C, k, B.t); CP.hyd = Math.max(CP.hyd, 0.8); if (B.t >= CP_ANIM_LEN[k]) B.on = false; }
+  // the belt tensioner arms follow the module size (not while the door's doing its own thing)
+  if (!C.anim.unloadBale.on && !C.anim.closeDoor.on && CP.phase !== 'unload' && CP.phase !== 'close') cpAnimApply(C, 'tensionerAnimation', Math.min(1, CP.ch / CP_CAP));
+}
+function cpStep(dt) {
+  const C = cpC();
+  if (!CF.ready) { if (window.__game && __game.ready) cfBuild(); }
+  if (!C || !C.ready) return;
+  if (!C._init) { C._init = true; CP.ft = CP.ftT = CP_MID; cpAnimApply(C, 'folding', CP.ft * CP_ANIM_LEN.folding); CP.inner = cpModuleMesh(C, CP_CFG.wrap, true); CP.inner.visible = false; C.nodes.baleNode.add(CP.inner); }
+  const st = cpSt(), inP = activeName === 'picker', T = C;
+  CP.hyd = Math.max(0, CP.hyd - dt * 2);
+  // drums: 4 s up, 3 s down (the mod's turnOn/turnOffFadeTime)
+  const run = CP.on && (inP || (VEH.picker.coast));
+  CP.drum = THREE.MathUtils.clamp(CP.drum + (run ? dt / 4 : -dt / 3), 0, 1);
+  if (!inP && CP.on && !VEH.picker.coast) CP.on = false;
+  const drumA = CP.drum * CP.drum * (3 - 2 * CP.drum);
+  for (const d of C.spinners) d.rotation.z += 700 * Math.PI / 180 * drumA * dt;
+  if (C.nodes.auger) C.nodes.auger.rotation.y += 400 * Math.PI / 180 * drumA * dt;
+  if (C.nodes.airFilterCleaner && st) C.nodes.airFilterCleaner.rotation.y += (inP ? 600 : 0) * Math.PI / 180 * dt;
+  SPECS.picker.top = (CP.on ? 10 : 25) / 3.6;
+  // steering: the back wheels turn the other way to the stick
+  C.steer = st ? -(st.steer || 0) : 0;
+  cpAnimStep(C, dt);
+
+  // ---- picking ----
+  let picked = 0;
+  if (inP && CF.ready && drumA > 0.6 && CP.ft < 0.02 && S.v > 0.15 && (CP.acc < CP_ACC || CP.phase === 'pick')) {
+    const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), lx = Math.cos(S.yaw), lz = -Math.sin(S.yaw);
+    for (const d of [9.2, 10.2]) for (let a = -2.95; a <= 2.65; a += 0.5) { const x = S.pos.x + fx * d + lx * a, z = S.pos.z + fz * d + lz * a;
+      if (CP.acc + picked * CP_CELL_L >= CP_ACC && CP.phase !== 'pick') break;
+      if (cfPick(cfCellAt(x, z))) picked++; }
+    if (picked) {
+      CP.acc += picked * CP_CELL_L;
+      if (!CF.left) toast('That’s the last of the cotton. Good pick!', 3);
+      // lint off the row units, and the dust plume out of the top of the basket
+      if (Math.random() < 0.7) { _cpA.set(S.pos.x + fx * 9.6 + lx * (Math.random() * 5.6 - 3), S.pos.y + 0.8 + Math.random() * 0.5, S.pos.z + fz * 9.6 + lz * (Math.random() * 5.6 - 3)); _cpB.set(fx * S.v * 0.5 + (Math.random() - 0.5), 0.8 + Math.random(), fz * S.v * 0.5 + (Math.random() - 0.5)); cpFx(_cpA, _cpB, 0.9, 0.08, 0.35, 0.85, 0xffffff, 0.6); }
+    }
+  }
+  // the basket's smoke: while there's cotton moving
+  if (inP && drumA > 0.5 && (picked || CP.pickT > 0)) {
+    CP.pickT = picked ? 0.6 : CP.pickT - dt;
+    const n = C.nodes.smokeEffectNode; if (n && Math.random() < dt * 22) { n.getWorldPosition(_cpA); const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), lx = Math.cos(S.yaw), lz = -Math.sin(S.yaw), u = (Math.random() - 0.5) * 3.4;
+      _cpA.x += lx * u; _cpA.z += lz * u; _cpB.set(-fx * 1.2 + (Math.random() - 0.5) * 0.6, 1.2 + Math.random() * 0.8, -fz * 1.2 + (Math.random() - 0.5) * 0.6); cpFx(_cpA, _cpB, 2.6, 0.5, 2.6, 0.32, 0xe8e2d6, -0.1); }
+  } else CP.pickT = 0;
+  if (inP && CP.on && CP.acc >= CP_ACC && (CP.phase === 'wrap' || CP.phase === 'unload' || CP.phase === 'close') && !CP.told.accFull) { CP.told.accFull = 1; toast('Accumulator full: wait for the module to clear', 2.2); }
+  if (CP.acc < CP_ACC * 0.9) CP.told.accFull = 0;
+
+  // ---- the module cycle ----
+  CP.pt += dt;
+  if (CP.phase === 'pick') {
+    if (CP.acc >= CP_ACC) { CP.phase = 'dump'; CP.pt = 0; CP.dumpFrom = CP.acc; }
+  } else if (CP.phase === 'dump') {        // accumulator into the chamber over 5 s
+    const q = Math.min(CP.acc, CP.dumpFrom / 5 * dt); CP.acc -= q; CP.ch += q; CP.hyd = Math.max(CP.hyd, 0.5);
+    if (CP.ch >= CP_CAP - 1) { CP.acc += CP.ch - CP_CAP; CP.ch = CP_CAP; cpWrapStart(false); }
+    else if (CP.acc <= 0.5 || CP.pt > 5.2) { CP.phase = 'pick'; CP.pt = 0; }
+  } else if (CP.phase === 'wrap') {         // a few turns of film in the chamber
+    CP.wrapAmt = Math.min(1, CP.pt / 5);
+    if (CP.pt > 5.5) {
+      if (CP.carry) { if (CP.hand === 'idle') { cpDrop(); toast('Setting the last module down first', 1.6); } }
+      else { CP.phase = 'unload'; CP.pt = 0; cpPlay(C, 'unloadBale', 0); toast('Module out onto the handler', 1.6); }
+    }
+  } else if (CP.phase === 'unload') {
+    if (!C.anim.unloadBale.on) {
+      // the module goes from the chamber to the handler; a fresh (empty) one starts in the chamber
+      const mod = cpModuleMesh(C, CP_CFG.wrap); CP.inner.updateMatrixWorld(true); CP.inner.getWorldPosition(_cpA); CP.inner.getWorldQuaternion(_cpQ);
+      const hd = C.nodes.baleDropper; hd.updateMatrixWorld(true); hd.add(mod); hd.worldToLocal(mod.position.copy(_cpA)); const hq = hd.getWorldQuaternion(new THREE.Quaternion()).invert(); mod.quaternion.copy(hq.multiply(_cpQ));
+      CP.carry = mod; CP.ch = 0; CP.wrapAmt = 0; CP.inner.visible = false; CP.phase = 'close'; CP.pt = 0; cpPlay(C, 'closeDoor', 0);
+      if (!CP.told.carry) { CP.told.carry = 1; toast('You’re carrying it. Tap Drop module where you want it (the next one drops it anyway)', 3.4); }
+    }
+  } else if (CP.phase === 'close') { if (!C.anim.closeDoor.on) { CP.phase = 'pick'; CP.pt = 0; } }
+  // the handler: tilt, let go of the module at the bottom of the tilt, fold back up
+  if (CP.hand === 'drop') { const B = C.anim.dropBale; if (!CP.released && B.t >= 2.0) cpRelease(); if (!B.on) { CP.hand = 'idle'; if (CP.phase === 'wrap') CP.pt = Math.min(CP.pt, 5.4); } }
+  // the module growing in the chamber (diameter with the fill, the way the mod's scaleNode does it)
+  if (CP.inner) { const f = CP.phase === 'unload' ? 1 : Math.min(1, CP.ch / CP_CAP); CP.inner.visible = f > 0.01 || CP.phase === 'unload';
+    if (CP.phase !== 'unload') { const s = 0.35 + 0.65 * f; CP.inner.scale.set(s, s, 1); } else CP.inner.scale.set(1, 1, 1);
+    CP.inner.material.userData.U.wrapAmt.value = CP.phase === 'unload' ? 1 : CP.wrapAmt; }
+
+  // beacon while picking, wipers in the rain
+  if (C.beacon) { CP.beacon += dt * 7.5; const on = CP.on && inP, k = on ? Math.max(0, Math.cos(CP.beacon)) ** 4 : 0; C.beacon.material.emissiveIntensity = 0.2 + k * 3; C.beaconGlow.material.opacity = k * 0.75; }
+  if (C.nodes.wiperArm01) { const wet = typeof WX !== 'undefined' && WX.rain > 0.15 && inP; if (wet || CP.wipe > 0) { CP.wipe = (CP.wipe + dt * 0.75) % 2; cpAnimApply(C, 'wiperFrontAnimation', CP.wipe < 1 ? CP.wipe : 2 - CP.wipe); if (!wet && CP.wipe < 0.05) CP.wipe = 0; } }
+  cpPose(C);
+  cpModStep(dt); cpModPush(); cpFxStep(dt);
+  cpChip(inP);
+}
+function cpChip(inP) {
+  if (!CP.chip) {
+    const stl = document.createElement('style');
+    stl.textContent = '#cpchip{position:fixed;z-index:9;left:50%;top:calc(64px + env(safe-area-inset-top,0px));transform:translateX(-50%);display:none;gap:12px;align-items:center;background:rgba(22,26,25,.82);color:#fff;border-radius:14px;padding:7px 14px;font:700 12.5px var(--font);pointer-events:none;white-space:nowrap}#cpchip.show{display:flex}#cpchip .g{display:flex;gap:6px;align-items:center}#cpchip .bar{width:62px;height:8px;border-radius:4px;background:rgba(255,255,255,.2);overflow:hidden}#cpchip .bar i{display:block;height:100%;width:0;background:#f4f1ea}#cpchip .m .bar i{background:var(--wrap,#f1dc2a)}#cpchip .st{color:#ffd76a;font-weight:800}#cpchip .n{opacity:.85}@media (max-width:560px){#cpchip{gap:8px;font-size:11px;padding:6px 10px}#cpchip .bar{width:40px}#cpchip .n{display:none}}@media (max-height:360px){#cpchip{top:calc(54px + env(safe-area-inset-top,0px))}}';
+    document.head.appendChild(stl);
+    const c = document.createElement('div'); c.id = 'cpchip'; c.className = 'ui';
+    c.innerHTML = '<span class="g a">Basket<span class="bar"><i></i></span></span><span class="g m">Module<span class="bar"><i></i></span><b></b></span><span class="st"></span><span class="n"></span>';
+    document.body.appendChild(c); CP.chip = c;
+  }
+  const c = CP.chip; c.classList.toggle('show', inP); if (!inP) return;
+  c.querySelector('.a i').style.width = Math.round(100 * Math.min(1, CP.acc / CP_ACC)) + '%';
+  const mf = Math.min(1, CP.ch / CP_CAP); c.querySelector('.m i').style.width = Math.round(100 * mf) + '%'; c.querySelector('.m b').textContent = Math.round(mf * 100) + '%';
+  c.style.setProperty('--wrap', '#' + new THREE.Color(CP_WRAP_RGB[CP_CFG.wrap]).getHexString());
+  const s = CP.phase === 'dump' ? 'Dumping' : CP.phase === 'wrap' ? 'Wrapping' : CP.phase === 'unload' ? 'Unloading' : CP.hand === 'drop' ? 'Dropping' : CP.carry ? 'Module on handler' : CP.acc >= CP_ACC ? 'Basket full' : CP.ftT > CP_MID + 0.01 ? 'Road' : CP.on && CP.ft < 0.02 ? 'Picking' : CP.on ? 'Header up' : '';
+  c.querySelector('.st').textContent = s;
+  c.querySelector('.n').textContent = CP.count ? CP.count + (CP.count === 1 ? ' module' : ' modules') + ' · ' + Math.round(100 * (1 - CF.left / Math.max(1, CF.total))) + '% picked' : Math.round(100 * (1 - CF.left / Math.max(1, CF.total))) + '% picked';
+}
+function cpReset() {
+  const C = cpC(); cfReset();
+  for (const M of CP.mods) scene.remove(M.m); CP.mods = [];
+  if (CP.carry) { CP.carry.parent && CP.carry.parent.remove(CP.carry); CP.carry = null; }
+  Object.assign(CP, { on: false, drum: 0, acc: 0, ch: 0, phase: 'pick', pt: 0, hand: 'idle', ht: 0, wrapAmt: 0, count: 0, told: {}, released: false });
+  if (C && C.ready) {
+    for (const k in C.anim) C.anim[k].on = false;
+    for (const k of ['unloadBale', 'closeDoor', 'dropBale', 'tensionerAnimation']) cpAnimApply(C, k, 0);
+    CP.ft = CP.ftT = CP_MID; cpAnimApply(C, 'folding', CP.ft * CP_ANIM_LEN.folding);
+    if (CP.inner) { CP.inner.visible = false; CP.inner.scale.set(1, 1, 1); }
+    cpPose(C);
+  }
+  if (CP.fx) for (const q of CP.fx.sp) { q.life = 0; q.s.visible = false; }
+}
+
+// ---------- Configure: the shop/workshop options from the mod ----------
+const CP_OPTS = [
+  ['model', 'Model', [['7760', '7760 (2008–11)'], ['7760b', '7760 (2012–14)'], ['cp690', 'CP690 (2015–17)'], ['cp690b', 'CP690 (2018–21)']]],
+  ['wrap', 'Module wrap', CP_WRAPS.map(w => [w, { yellow: 'Yellow', pink: 'Pink', green: 'Green', orange: 'Orange', lightBlue: 'Blue' }[w]])],
+  ['tint', 'Window tint', [[0, 'Clear'], [1, 'Light'], [2, 'Dark']]],
+  ['gps', 'GPS receiver', [['none', 'None'], ['sf3000', 'StarFire 3000']]],
+  ['num', 'Row-unit number', [[0, 'None'], ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => [n, String(n)])]],
+  ['numLoc', 'Number goes on', [['picker', 'Picking unit'], ['bin', 'Cotton bin']]],
+];
+function cpCfgOpen() {
+  let el = document.getElementById('cpcfg');
+  if (!el) {
+    const stl = document.createElement('style');
+    stl.textContent = '#cpcfg{position:fixed;inset:0;z-index:40;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.28)}#cpcfg.show{display:flex}#cpcfg .pn{width:min(560px,100%);max-height:86vh;overflow:auto;background:rgba(24,28,27,.96);color:#fff;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));font:600 14px var(--font)}#cpcfg h3{margin:0 0 2px;font-size:17px}#cpcfg .sub{opacity:.7;font-size:12px;margin-bottom:10px}#cpcfg .row{margin:10px 0 0}#cpcfg .lb{font-size:12px;opacity:.75;margin-bottom:5px}#cpcfg .ch{display:flex;flex-wrap:wrap;gap:6px}#cpcfg button{border:0;border-radius:10px;padding:8px 11px;background:rgba(255,255,255,.1);color:#fff;font:700 13px var(--font);cursor:pointer}#cpcfg button[aria-pressed=true]{background:#367c2b;box-shadow:inset 0 0 0 2px #f2c300}#cpcfg button i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px}#cpcfg .done{margin-top:14px;width:100%;background:#f2c300;color:#1b1b1b;padding:11px}';
+    document.head.appendChild(stl);
+    el = document.createElement('div'); el.id = 'cpcfg'; el.className = 'ui';
+    el.innerHTML = '<div class="pn"><h3>John Deere roller picker</h3><div class="sub">Set it up like the shop: changes show straight away.</div><div class="opts"></div><button class="done" data-done="1">Done</button></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) { if (e.target === el) cpCfgClose(); return; } if (b.dataset.done) { cpCfgClose(); return; }
+      const k = b.dataset.k, raw = b.dataset.v, val = typeof CP_CFG_DEF[k] === 'number' ? +raw : raw; cpSetCfg(k, val); cpCfgDraw(); });
+  }
+  cpCfgDraw(); el.classList.add('show'); CP.cfgOpen = true;
+}
+function cpCfgDraw() {
+  const box = document.querySelector('#cpcfg .opts'); box.textContent = '';
+  for (const [k, lb, opts] of CP_OPTS) {
+    const row = document.createElement('div'); row.className = 'row'; row.innerHTML = '<div class="lb"></div><div class="ch"></div>'; row.firstChild.textContent = lb;
+    for (const [v, t] of opts) { const b = document.createElement('button'); b.type = 'button'; b.dataset.k = k; b.dataset.v = v; b.setAttribute('aria-pressed', String(CP_CFG[k] === v));
+      if (k === 'wrap') { const i = document.createElement('i'); i.style.background = '#' + new THREE.Color(CP_WRAP_RGB[v]).getHexString(); b.appendChild(i); }
+      b.appendChild(document.createTextNode(t)); row.lastChild.appendChild(b); }
+    box.appendChild(row);
+  }
+}
+function cpCfgClose() { const el = document.getElementById('cpcfg'); if (el) el.classList.remove('show'); CP.cfgOpen = false; }
+
+// ---------- sound: the fan's rush, the spindles' whine, the hydraulics ----------
+function makePickerVoice() {
+  const sp = spatial(), bus = gn(1); bus.connect(sp.in);
+  const fan = src(AU.buf.noise, true), fanF = filt('bandpass', 700, 0.8), fanG = gn(0); fan.connect(fanF); fanF.connect(fanG); fanG.connect(bus); fan.start();
+  const sw = realOsc('whistle'); sw.type = 'sine'; const swF = filt('bandpass', 900, 4), swG = gn(0); sw.connect(swF); swF.connect(swG); swG.connect(bus); sw.frequency.value = 900; sw.start();
+  const hy = realOsc('motor'); hy.type = 'sawtooth'; const hyF = filt('bandpass', 640, 5), hyG = gn(0); hy.connect(hyF); hyF.connect(hyG); hyG.connect(bus); hy.frequency.value = 640; hy.start();
+  return { update(dt, drum, hyd, picking, pos) {
+    ramp(fanG.gain, drum * (0.2 + (picking ? 0.08 : 0)), 0.2); ramp(fan.playbackRate, 0.55 + 0.5 * drum, 0.2); ramp(fanF.frequency, 380 + 520 * drum, 0.2);
+    ramp(swG.gain, drum * 0.035, 0.2); ramp(sw.frequency, 300 + 640 * drum, 0.3);
+    ramp(hyG.gain, hyd * 0.045, 0.06); ramp(hy.frequency, 600 + hyd * 120, 0.08);
+    if (pos) sp.place(pos, 12, 1); } };
+}
 
 /* ================================================================
    ANIMAL SOUNDS, take two (Nov 2026): simpler and more natural
@@ -18130,6 +18840,7 @@ window.__game = { saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dm
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
 Object.assign(window.__game, { lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
+Object.assign(window.__game, { CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply });
 load().catch(e => console.error(e));
 </script>
 </body>
