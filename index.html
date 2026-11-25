@@ -4722,7 +4722,10 @@ const HOME = {};
 // the machines live in the open machinery shed: front row nosed out to the south, bikes in the back row nosed out north
 const SHED_PARK = [['bmw', 0, 1], ['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['suv', 4, -1], ['dirtbike', 1, 1], ['bike', 2, 1], ['scooter', 3, 1]];
 function homeY(x, z) { const sf = STRUCTS.ready ? shedFloorAt(x, z) : null; return groundAt(x, z, sf !== null ? sf + 2.5 : 30, 0); }    // under a shed roof, start below it
-function farmerHomeY() { const h = HOME.farmer; if (h.dunny && DN.root) return groundAt(h.x, h.z, DN.gy + 1.4, DN.gy); return h.indoors && typeof DG !== 'undefined' && DG.root ? groundAt(h.x, h.z, DG.gy + 1.5, DG.gy) : homeY(h.x, h.z); }      // under a roof: look for the floor from head height
+// where you start (and get back up): the dunny by the dongas, or out the front of the machinery shed (menu: Start at)
+let START_AT = (() => { try { return localStorage.getItem('wfy.start') === 'shed' ? 'shed' : 'dongas'; } catch (_) { return 'dongas'; } })();
+function startSpot() { return START_AT === 'shed' && HOME.shedStart ? HOME.shedStart : HOME.farmer; }
+function farmerHomeY(h0) { const h = h0 || startSpot(); if (h.dunny && DN.root) return groundAt(h.x, h.z, DN.gy + 1.4, DN.gy); return h.indoors && typeof DG !== 'undefined' && DG.root ? groundAt(h.x, h.z, DG.gy + 1.5, DG.gy) : homeY(h.x, h.z); }      // under a roof: look for the floor from head height
 function shedParking() {
   const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], da = 2 * D.hv / D.bays;
   for (const [name, bay, row] of SHED_PARK) {
@@ -4736,6 +4739,8 @@ function shedParking() {
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
   HOME.buggy = { x: 166.3, z: 53.4, yaw: -Math.PI / 2 };       // the buggy: north end of the dongas' gravel past Madman's ute, nose out, its driver's side (left) to the open ground
+  { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], u = D.hu + 2.5;
+    HOME.shedStart = { x: D.cx + U[0] * u, z: D.cz + U[1] * u, yaw: Math.atan2(-U[0], -U[1]) }; }   // out the front of the machinery shed, looking in at the bikes
   { const [x, z] = dgW(0, 0.12, DN); HOME.farmer = { x, z, yaw: DN.yaw, indoors: true, dunny: true }; }   // you wake up in the dunny south of the water tanks, facing the door (not in the bunks: they might be on fire)
   HOME.ute = { x: 166.3, z: 50.4, yaw: -Math.PI / 2 };   // on the gravel beside the BMW, nose out to the open ground (tailgate to the dongas)   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
@@ -6081,8 +6086,8 @@ function resetAll() {
     Object.assign(A, { spd: 0, ng: 0, thr: 0, hold: false, spraying: false, tank: ac.P.tank || 0, pitch: ac.P.plane ? -0.15 : 0, roll: 0 });
     placeAircraft(ac);
   }
-  const h = HOME.farmer;
-  standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw);
+  const h = startSpot();
+  standFarmerAt({ x: h.x, y: farmerHomeY(h), z: h.z }, h.yaw);
   DAZZA.root.visible = true;
   for (const p of puffs) { p.life = 0; p.s.visible = false; }
   for (const p of dust) { p.life = 0; p.s.visible = false; }
@@ -10482,12 +10487,18 @@ const HUDS = { dT: 0, live: false };
   const help = document.createElement('button'); help.type = 'button'; help.id = 'helpbtn';
   help.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 0 1 5 .9c0 1.8-2.5 2.2-2.5 3.8M12 17h.01"/></svg><span class="mlbl">Show the controls</span>';
   panel.appendChild(help);
+  // Start at: the dunny by the dongas, or the machinery shed (takes effect at the next reset or reload)
+  const st = document.createElement('button'); st.type = 'button'; st.id = 'startbtn';
+  const stLbl = () => '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg><span class="mlbl">Start at: ' + (START_AT === 'shed' ? 'Machinery shed' : 'Dongas') + '</span>';
+  st.innerHTML = stLbl(); panel.appendChild(st);
+  st.addEventListener('click', () => { START_AT = START_AT === 'shed' ? 'dongas' : 'shed'; try { localStorage.setItem('wfy.start', START_AT); } catch (_) {} st.innerHTML = stLbl();
+    toast(START_AT === 'shed' ? 'You\u2019ll start at the machinery shed. Reset to go there now' : 'You\u2019ll wake up in the dunny by the dongas. Reset to go there now', 2.6); });
   const rs = $('reset'); if (rs) { rs.childNodes.forEach(n => { if (n.nodeType === 3) n.textContent = ''; }); lbl('reset', 'Reset everything'); }
   const open = on => { panel.classList.toggle('show', on); shade.classList.toggle('show', on); btn.setAttribute('aria-expanded', String(on)); };
   btn.addEventListener('click', e => { e.stopPropagation(); open(!panel.classList.contains('show')); });
   shade.addEventListener('pointerdown', () => open(false));
   // toggles stay open so you can see what changed; anything that opens a sheet (or resets) closes the menu
-  panel.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.id === 'helpbtn') showHintFor(activeName, true); if (b.id !== 'snd' && b.id !== 'wxbtn') open(false); });
+  panel.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.id === 'helpbtn') showHintFor(activeName, true); if (b.id !== 'snd' && b.id !== 'wxbtn' && b.id !== 'startbtn') open(false); });
 })();
 
 
@@ -11350,7 +11361,7 @@ function wpnStep(dt) {
   WPN.calmT = (WPN.calmT || 0) + dt; if (WPN.calmT > 6 && F.hp < 100 && F.dead <= 0) F.hp = Math.min(100, F.hp + dt * 6);
   $('hpFill').style.width = Math.max(0, F.hp) + '%'; document.body.classList.toggle('hurt', F.hp < 99.5);
   if (F.dead > 0) { F.dead -= dt; if (F.mode === 'getup' || F.mode === 'walk') { F.mode = 'down'; F.downT = 0; }
-    if (F.dead <= 0) { $('wasted').classList.remove('show'); const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); F.hp = 100; camInit = false; toast('Back on your feet', 1.4); } }
+    if (F.dead <= 0) { $('wasted').classList.remove('show'); const h = startSpot(); standFarmerAt({ x: h.x, y: farmerHomeY(h), z: h.z }, h.yaw); F.hp = 100; camInit = false; toast('Back on your feet', 1.4); } }
   // firing
   wpnJobStep(); const armed = wpnArmed(); wpnHud(false);
   if (!armed) { WPN.fire = false; WPN.scope = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); wpnViewModel(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
@@ -12177,7 +12188,7 @@ function creatorOpen() {
 function creatorDone() {
   CRE.on = false; document.body.classList.remove('creator'); lookUIOpen(false);
   lookNameUI(); const ok = $('lookOk'); if (ok && CRE.okTxt) ok.textContent = CRE.okTxt;
-  const h = HOME.farmer; standFarmerAt({ x: h.x, y: farmerHomeY(), z: h.z }, h.yaw); camYawF = h.yaw; camPitchF = 0.25; camInit = false; DN.doorA = 1; DN.creakT = 3;          // and you wake up in the dunny, door open
+  const h = startSpot(); standFarmerAt({ x: h.x, y: farmerHomeY(h), z: h.z }, h.yaw); camYawF = h.yaw; camPitchF = 0.25; camInit = false; if (h === HOME.farmer) { DN.doorA = 1; DN.creakT = 3; }          // and you wake up in the dunny, door open
 }
 /* ---------- back after a long time away ----------
    A phone often keeps the page alive in the background instead of closing it, so opening the game again
