@@ -13664,7 +13664,7 @@ ENG.rx = Object.assign({}, ENG.dozer, { seed: 97 });
 SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40 / 3.6, rev: 15 / 3.6, drive: 1.7, steer: 0.58, steerFast: 0.24, kick: 0.6, catch: 0.3 });
 
 /* ================================================================
-   COTTON PICKING, FIELD 6 (west of the wheat): the CP690 round-module picker at work
+   COTTON PICKING, FIELD 6 (south of the wheat, at the yard end): the CP690 round-module picker at work
    The FS25 mod's own cycle, as its XML has it:
    - start the picker (drums, doffers and the fan spin up over 4 s, down over 3 s) and lower the header; picking caps
      the speed at 10 km/h (the mod's speedLimit), 25 km/h on the road
@@ -13678,10 +13678,10 @@ SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40
    - modules sit where they're dropped: big, heavy, solid. The picker can shove one; anything lighter stops dead
    - Configure (stopped, or standing by it): model year (7760 / CP690 and their decals and add-on parts), module wrap
      colour (yellow, pink, green, orange, blue), window tint, StarFire receiver, row-unit numbers and where they go
-   The crop: 66 rows x 92 m of defoliated cotton ready to pick, in 1 m x 2 m cells; each picked cell leaves bare
+   The crop: 66 rows x 80 m of defoliated cotton ready to pick, in 1 m x 2 m cells; each picked cell leaves bare
    stalks. Every reset regrows it and clears the modules.
    ================================================================ */
-const CF = { x0: -272, z0: -46, rows: 66, seg: 2, nseg: 46, ready: false, cut: null, left: 0, total: 0, where: null, inst: [] };
+const CF = { x0: -152, z0: -128, rows: 66, seg: 2, nseg: 40, ready: false, cut: null, left: 0, total: 0, where: null, inst: [] };   // just south of the wheat at the yard end of the paddock (80 m rows)
 const CP = { on: false, drum: 0, ft: 1.0, ftT: 1.0, acc: 0, ch: 0, phase: 'pick', pt: 0, hand: 'idle', ht: 0, carry: null, inner: null, wrapAmt: 0,
   mods: [], count: 0, told: {}, chip: null, hyd: 0, fx: null, beacon: 0, wipe: 0, released: false, cfgOpen: false };
 const CP_ACC = 2500, CP_CAP = 10000, CP_CELL_L = 36, CP_PART = 1000, CP_R = 1.19, CP_HALF = 1.19, CP_MID = 1 / CP_ANIM_LEN.folding;  // the mod's foldMiddleAnimTime
