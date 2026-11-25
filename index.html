@@ -2065,14 +2065,16 @@ function e70DoorAt(p) {
 }
 // each triangle goes with the door its corners are all on, else the body. One that straddles a shut line goes by its middle on the
 // outside skin and the windows (small there, so the seams stay tight); a big one (the floor, the dash, a pillar) stays put
+const _e70Neg = new THREE.Vector3();
 function e70Split(o, mw, body, doors, cabin) {
   const g = o.geometry, pos = g.attributes.position, idx = g.index, n = idx ? idx.count : pos.count, out = { body: [], FR: [], FL: [], RR: [], RL: [] };
-  const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], c = new THREE.Vector3(), glass = !Array.isArray(o.material) && o.material.transparent;
+  const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], c = new THREE.Vector3(), glass = !Array.isArray(o.material) && o.material.transparent, box = {};
   for (let t = 0; t < n; t += 3) { const tri = [0, 1, 2].map(k => idx ? idx.getX(t + k) : t + k); for (let k = 0; k < 3; k++) P[k].fromBufferAttribute(pos, tri[k]).applyMatrix4(mw);
     const d0 = e70DoorAt(P[0]), d1 = e70DoorAt(P[1]), d2 = e70DoorAt(P[2]); let k;
     if (d0 === d1 && d1 === d2) k = d0 || 'body';
     else { const big = Math.max(P[0].distanceTo(P[1]), P[1].distanceTo(P[2]), P[2].distanceTo(P[0])) > 0.12; if (big && !glass) k = 'body'; else k = e70DoorAt(c.copy(P[0]).add(P[1]).add(P[2]).multiplyScalar(1 / 3)) || 'body'; }
-    out[k].push(tri[0], tri[1], tri[2]); }
+    out[k].push(tri[0], tri[1], tri[2]); if (k !== 'body') { const b = box[k] || (box[k] = new THREE.Box3()); for (const q of P) b.expandByPoint(q); } }
+  for (const k in box) { const p = doors[k], b = box[k].translate(_e70Neg.copy(p.position).negate()); if (p.userData.box) p.userData.box.union(b); else p.userData.box = b; }      // (where the door is, round its hinge: for knocking it off)
   for (const k in out) { if (!out[k].length) continue; const sub = new THREE.BufferGeometry(); for (const a in g.attributes) sub.setAttribute(a, g.attributes[a]); sub.setIndex(out[k]);
     const m = new THREE.Mesh(sub, o.material); m.matrixAutoUpdate = false; m.frustumCulled = false;
     if (k === 'body') { m.matrix.copy(mw); body.add(m); } else { const p = doors[k]; m.matrix.copy(new THREE.Matrix4().makeTranslation(-p.position.x, -p.position.y, -p.position.z).multiply(mw)); p.add(m); } }
@@ -2109,7 +2111,7 @@ function buildE70() {
   return out;
 }
 // the Field 6 harvest block + its headlands and the strip across to the yard: ground machines may drive here
-function hvIn(x, z) { return x > -292 && x < -84 && z > -68 && z < 58; }          // (out to x -292: the cotton block west of the wheat, and its headland)
+function hvIn(x, z) { return x > -330 && x < -84 && z > -140 && z < 110; }          // (the whole paddock west of the yard: the wheat, the cotton block and plenty of headland all round, so there's no invisible wall on the way out to them)
 
 /* ================================================================
    THE COTTON PICKER, MODEL: John Deere CP690 / 7760 round-module picker
@@ -2902,6 +2904,8 @@ function castHit(origin, dir, far) {
   if (!STRUCTS.ready) return h;
   return structRay(origin, dir, h ? h.distance : far) || h;
 }
+// out past the yard, in the fields and on the MX lane, the scan's ragged fringe isn't ground or walls: the paddock surface is
+function scanFringe(x, z) { return ((MX.ready && mxIn(x, z)) || hvIn(x, z)) && !insideYard(x, z); }
 function insidePoly(x, z) { return insideYard(x, z) || (MX.ready && mxIn(x, z)) || hvIn(x, z); }
 function insideYard(x, z) {
   let c = false;
@@ -3977,6 +3981,7 @@ function farmerStep(dt, controlled) {
     for (const h of [0.35, 0.9, 1.5]) {
       _v2.set(F.pos.x, F.pos.y + h, F.pos.z);
       const hit = castHit(_v2, _v1, FOOT.r + len);
+      if (hit && hit.face && !hit.struct && scanFringe(hit.point.x, hit.point.z)) continue;      // the scan's ragged leftovers out in the fields aren't walls (the machines ignore them too)
       if (hit && hit.face && hit.distance < best) {
         _v3.copy(hit.face.normal).transformDirection(collider.matrixWorld);
         if (Math.abs(_v3.y) < 0.6) { best = hit.distance; const l = Math.hypot(_v3.x, _v3.z) || 1; nX = _v3.x / l; nZ = _v3.z / l; }
@@ -4923,7 +4928,86 @@ VEH.bmw.doors = { FR: VEH.bmw.door, FL: { obj: VEH.bmw.model.doors.FL, a: 0, tgt
 let _doorList = null;
 function allDoors() { if (_doorList) return _doorList; const out = []; for (const v of DOOR_VEH()) { if (v.doors) { for (const k in v.doors) out.push([v, v.doors[k]]); } else out.push([v, v.door]); } return (_doorList = out); }
 // open a door and let it swing shut on its own after a moment (someone climbing in or out)
-function doorSwing(v, d, hold) { if (!v || !d) return; doorTo(v, true, d); d.slamT = Math.max(d.slamT, hold); }
+function doorSwing(v, d, hold) { if (!v || !d || d.off) return; doorTo(v, true, d); d.slamT = Math.max(d.slamT, hold); }
+
+/* ---------- doors that come off ----------
+   Shoot a door enough, ram something side-on, or get rammed, and it's torn off the hinges: it goes flying, tumbles and
+   lies where it lands. A blast or the machine blowing up takes doors with it. Reset puts them back. Everyone sees it. */
+const DOFF = { bits: [] };
+const DOOR_HP = 60;
+function vehDoorList(v) { return !v ? [] : v.doors ? Object.entries(v.doors) : v.door ? [['D', v.door]] : []; }
+// the door's box round its hinge (worked out once; the BMW's come from its split)
+function doorBox(d) {
+  const piv = d.obj; if (piv.userData.box) return piv.userData.box;
+  piv.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(piv.matrixWorld).invert(), b = new THREE.Box3(), M = new THREE.Matrix4();
+  piv.traverse(m => { if (!m.isMesh || !m.geometry) return; if (!m.geometry.boundingBox) m.geometry.computeBoundingBox(); b.union(m.geometry.boundingBox.clone().applyMatrix4(M.multiplyMatrices(inv, m.matrixWorld))); });
+  return (piv.userData.box = b);
+}
+// the door nearest a world point, if the point is on (or just off) it
+function doorAt(v, P) {
+  let best = null, bd = 1e9;
+  for (const [k, d] of vehDoorList(v)) { if (d.off || !d.obj) continue; const b = doorBox(d); if (b.isEmpty()) continue; d.obj.updateMatrixWorld(true);
+    const L = d.obj.worldToLocal(_doffV.copy(P)), q = b.distanceToPoint(L); if (q < 0.3 && q < bd) { bd = q; best = [k, d]; } }
+  return best;
+}
+const _doffV = new THREE.Vector3(), _doffV2 = new THREE.Vector3(), _doffQ = new THREE.Quaternion();
+// damage aimed at a point on the machine: a door there takes it, and comes off when it's had enough
+function doorHit(v, P, dmg, dir) {
+  if (!v || v.kind !== 'ground' || !P || dmg <= 0) return; const h = doorAt(v, P); if (!h) return; const [k, d] = h;
+  d.hp = (d.hp === undefined ? DOOR_HP : d.hp) - dmg; if (d.hp > 0) return;
+  doorKnock(v, k, d, dir ? _doffV2.copy(dir).setY(0).normalize().multiplyScalar(Math.min(6, 1.5 + dmg * 0.04)) : null);
+}
+function doorKnock(v, k, d, push, net) {
+  if (d.off || !d.obj) return; d.off = true; d.a = d.tgt = 0; d.slamT = 0; d.hp = 0;
+  const piv = d.obj, b = doorBox(d); piv.updateMatrixWorld(true);
+  // a loose copy of the door where it hangs, spinning round its own middle
+  const ctr = b.getCenter(new THREE.Vector3()), W = piv.localToWorld(ctr.clone()), q = piv.getWorldQuaternion(new THREE.Quaternion());
+  const bit = new THREE.Group(), cp = piv.clone(true); cp.visible = true; cp.position.copy(ctr).negate(); cp.quaternion.identity(); cp.scale.set(1, 1, 1); bit.add(cp);
+  cp.traverse(o => { o.frustumCulled = false; o.castShadow = false; });
+  bit.position.copy(W); bit.quaternion.copy(q); scene.add(bit); piv.visible = false;
+  if (piv.userData.hole) piv.userData.hole.visible = true;
+  // flung out from its side of the machine, plus whatever hit it and the way the machine was going
+  const T = v.model; T.body.updateMatrixWorld(true); const lx = T.body.worldToLocal(W.clone()).x, out = new THREE.Vector3(Math.sign(lx) || 1, 0, 0).transformDirection(T.body.matrixWorld).setY(0).normalize();
+  const st = v === activeVeh() ? S : v.state, vel = new THREE.Vector3(st && st.vx || 0, 0, st && st.vz || 0).multiplyScalar(0.8).addScaledVector(out, 2.2 + Math.random()).add(push || _doffV.set(0, 0, 0)); vel.y = 2 + Math.random() * 1.5;
+  const size = b.getSize(new THREE.Vector3()), half = size.multiplyScalar(0.5);
+  DOFF.bits.push({ v: v.name, k, g: bit, vel, w: new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 6), half, rest: false, t: 0 });
+  while (DOFF.bits.length > 16) { const o = DOFF.bits.shift(); scene.remove(o.g); }
+  metalSound(W, 1, 0.7); sfx('crash', W, 0.5, 1.3, 20);
+  if (typeof WPN !== 'undefined' && WPN.spark) for (let i = 0; i < 10; i++) wpnPart(WPN.spark, W, 0.2 + Math.random() * 0.2, _doffV.set((Math.random() - 0.5) * 3, 1 + Math.random() * 2, (Math.random() - 0.5) * 3));
+  if (!net && MP.on) mpSend({ k: 'door', f: MP.me, veh: v.name, d: k, p: push ? [mpR(push.x), mpR(push.z)] : 0 });
+  if (v === activeVeh()) toast('Door’s come off', 1.4);
+}
+function doorNet(m) { const v = VEH[m.veh]; if (!v) return; const e = vehDoorList(v).find(([k]) => k === m.d); if (e) doorKnock(v, e[0], e[1], m.p ? new THREE.Vector3(m.p[0], 0, m.p[1]) : null, true); }
+// loose doors: fly, bounce, tumble to a stop and lie flat
+function doorBitsStep(dt) {
+  for (const B of DOFF.bits) { if (B.rest) continue; B.t += dt; const g = B.g;
+    B.vel.y -= 9.8 * dt; g.position.addScaledVector(B.vel, dt);
+    if (B.w.lengthSq() > 1e-6) { _doffQ.setFromAxisAngle(_doffV.copy(B.w).normalize(), B.w.length() * dt); g.quaternion.premultiply(_doffQ); }
+    // not inside a machine (its own included: it's flung clear of the side it came off)
+    for (const ov of Object.values(VEH)) { if (ov.kind !== 'ground') continue; const o = vehicleOBB(ov); if (!o || g.position.y > o.top + 0.2) continue;
+      const dx = g.position.x - o.cx, dz = g.position.z - o.cz, f = dx * o.fx + dz * o.fz, l = dx * o.lx + dz * o.lz, m = 0.35, pf = o.hl + m - Math.abs(f), pl = o.hw + m - Math.abs(l);
+      if (pf > 0 && pl > 0) { if (pl < pf) { const s2 = Math.sign(l) || 1; g.position.x += o.lx * pl * s2; g.position.z += o.lz * pl * s2; const vn = B.vel.x * o.lx + B.vel.z * o.lz; if (vn * s2 < 0) { B.vel.x -= o.lx * vn * 1.4; B.vel.z -= o.lz * vn * 1.4; } }
+        else { const s2 = Math.sign(f) || 1; g.position.x += o.fx * pf * s2; g.position.z += o.fz * pf * s2; const vn = B.vel.x * o.fx + B.vel.z * o.fz; if (vn * s2 < 0) { B.vel.x -= o.fx * vn * 1.4; B.vel.z -= o.fz * vn * 1.4; } } } }
+    // its lowest corner against the ground
+    let lo = 1e9; for (let i = 0; i < 8; i++) { _doffV.set(i & 1 ? B.half.x : -B.half.x, i & 2 ? B.half.y : -B.half.y, i & 4 ? B.half.z : -B.half.z).applyQuaternion(g.quaternion); lo = Math.min(lo, _doffV.y); }
+    const gy = groundAt(g.position.x, g.position.z, g.position.y + 2, g.position.y - 5), pen = gy - (g.position.y + lo);
+    if (pen > 0) { g.position.y += pen;
+      if (B.vel.y < -1.5) { metalSound(g.position, Math.min(1, -B.vel.y / 8), 0.8); }
+      B.vel.y = Math.max(0, -B.vel.y * 0.3); B.vel.x *= 0.7; B.vel.z *= 0.7; B.w.multiplyScalar(0.6);
+      // settling: lay it flat on whichever face is nearer the ground (a door's thin way is its X)
+      _doffV.set(1, 0, 0).applyQuaternion(g.quaternion); const up = _doffV.y >= 0 ? 1 : -1; _doffQ.setFromUnitVectors(_doffV, _doffV2.set(0, up, 0)).multiply(g.quaternion);
+      g.quaternion.slerp(_doffQ, Math.min(1, dt * 3));
+      if (B.vel.length() < 0.4 && B.t > 1) { B.w.set(0, 0, 0); B.vel.set(0, 0, 0); if (Math.abs(_doffV.y) > 0.985) { B.rest = true; let l2 = 1e9; for (let i = 0; i < 8; i++) { _doffV.set(i & 1 ? B.half.x : -B.half.x, i & 2 ? B.half.y : -B.half.y, i & 4 ? B.half.z : -B.half.z).applyQuaternion(g.quaternion); l2 = Math.min(l2, _doffV.y); } g.position.y = gy - l2 + 0.01; } }
+    }
+    if (B.t > 20) B.rest = true;
+  }
+}
+// back on its hinges (a reset); the loose ones are cleared away
+function doorRestore(v) {
+  for (const [, d] of vehDoorList(v)) { d.off = false; d.hp = DOOR_HP; if (d.obj) { d.obj.visible = true; if (d.obj.userData.hole) d.obj.userData.hole.visible = d.a > 0.002; } }
+  DOFF.bits = DOFF.bits.filter(B => { if (B.v !== v.name) return true; scene.remove(B.g); return false; });
+}
+function doorRestoreAll() { for (const v of Object.values(VEH)) if (v.kind === 'ground') doorRestore(v); }
 
 /* ---------- easy to spot: a name pin over every vehicle you're not in, and a tall whip flag on the drone ---------- */
 const PINS = {};
@@ -5334,9 +5418,10 @@ function machineStep(dt) {
   updatePins(); updateMist(dt);
 }
 
-function doorTo(v, open, d = v.door) { if (!d) return; if (open && d.tgt === 0) doorSound(v, true); d.tgt = open ? 1 : 0; }
+function doorTo(v, open, d = v.door) { if (!d || d.off) return; if (open && d.tgt === 0) doorSound(v, true); d.tgt = open ? 1 : 0; }
 function updateDoors(dt) {
   for (const [v, d] of allDoors()) {
+    if (d.off) continue;
     if (d.slamT > 0) { d.slamT -= dt; if (d.slamT <= 0) d.tgt = 0; }
     if (d.a === d.tgt) continue;
     d.a = d.tgt > d.a ? Math.min(d.tgt, d.a + dt * 2.3) : Math.max(d.tgt, d.a - dt * 2.8);
@@ -5589,6 +5674,7 @@ function dmgRammed(veh, hitN, impact) {
   const ix = -hitN.x, iz = -hitN.y, o = vehicleOBB(veh), wp = new THREE.Vector3(S.pos.x + ix * ((V.front + V.rear) / 2 + 0.2), st.pos.y + 0.7, S.pos.z + iz * ((V.front + V.rear) / 2 + 0.2));
   if (o) { const dx = wp.x - o.cx, dz = wp.z - o.cz, f = THREE.MathUtils.clamp(dx * o.fx + dz * o.fz, -o.hl, o.hl), l = THREE.MathUtils.clamp(dx * o.lx + dz * o.lz, -o.hw, o.hw); wp.set(o.cx + o.fx * f + o.lx * l, st.pos.y + 0.7, o.cz + o.fz * f + o.lz * l); }
   if (!DMG_NODENT.has(veh.name) && m2 > 500) dmgDent(veh.name, wp, new THREE.Vector3(ix, 0, iz), E * m1 / (m1 + m2) * 1.6);
+  doorHit(veh, wp, E * m1 / (m1 + m2) * 1.6, new THREE.Vector3(ix, 0, iz));            // T-boned: their door takes it
   wpnVehDamage(veh, Math.max(0, E - 10) * 0.15 * m1 / (m1 + m2) * 2, new THREE.Vector3(ix, 0, iz), 'crash', false);
   metalSound(wp, Math.min(1, E / 80), 0.75);
   // shunt it along: a little shove now, the rest as roll along its own axis
@@ -5973,6 +6059,7 @@ function resetAll() {
   quietMode = true; cancelSeq(); if (TR.c) endTrial(); hornStop();
   for (const n of GROUND) VEH[n].coast = false;
   for (const [, d] of allDoors()) { d.a = d.tgt = 0; d.slamT = 0; d.obj.rotation.y = 0; if (d.obj.userData.hole) d.obj.userData.hole.visible = false; }
+  doorRestoreAll();
   clearDirt(); resetStructs(); resetImplements(); faunaReset(); wxReset(); wpnReset(); resetHunt(); if (HS.ready) { hsReset(); hsFauna(); } MEL.cur = null; MEL.queued = false; F.sprintT = 0; F.sprinting = false; MX.lap = null; MX.prevRel = undefined; MOTO.crash = null; Object.assign(DZ, { lift: 0.25, load: 0, hyd: 0, told: false, fullTold: false }); dozerApply(); input.rudL = input.rudR = false;
   const saveIn = { ...input }; for (const k of ['x', 'y', 'rx', 'ry']) input[k] = 0; input.gas = input.brake = input.hb = input.jump = false; keys.clear();
   if (activeName !== 'foot') { const pv = activeVeh(); if (pv && pv.kind === 'ground') pv.state = snapshotS(); }
@@ -6039,7 +6126,7 @@ function updateWorld(dt) {
   readKeys();
   for (const n of AIRS) if (!VEH[n].mp) flightStep(VEH[n], dt, activeName === n);
   for (const n of GROUND) { const g = VEH[n]; if (g.coast && g.name !== activeName && !g.mp) { coastStep(g, dt); if (n === 'truck' && g.state) tipperFollow(g.state, dt); } }
-  updateDoors(dt);
+  updateDoors(dt); doorBitsStep(dt);
   const v = activeVeh();
   if (!v) { farmerStep(dt, true); footCam(dt); machineStep(dt); }
   else if (v.kind === 'ground') {
@@ -10028,6 +10115,7 @@ function mpRecv(m) {
   if (m.k === 'tox') { toxNet(m); return; }
   if (m.k === 'sh' || m.k === 'dmg' || m.k === 'boom' || m.k === 'fire' || m.k === 'vdmg' || m.k === 'fl') { if (typeof wpnNet === 'function') wpnNet(m); return; }
   if (m.k === 'jack') { mpGotJacked(m); return; }
+  if (m.k === 'door') { doorNet(m); return; }
   if (m.k === 'jkd') { mpJackDone(m); return; }
   if (m.k === 'hit') { if (activeName === 'foot' && (F.mode === 'walk' || F.mode === 'emote' || F.mode === 'air')) { if (F.mode === 'emote' && typeof stopEmote === 'function') stopEmote(); startTumble(new THREE.Vector3(...m.v)); camShake = Math.max(camShake, 0.5); sfx('thud', F.pos, 0.9, 0.8); const p = MP.peers.get(m.f); toast((p ? p.name : 'Your mate') + ' cleaned you up', 2); } return; }
 }
@@ -10632,6 +10720,7 @@ function wpnVehDamage(v, dmg, dir, how, net) {
   D.wrecked = true; D.burn = 2; v.wrecked = true;
   const c = vehCentre(v, new THREE.Vector3()); wpnBoom(c, 7, 0.9, true, true);
   wpnWreck(v);
+  if (v.kind === 'ground') vehDoorList(v).forEach(([k, d], i) => { if (!d.off && dmgHash(i + 1.7, v.name.length, 3.3) < 0.6) doorKnock(v, k, d, new THREE.Vector3((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6), true); });      // (the same doors on everyone's screen)
   WPN.hops.push({ v, t: 0, vy: 5 + Math.random() * 2, y: 0, rx: (Math.random() - 0.5) * 0.6, rz: (Math.random() - 0.5) * 0.8 });
   if (activeVeh() === v) { MOTO.crash = null; const vel = new THREE.Vector3((Math.random() - 0.5) * 6, 7, (Math.random() - 0.5) * 6); bailGround(v); startTumble(vel); wpnHurt(45, vel, 'blast'); }
   if (v.name !== 'ute') toast((v.label || 'That machine') + ' is a wreck', 2);
@@ -10645,7 +10734,7 @@ function wpnUnwreck(name) {
   const D = WPN.VD[name], v = VEH[name]; if (!D || !v) return;
   if (D.mats) for (const [o, m] of D.mats) o.material = m;
   if (D.fire) { for (const s of D.fire) scene.remove(s); D.fire = null; }
-  v.wrecked = false; dmgReset(name);
+  v.wrecked = false; dmgReset(name); if (v.kind === 'ground') doorRestore(v);
 }
 function wpnVehStep(dt) {
   for (const [name, D] of Object.entries(WPN.VD)) {
@@ -10795,6 +10884,7 @@ function dmgCrash(name, hitN, impact, soft) {
   T.root.updateMatrixWorld(true);
   const wp = T.root.localToWorld(new THREE.Vector3(l * t, hy, f * t + zc)), inward = new THREE.Vector3(hitN.x, 0, hitN.y).normalize();
   if (!DMG_NODENT.has(name) && !light) { dmgDent(name, wp, inward, E); if (v === activeVeh()) dmgDentMsg(f, l, E); }
+  if (Math.abs(l) > Math.abs(f) * 0.6) doorHit(v, wp, E * 0.9, inward);            // side-on: a door takes it
   // a crash costs hit points, so a wreck-up is possible
   const dm = light ? Math.max(0, impact - 5) * 6 : Math.max(0, E - 12) * 0.15; if (dm > 0) wpnVehDamage(v, dm, inward, 'crash', true);
   metalSound(wp, Math.min(1, (light ? impact * 4 : E) / 80), 0.75);
@@ -10806,6 +10896,7 @@ function dmgShot(v, P, dmg) {
 }
 function dmgBlast(v, P, r) {
   if (!v || !v.model || v.kind !== 'ground') return; const ty = dmgTyres(v.name), T = v.model;
+  for (const [k, d] of vehDoorList(v)) { if (d.off || !d.obj) continue; const c = d.obj.localToWorld(doorBox(d).getCenter(_doffV.set(0, 0, 0))), dd = c.distanceTo(P); if (dd < r * 0.9 && Math.random() < 0.85) doorKnock(v, k, d, c.clone().sub(P).setY(0).normalize().multiplyScalar(8 * (1 - dd / r) + 2)); }
   for (let i = 0; i < ty.length; i++) { if (ty[i].popped) continue; const W = T.root.localToWorld(_dB.set(ty[i].lx, ty[i].ly, ty[i].lz)); if (W.distanceTo(P) < r * 1.1 && Math.random() < 0.7) dmgPop(v.name, i, 'blast'); }
   if (!DMG_NODENT.has(v.name) && (VEH_MASS[v.name] || 1500) > 500) { const c = T.root.position; if (c.distanceTo(P) < r * 0.9) { const away = _dC.copy(P).sub(c).setY(0); if (away.lengthSq() > 1e-4) dmgDent(v.name, _dD.copy(c).lerp(P, 0.25).setY(c.y + 0.8), away.clone().normalize(), 80); } }
 }
@@ -10870,7 +10961,7 @@ function dentRound(m, point, dir, depth, R) {
   if (moved) { pa.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere(); }
 }
 function dentReset() { for (const g of DENT_LOG) { g.attributes.position.array.set(g.userData.p0); g.attributes.position.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere(); } }
-function dmgResetAll() { for (const n of Object.keys(DMG.v)) dmgReset(n); dentReset(); }
+function dmgResetAll() { for (const n of Object.keys(DMG.v)) dmgReset(n); dentReset(); doorRestoreAll(); }
 
 /* ---------- people and pigs ---------- */
 function wpnBloodSpray(p, dir, n, gy) {
@@ -10950,7 +11041,7 @@ function wpnApplyHit(hit, d, dmg, W) {
     for (let k = 0; k < 6; k++) wpnPart(WPN.spark, P, 0.25, _w2.copy(d).multiplyScalar(-2 - Math.random() * 2).add(_w3.set((Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3)));
     wpnDecal(WMAT.hole, P, _w2.copy(d).negate(), 0.08, T.root);
     metalSound(P, 0.25, 1.4 + Math.random() * 0.3);
-    wpnVehDamage(v, dmg, d, 'bullet'); dmgShot(v, P, dmg);
+    wpnVehDamage(v, dmg, d, 'bullet'); dmgShot(v, P, dmg); doorHit(v, P, dmg, d);
     // a mate behind the wheel feels it too
     if (v.mp && MP.on) { const p = MP.peers.get(v.mp); if (p && Math.random() < 0.15) mpSend({ k: 'dmg', f: MP.me, to: p.id, dmg: Math.round(dmg * 0.4), v: [d.x, d.y, d.z] }); }
     return;
@@ -19048,7 +19139,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
 }
 
-window.__game = { RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
