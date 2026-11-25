@@ -214,6 +214,7 @@ body.plock{cursor:none}
 body.c-foot #jump{display:grid}
 #lookZone{position:fixed;z-index:4;top:0;right:0;width:55%;height:100%;touch-action:none;display:none}
 body.c-foot #lookZone{display:block;width:100%}
+body.gnd #lookZone{display:block;width:100%}
 body.c-foot #stickZone{left:env(safe-area-inset-left,0px);bottom:0;width:224px;height:214px}
 body.c-foot #brake,body.c-drone #brake,body.c-flyer #brake{display:none}
 body.c-foot .tick{display:none}
@@ -5705,7 +5706,7 @@ function setActive(name, opts = {}) {
   } else drift.on = false;
   if (name === 'foot' && F.mode === 'pilot') { F.mode = 'walk'; setFarmerProps('walk'); }
   S.air = false; S.vy = 0; S.pitchV = 0; MOTO.lean = MOTO.x = 0;
-  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
+  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
   camYaw = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   if (name === 'foot') camYawF = camYaw;
   input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
@@ -5868,16 +5869,19 @@ function moveStickR(e) {
   const dz = v => { const a = Math.abs(v); return a < 0.12 ? 0 : Math.sign(v) * (a - 0.12) / 0.88; };
   input.rx = dz(dx / STICK_R); input.ry = dz(-dy / STICK_R);
 }
-const lookZ = $('lookZone'); let lookId = null, lkx = 0, lky = 0;
-lookZ.addEventListener('pointerdown', e => { if (lookId !== null) return; lookId = e.pointerId; try { lookZ.setPointerCapture(e.pointerId); } catch (_) {} lkx = e.clientX; lky = e.clientY; dismissHint(); });
+const lookZ = $('lookZone'); let lookId = null, lkx = 0, lky = 0, lookTouch = false;
+lookZ.addEventListener('pointerdown', e => { if (lookId !== null) return; lookId = e.pointerId; lookTouch = e.pointerType !== 'mouse'; try { lookZ.setPointerCapture(e.pointerId); } catch (_) {} lkx = e.clientX; lky = e.clientY; dismissHint(); });
 lookZ.addEventListener('pointermove', e => {
   if (e.pointerId !== lookId) return;
   if (MH.pax) { const q = MH.aimQ || (MH.aimQ = [0, 0]), s2 = WPN.scope ? 0.0008 : 0.0058; q[0] += (e.clientX - lkx) * s2; q[1] += (e.clientY - lky) * s2 * 0.7; lkx = e.clientX; lky = e.clientY; lookIdleT = 0; return; }
+  // driving: drag anywhere off the controls to swing the camera round the machine; let go and it settles back behind
+  if (activeName !== 'foot') { const v = activeVeh(); if (v && v.kind === 'ground') { PCL.vyaw -= (e.clientX - lkx) * 0.0072; PCL.vyaw = Math.atan2(Math.sin(PCL.vyaw), Math.cos(PCL.vyaw)); PCL.vpitch = THREE.MathUtils.clamp(PCL.vpitch + (e.clientY - lky) * 0.004, -0.3, 0.6); PCL.vT = 0; PCL.touch = true; }
+    lkx = e.clientX; lky = e.clientY; return; }
   const ls = WPN.cur ? (WPN.scope ? 0.0009 : 0.0062) : 0.0075; camYawF -= (e.clientX - lkx) * ls; camPitchF = THREE.MathUtils.clamp(camPitchF + (e.clientY - lky) * ls * 0.68, camPitchLo(), 1.15);
   lkx = e.clientX; lky = e.clientY; lookIdleT = 0;
 });
-const endLook = e => { if (e.pointerId === lookId) lookId = null; };
-lookZ.addEventListener('pointerup', endLook); lookZ.addEventListener('pointercancel', endLook);
+const endLook = e => { if (e.pointerId === lookId) { lookId = null; if (activeName !== 'foot') PCL.vT = Math.min(PCL.vT, 0.5); } };      // (driving: a second's look at the view after you let go, then it settles behind)
+lookZ.addEventListener('pointerup', endLook); lookZ.addEventListener('pointercancel', endLook); lookZ.addEventListener('lostpointercapture', endLook);
 
 /* ---------- PC: click into the game and the mouse is yours (pointer lock) ----------
    On a computer (a mouse or trackpad: a fine pointer that hovers), clicking the game captures the mouse. Move it to look around (on
@@ -5895,7 +5899,7 @@ function pclLook(dx, dy) {
   const v = activeVeh(); if (v && v.kind === 'ground') { PCL.vyaw -= dx * 0.004; PCL.vyaw = Math.atan2(Math.sin(PCL.vyaw), Math.cos(PCL.vyaw)); PCL.vpitch = THREE.MathUtils.clamp(PCL.vpitch + dy * 0.003, -0.3, 0.6); }
 }
 // driving: the look-round settles back behind the machine a second after the mouse stops
-function pclVehStep(dt) { PCL.vT += dt; if (PCL.vT > 1.1 || !PCL.locked) { const k = 1 - Math.exp(-3 * dt); PCL.vyaw -= PCL.vyaw * k; PCL.vpitch -= PCL.vpitch * k; } }
+function pclVehStep(dt) { PCL.vT += dt; if (!(lookId !== null && lookTouch) && (PCL.vT > (PCL.touch ? 1.5 : 1.1) || (!PCL.locked && !PCL.touch))) { const k = 1 - Math.exp(-3 * dt); PCL.vyaw -= PCL.vyaw * k; PCL.vpitch -= PCL.vpitch * k; } }
 (() => {
   if (!PCL.on) return;
   const cv = renderer.domElement; if (!cv.requestPointerLock) return;
@@ -19139,7 +19143,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
 }
 
-window.__game = { RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { PCL_get: () => PCL, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
