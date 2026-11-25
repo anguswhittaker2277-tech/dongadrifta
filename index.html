@@ -4643,7 +4643,7 @@ const PARK = {
 };
 const HOME = {};
 // the machines live in the open machinery shed: front row nosed out to the south, bikes in the back row nosed out north
-const SHED_PARK = [['bmw', 0, 1], ['x5', 4, 1], ['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['suv', 4, -1], ['dirtbike', 1, 1], ['bike', 2, 1], ['scooter', 3, 1]];
+const SHED_PARK = [['bmw', 0, 1], ['x5', 0, 1], ['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['suv', 4, -1], ['dirtbike', 1, 1], ['bike', 2, 1], ['scooter', 3, 1]];
 function homeY(x, z) { const sf = STRUCTS.ready ? shedFloorAt(x, z) : null; return groundAt(x, z, sf !== null ? sf + 2.5 : 30, 0); }    // under a shed roof, start below it
 function farmerHomeY() { const h = HOME.farmer; if (h.dunny && DN.root) return groundAt(h.x, h.z, DN.gy + 1.4, DN.gy); return h.indoors && typeof DG !== 'undefined' && DG.root ? groundAt(h.x, h.z, DG.gy + 1.5, DG.gy) : homeY(h.x, h.z); }      // under a roof: look for the floor from head height
 function shedParking() {
@@ -4655,7 +4655,8 @@ function shedParking() {
   HOME.truck = { x: -56, z: 28, yaw: Math.PI };
   HOME.combine = { x: -150, z: 46, yaw: Math.PI };
   HOME.rx = { x: -61, z: 13, yaw: Math.PI };                     // the 9RX: on the open ground south of the road train, nose to the south
-  HOME.picker = { x: -239, z: -60.5, yaw: 0 };                  // the cotton picker: on the south headland of the cotton, facing up the rows
+  { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], v = -D.hv + 2 * D.hv / D.bays * 4.5, yaw = Math.atan2(-U[0], -U[1]);
+    HOME.picker = { x: D.cx + V[0] * v - Math.sin(yaw) * 4.2, z: D.cz + V[1] * v - Math.cos(yaw) * 4.2, yaw }; }   // the cotton picker: the whole end bay of the machinery shed, header up, nose out
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
   HOME.buggy = { x: 166.3, z: 53.4, yaw: -Math.PI / 2 };       // the buggy: north end of the dongas' gravel past Madman's ute, nose out, its driver's side (left) to the open ground
@@ -5551,7 +5552,7 @@ function setActive(name, opts = {}) {
   } else drift.on = false;
   if (name === 'foot' && F.mode === 'pilot') { F.mode = 'walk'; setFarmerProps('walk'); }
   S.air = false; S.vy = 0; S.pitchV = 0; MOTO.lean = MOTO.x = 0;
-  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'x5' || name === 'bmw' || name === 'buggy' || name === 'ute' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
+  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'x5' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
   camYaw = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   if (name === 'foot') camYawF = camYaw;
   input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
@@ -13440,6 +13441,9 @@ function harvReset() {
 ENG.combine = Object.assign({}, ENG.tractor, { seed: 85 });
 ENG.picker = Object.assign({}, ENG.tractor, { seed: 91 });
 ENG.rx = Object.assign({}, ENG.dozer, { seed: 97 });
+// two-handed controls like the X5 and the ute (left thumb steers, GAS and BRAKE on the right): a machine this big is
+// hard to hold on one stick. The numbers are its own, not a car's
+SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40 / 3.6, rev: 15 / 3.6, drive: 1.7, steer: 0.58, steerFast: 0.24, kick: 0.6, catch: 0.3 });
 
 /* ================================================================
    COTTON PICKING, FIELD 6 (west of the wheat): the CP690 round-module picker at work
