@@ -13609,14 +13609,14 @@ function cpStep(dt) {
   if (!C._init) { C._init = true; CP.ft = CP.ftT = CP_MID; cpAnimApply(C, 'folding', CP.ft * CP_ANIM_LEN.folding); CP.inner = cpModuleMesh(C, CP_CFG.wrap, true); CP.inner.visible = false; C.nodes.baleNode.add(CP.inner); }
   const st = cpSt(), inP = activeName === 'picker', T = C;
   CP.hyd = Math.max(0, CP.hyd - dt * 2);
-  // drums: 4 s up, 3 s down (the mod's turnOn/turnOffFadeTime)
+  // drums: 4 s up, 3 s down (the mod's turnOn/turnOffFadeTime); rotAxis 1/2/3 in the mod = X/Y/Z
   const run = CP.on && (inP || (VEH.picker.coast));
   CP.drum = THREE.MathUtils.clamp(CP.drum + (run ? dt / 4 : -dt / 3), 0, 1);
   if (!inP && CP.on && !VEH.picker.coast) CP.on = false;
   const drumA = CP.drum * CP.drum * (3 - 2 * CP.drum);
-  for (const d of C.spinners) d.rotation.z += 700 * Math.PI / 180 * drumA * dt;
-  if (C.nodes.auger) C.nodes.auger.rotation.y += 400 * Math.PI / 180 * drumA * dt;
-  if (C.nodes.airFilterCleaner && st) C.nodes.airFilterCleaner.rotation.y += (inP ? 600 : 0) * Math.PI / 180 * dt;
+  for (const d of C.spinners) d.rotation.y += 700 * Math.PI / 180 * drumA * dt;
+  if (C.nodes.auger) C.nodes.auger.rotation.x += 400 * Math.PI / 180 * drumA * dt;
+  if (C.nodes.airFilterCleaner && st) C.nodes.airFilterCleaner.rotation.x += (inP ? 600 : 0) * Math.PI / 180 * dt;
   SPECS.picker.top = (CP.on ? 10 : 25) / 3.6;
   // steering: the back wheels turn the other way to the stick
   C.steer = st ? -(st.steer || 0) : 0;
@@ -18840,7 +18840,7 @@ window.__game = { saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dm
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
 Object.assign(window.__game, { lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
-Object.assign(window.__game, { CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply });
+Object.assign(window.__game, { CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
 load().catch(e => console.error(e));
 </script>
 </body>

@@ -92,6 +92,14 @@ Madman's, the backpackers' and Dima's voices were generated with [Kokoro-82M](ht
 (Apache-2.0), using phonemes from espeak-ng. See `tools/voices/README.md` for how the voice pack is made.
 Matt's voice was made in Voicebox from his own voice profile (the recordings are in `tools/voices/rec_mt/`).
 
+## The cotton picker
+
+The John Deere CP690 / 7760 round-module cotton picker (`cp690.glb`) is from the Farming Simulator 25 mod
+**"John Deere Roller Pickers 2008-2021"** by **Jolly Farms Modding** (v1.2.1.0), built on GIANTS Software's CP690.
+Its model, sticker sheet, module and wrap textures, animations and moving parts come from the mod; the tyres, rims,
+beacon and sounds are made in the game. The `.i3d.shapes` decoder in `tools/fs-mod/` is a Python port of
+[I3DShapesTool](https://github.com/Donkie/I3DShapesTool) by **Donkie** (MIT). See `tools/fs-mod/README.md`.
+
 ## Libraries
 
 Loaded from jsDelivr: [three.js](https://threejs.org) (MIT), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) (MIT),
