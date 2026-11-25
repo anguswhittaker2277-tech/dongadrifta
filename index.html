@@ -477,6 +477,8 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 @media (max-height:360px){#wFire{width:78px;height:78px;bottom:calc(22px + env(safe-area-inset-bottom,0px))}#wPill{bottom:calc(108px + env(safe-area-inset-bottom,0px));height:34px}#wHolster{bottom:calc(148px + env(safe-area-inset-bottom,0px));width:34px;height:34px}
   #wAlt{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(86px + env(safe-area-inset-bottom,0px));height:34px}body.armed #jump{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}
   #hpbar{top:calc(130px + env(safe-area-inset-top,0px));width:76px}#wasted{font-size:44px}}
+/* the telehandler on the car controls: GAS and BRAKE sit left of the boom stick, no handbrake */
+body.c-tele.drift #hbrake{display:none!important}body.c-tele.drift #stickR .tick.f,body.c-tele.drift #stickR .tick.r{display:block!important}body.c-tele.drift #gas{right:calc(max(16px,env(safe-area-inset-right,0px)) + 168px)!important;bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}body.c-tele.drift #brake{display:grid!important;right:calc(max(16px,env(safe-area-inset-right,0px)) + 258px)!important;bottom:calc(40px + env(safe-area-inset-bottom,0px))!important}
 </style>
 
 <div id="view"></div>
@@ -5707,7 +5709,7 @@ function setActive(name, opts = {}) {
   } else drift.on = false;
   if (name === 'foot' && F.mode === 'pilot') { F.mode = 'walk'; setFarmerProps('walk'); }
   S.air = false; S.vy = 0; S.pitchV = 0; MOTO.lean = MOTO.x = 0;
-  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
+  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'tele' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
   camYaw = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   if (name === 'foot') camYawF = camYaw;
   input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
@@ -13656,6 +13658,8 @@ ENG.rx = Object.assign({}, ENG.dozer, { seed: 97 });
 // two-handed controls like the X5 and the ute (left thumb steers, GAS and BRAKE on the right): a machine this big is
 // hard to hold on one stick. The numbers are its own, not a car's
 SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40 / 3.6, rev: 15 / 3.6, drive: 1.7, steer: 0.58, steerFast: 0.24, kick: 0.6, catch: 0.3 });
+// the telehandler too: steer on the left, GAS and BRAKE beside the boom stick on the right
+SPECS.tele.drift = Object.assign({}, DRIFT, { m: 7500, Iz: 9000, a: 1.4, top: 40 / 3.6, rev: 20 / 3.6, drive: 1.8, steer: 0.6, steerFast: 0.18, kick: 0.6, catch: 0.3 });
 
 /* ================================================================
    COTTON PICKING, FIELD 6 (south of the wheat, at the yard end): the CP690 round-module picker at work
