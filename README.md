@@ -118,6 +118,12 @@ The Husqvarna FE501 (`fe501.glb`, `fe501-wheels.glb`) is from the Farming Simula
 converted with `tools/fs-mod/build_vehicle.py` and scaled up to the real bike's size; it rides on the game's own
 dirt bike handling.
 
+## The telehandler
+
+The Merlo P41.7 (`merlo-p417.glb`) is from the Farming Simulator 25 mod **"Merlo P41.7"**, converted with
+`tools/fs-mod/build_vehicle.py`. Its own arm, telescope, tool carrier, rams and cab door move; the tyres and the dirt
+bucket are made in the game.
+
 ## Libraries
 
 Loaded from jsDelivr: [three.js](https://threejs.org) (MIT), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) (MIT),
