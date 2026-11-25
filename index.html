@@ -2308,6 +2308,95 @@ function cpApplyCfg(C) {
   for (const mm of C.mats) if (mm.userData.tag === 'wrap') mm.color.set(CP_WRAP_RGB[cfg.wrap] || 0xf1dc2a);
 }
 
+
+/* ================================================================
+   THE 9RX: John Deere 9RX high-horsepower quad-track, from the FS25 mod "John Deere 9RX High-Horsepower Series"
+   (rx9.glb, made by tools/fs-mod/build_vehicle.py: US configuration, standard fenders). Articulated: the front half
+   (cab, engine, front tracks) swings about the mod's hinge (componentJointBack) by the steering angle; the back half
+   sits on the frame. The mod's tracks are a base-game asset (series9RX830Crawler), so the four 30" track pods are
+   built here, on the mod's own wheel positions, with lugs that run round the belt as it drives.
+   Frame: origin on the ground under the middle of the back tracks, +Z forward, +X left, like every other vehicle.
+   ================================================================ */
+const RX_BACK_Z = -2.6115, RX_HINGE_Z = -0.567, RX_POD = { x: 1.12, y: 0.563, half: 0.941, R: 0.5 };
+function rxTrackPod(mats) {
+  // belt loop: two half circles (radius R about the idlers) joined top and bottom, as a function of distance s
+  const R = RX_POD.R, h = RX_POD.half, W = 0.76, L = 2 * Math.PI * R + 4 * h;
+  const at = (s, r) => { s = ((s % L) + L) % L; const top = 2 * h, arc = Math.PI * R;          // returns [z, y, angle] on a loop of radius r
+    if (s < top) return [h - s, r, 0];                                        // top run, front to back
+    if (s < top + arc) { const a = (s - top) / R; return [-h - Math.sin(a) * r, Math.cos(a) * r, a]; }   // round the back idler
+    if (s < 2 * top + arc) return [-h + (s - top - arc), -r, Math.PI];       // bottom run, back to front
+    const a = (s - 2 * top - arc) / R + Math.PI; return [h - Math.sin(a) * r, Math.cos(a) * r, a]; };
+  const g = new THREE.Group();
+  // the belt: a closed ribbon (outer face, inner face, two sides)
+  const N = 120, pos = [], idx = [], push = (z, y, x) => pos.push(x, y, z);
+  for (let i = 0; i <= N; i++) { const s = i / N * L, [zo, yo] = at(s, R + 0.03), [zi, yi] = at(s, R - 0.03);
+    push(zo, yo, W / 2); push(zo, yo, -W / 2); push(zi, yi, W / 2); push(zi, yi, -W / 2); }
+  for (let i = 0; i < N; i++) { const a = i * 4, b = a + 4;
+    idx.push(a, b, a + 1, a + 1, b, b + 1, a + 2, a + 3, b + 2, a + 3, b + 3, b + 2, a, a + 2, b, a + 2, b + 2, b, a + 1, b + 1, a + 3, a + 3, b + 1, b + 3); }
+  const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); bg.setIndex(idx); bg.computeVertexNormals();
+  g.add(new THREE.Mesh(bg, mats.rubber));
+  // lugs: chevron bars on the outside of the belt, moved round it by the distance driven
+  const lugA = new THREE.BoxGeometry(W * 0.47, 0.05, 0.075); lugA.translate(W * 0.235, 0.025, 0); lugA.rotateY(-0.32);
+  const lugB = new THREE.BoxGeometry(W * 0.47, 0.05, 0.075); lugB.translate(-W * 0.235, 0.025, 0); lugB.rotateY(0.32);
+  const lug = mergeGeometries([lugA, lugB]), NL = Math.round(L / 0.16), lugs = new THREE.InstancedMesh(lug, mats.rubber, NL);
+  lugs.frustumCulled = false; g.add(lugs);
+  // guide lugs inside the belt, idlers, mid rollers and the undercarriage beam
+  const idl = new THREE.CylinderGeometry(R - 0.035, R - 0.035, 0.3, 28); idl.rotateZ(Math.PI / 2);
+  const hubG = new THREE.CylinderGeometry(0.17, 0.2, 0.08, 16); hubG.rotateZ(Math.PI / 2);
+  const idlers = [];
+  for (const z of [h, -h]) { const w = new THREE.Group(); w.position.set(0, 0, z); g.add(w); idlers.push(w);
+    for (const x of [0.22, -0.22]) { const d = new THREE.Mesh(idl, mats.wheel); d.position.x = x; w.add(d); }
+    for (const x of [0.39, -0.39]) { const hb = new THREE.Mesh(hubG, mats.dark); hb.position.x = x; w.add(hb); }
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2, b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.06), mats.steel); b.position.set(0.38, Math.cos(a) * 0.32, Math.sin(a) * 0.32); w.add(b); } }
+  const rol = new THREE.CylinderGeometry(0.16, 0.16, 0.26, 18); rol.rotateZ(Math.PI / 2);
+  for (const z of [-0.5, 0, 0.5]) for (const x of [0.22, -0.22]) { const r = new THREE.Mesh(rol, mats.wheel); r.position.set(x, -R + 0.19, z); g.add(r); }
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 2 * h + 0.2), mats.paint); beam.position.y = -0.12; g.add(beam);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.55), mats.paint); arm.position.set(0, 0.08, 0); g.add(arm);
+  // drive: s is the belt distance travelled (from the game's wheel spin angle times radius)
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), SC = new THREE.Vector3(1, 1, 1), X = new THREE.Vector3(1, 0, 0);
+  const pod = { g, L, last: NaN, set(s) {
+    if (Math.abs(s - pod.last) < 1e-4) return; pod.last = s;
+    for (let i = 0; i < NL; i++) { const [z, y, a] = at(s + i / NL * L, R + 0.03); P.set(0, y, z); Q.setFromAxisAngle(X, -a); M.compose(P, Q, SC); lugs.setMatrixAt(i, M); }
+    lugs.instanceMatrix.needsUpdate = true; for (const w of idlers) w.rotation.x = s / R; } };
+  pod.set(0);
+  return pod;
+}
+function buildRX() {
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const frame = new THREE.Group(); frame.position.z = -RX_BACK_Z; body.add(frame);
+  const env = cpEnv();
+  const mats = { rubber: new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.92 }), wheel: new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6, metalness: 0.3, envMap: env, envMapIntensity: 0.5 }),
+    dark: new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.7 }), steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1, envMap: env }),
+    paint: new THREE.MeshStandardMaterial({ color: new THREE.Color(0.0236, 0.2133, 0.027).multiplyScalar(0.72), roughness: 0.3, envMap: env, envMapIntensity: 0.5 }) };
+  for (const m of Object.values(mats)) m.userData.wet = 1;
+  // the front half turns about the hinge: everything forward of it hangs off this pivot
+  const pivot = new THREE.Group(); pivot.position.z = RX_HINGE_Z; frame.add(pivot);
+  const wheels = [], pods = [];
+  for (const [zc, front] of [[(2.949 + 1.067) / 2, true], [RX_BACK_Z, false]]) for (const s of [1, -1]) {
+    const pod = rxTrackPod(mats); pod.g.position.set(s * RX_POD.x, RX_POD.y, zc - (front ? RX_HINGE_Z : 0)); (front ? pivot : frame).add(pod.g);
+    // the game spins a wheel by rotation.x (distance / radius); the pod reads it back as belt distance when it's drawn
+    const spin = new THREE.Group(); pod.g.add(spin); pods.push({ pod, spin });
+    wheels.push({ spin, r: RX_POD.R + 0.06, rear: !front });
+  }
+  const C = { root, body, wheels, steerPivots: [{ rotation: { set y(v) { pivot.rotation.y = v; }, get y() { return pivot.rotation.y; } } }],
+    halo: null, dome: null, door: null, exhaustTip: new THREE.Vector3(-1.21, 3.9, 1.5 - RX_BACK_Z), nodes: {}, ready: false };
+  pods[0].pod.g.children[0].onBeforeRender = () => { for (const p of pods) p.pod.set(p.spin.rotation.x * (RX_POD.R + 0.06)); };
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('rx9.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    const glb = g.scene; frame.add(glb); glb.updateMatrixWorld(true); const cache = new Map();
+    glb.traverse(o => { if (o.name) C.nodes[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); if (o.material.map) { m.map = o.material.map; m.alphaTest = o.material.alphaTest || (o.material.transparent ? 0.4 : 0); } cache.set(o.material, m); }
+        o.material = m; if (o.isSkinnedMesh) { o.frustumCulled = false; o.userData.nodent = true; } } });
+    frame.updateMatrixWorld(true);
+    for (const k of ['series9RX830_main_component1', 'series9RX830_crawlerFrontLeft_component3', 'series9RX830_crawlerFrontRight_component4']) if (C.nodes[k]) pivot.attach(C.nodes[k]);
+    C.ready = true; root.userData.ready = true;
+  }, e => console.warn('9RX model', e))).catch(e => console.warn('9RX file', e));
+  return C;
+}
+SPECS.rx = Object.assign({}, SPECS.tractor, { top: 40 / 3.6, rev: 15 / 3.6, accel: 1.7, brake: 6, wb: 4.62, steer: 0.58, steerFast: 0.24, steerRate: 1.2,
+  front: 7.05, rear: 1.85, halfW: 1.6, rayH: [0.5, 1.3, 2.4, 3.6], lanes: [-1.5, -0.75, 0, 0.75, 1.5], noseLane: 0.9, rF: 0.56, rR: 0.56, step: 0.55,
+  trackR: 1.12, trackF: 1.12, roll: 0.012, rollMax: 0.05, grip: 3.6, susK: 130, susC: 12, camBack: 13.5, camUp: 6.2, camPivot: 2.6, look: 4.2, lookH: 2.2 });
+
 const CP_CFG_DEF = { model: 'cp690', wrap: 'yellow', tint: 0, gps: 'sf3000', num: 0, numLoc: 'picker' };
 const CP_CFG = (() => { let o = {}; try { o = JSON.parse(localStorage.getItem('wfy.cp') || '{}') || {}; } catch (_) {} const c = Object.assign({}, CP_CFG_DEF, o);
   for (const k in CP_CFG_DEF) if (typeof c[k] !== typeof CP_CFG_DEF[k]) c[k] = CP_CFG_DEF[k]; return c; })();
@@ -2342,6 +2431,7 @@ const UTE_GLB = "Z2xURgIAAABkThAA+A8AAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6ImdsVEY
 const VEHICLES = { x5: buildX5(), bmw: buildX5(BMW_META, BMW_GLB), tractor: buildTractor(), suv: buildSuv(), tele: buildTele(), scooter: buildScooter(), bike: buildBike(), dozer: buildDozer(), dirtbike: buildDirtBike(), trophy: buildTrophy(), truck: buildTruck() };
 VEHICLES.combine = buildCombine();
 VEHICLES.picker = cpModel(CP_CFG);
+VEHICLES.rx = buildRX();
 VEHICLES.ute = buildX5(UTE_META, UTE_GLB);
 /* THE BUGGY: the owner's own youth side-by-side, cut out of their photo scan of it under the carport (buggy-v1.glb, built by
    tools in the session that made it: the buggy boxed out of the scan, the ground and the reflective blob on the roof dropped,
@@ -2896,7 +2986,7 @@ const HND = {
   buggy:   { g: 1.35, cs: 17, fw: 0.45, h: 0.75, drv: 'a', lk: 1.2 },
   trophy:  { g: 1.45, cs: 16, fw: 0.5, h: 0.85, drv: 'r', lk: 1.15 },  tractor: { g: 1.0, cs: 11, fw: 0.42, h: 1.1, drv: 'a', lk: 1.1 },
   tele:    { g: 1.0, cs: 11, fw: 0.5, h: 1.2, drv: 'a', lk: 1.1 },     truck:   { g: 0.85, cs: 10, fw: 0.45, h: 1.3, drv: 'r', lk: 1.1 },
-  combine: { g: 0.8, cs: 10, fw: 0.6, h: 1.6, drv: 'f', lk: 1 },       picker:  { g: 0.72, cs: 9, fw: 0.55, h: 1.9, drv: 'a', lk: 1 },
+  combine: { g: 0.8, cs: 10, fw: 0.6, h: 1.6, drv: 'f', lk: 1 },       picker:  { g: 0.72, cs: 9, fw: 0.55, h: 1.9, drv: 'a', lk: 1 },       rx:      { g: 0.95, cs: 12, fw: 0.55, h: 1.3, drv: 'a', lk: 1 },
         def:     { g: 1.25, cs: 14, fw: 0.5, h: 0.8, drv: 'a', lk: 1.1 } };
 const tyreCurve = (x) => x / Math.sqrt(1 + x * x);          // rises straight, then leans over to the limit: no cliff to fall off
 function carMotion(dt, throttle, steerIn, braking, handbrake) {
@@ -4564,6 +4654,7 @@ function shedParking() {
   }
   HOME.truck = { x: -56, z: 28, yaw: Math.PI };
   HOME.combine = { x: -150, z: 46, yaw: Math.PI };
+  HOME.rx = { x: -61, z: 13, yaw: Math.PI };                     // the 9RX: on the open ground south of the road train, nose to the south
   HOME.picker = { x: -239, z: -60.5, yaw: 0 };                  // the cotton picker: on the south headland of the cotton, facing up the rows
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
@@ -4654,7 +4745,7 @@ VEH.suv.model.door.userData.hole.visible = false;
 VEH.flyer.range = 3;
 
 /* ---------- the new machines join the yard ---------- */
-const GROUND = ['x5', 'bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'dozer', 'dirtbike', 'trophy', 'truck', 'combine', 'ute', 'picker'], AIRS = ['drone', 'flyer', 'spray', 'duster', 'gyro', 'racer'];
+const GROUND = ['x5', 'bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'dozer', 'dirtbike', 'trophy', 'truck', 'combine', 'ute', 'picker', 'rx'], AIRS = ['drone', 'flyer', 'spray', 'duster', 'gyro', 'racer'];
 VEH.tractor.pose = VEH.suv.pose = 'wheel'; VEH.flyer.pose = 'stick';
 Object.assign(VEH, {
   tele:    { name: 'tele', kind: 'ground', label: 'the telehandler', model: VEHICLES.tele, spec: SPECS.tele, state: null, pose: 'wheel', coast: false,
@@ -4681,6 +4772,8 @@ Object.assign(VEH, {
              seat: { x: 0, hip: 2.6, z: 4.25, k: 0.85 }, exit: [[2.5, 4.3], [-2.5, 4.3], [0, -2.6]], range: 4.5, top: 4.3, icon: ['H', '#2e7d32'] },
   picker:  { name: 'picker', kind: 'ground', label: 'the cotton picker', model: VEHICLES.picker, spec: SPECS.picker, state: null, pose: 'wheel', coast: false,
              seat: { x: -0.14, hip: 2.82, z: 5.09, k: 0.85 }, exit: [[3.5, 5.0], [-3.6, 5.0], [0, -3.7]], range: 5.5, top: 5.9, icon: ['C', '#367c2b'] },
+  rx:      { name: 'rx', kind: 'ground', label: 'the 9RX', model: VEHICLES.rx, spec: SPECS.rx, state: null, pose: 'wheel', coast: false,
+             seat: { x: 0, hip: 2.66, z: 2.51, k: 0.85 }, exit: [[2.6, 2.45], [-2.6, 2.45], [0, -2.6]], range: 4.5, top: 4.4, icon: ['9', '#367c2b'] },
   truck:   { name: 'truck', kind: 'ground', label: 'the truck', model: VEHICLES.truck, spec: SPECS.truck, state: null, pose: 'wheel', coast: false,
              seat: { x: -0.6, hip: 2.35, z: 3.0, k: 0.85 }, exit: [[-2.4, 3.0], [2.4, 3.0], [0, 8.0]], range: 4.5, top: 4.3, icon: ['R', '#9c1b1b'] },
   gyro: makeAircraft('gyro', buildGyro()),
@@ -4735,6 +4828,11 @@ Object.assign(DOORS, {
     inn: v => ({ end: 2.0, ev: [], keys: [K(0, 2.35, 0, 4.3, -HP), K(0.35, 2.3, 0, 4.3, -HP, { reach: 1 }), K(0.85, 1.6, 1.05, 4.3, -HP, { climb: 1 }),
       K(1.35, 0.85, 1.9, 4.3, -1.2, { climb: 0.5, duck: 0.3, sc: 0.85 }), seatKey(v, 1.9)] }),
     out: v => ({ end: 1.7, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.75, 0.85, 1.9, 4.3, 1.2, { duck: 0.3, sc: 0.85 }), K(1.2, 1.6, 1.05, 4.3, HP, { climb: 1 }), K(1.7, 2.35, 0, 4.3, HP)] }) },
+  // the 9RX: up the steps on the left of the cab
+  rx: { side: 1, max: 0, bail: [1.9, 2.2, 2.45],
+    inn: v => ({ end: 2.1, ev: [], keys: [K(0, 2.4, 0, 2.45, -HP), K(0.35, 2.3, 0, 2.45, -HP, { reach: 1 }), K(0.9, 1.85, 1.05, 2.45, -HP, { climb: 1 }),
+      K(1.45, 1.1, 2.15, 2.5, -1.2, { climb: 0.5, duck: 0.3, sc: 0.85 }), seatKey(v, 2.1)] }),
+    out: v => ({ end: 1.8, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.8, 1.1, 2.15, 2.5, 1.2, { duck: 0.3, sc: 0.85 }), K(1.3, 1.85, 1.05, 2.45, HP, { climb: 1 }), K(1.8, 2.4, 0, 2.45, HP)] }) },
   // the picker: up the ladder by the left front wheel, along the platform, in the cab door
   picker: { side: 1, max: 0, bail: [2.6, 2.35, 5.0],
     inn: v => ({ end: 3.2, ev: [], keys: [K(0, 3.25, 0, 4.95, -HP), K(0.35, 3.05, 0, 4.95, -HP, { reach: 1 }), K(0.95, 2.85, 0.8, 4.95, -HP, { climb: 1 }), K(1.6, 2.65, 1.6, 4.95, -HP, { climb: 1 }),
@@ -4760,7 +4858,7 @@ const DOOR_VEH = () => [VEH.tractor, VEH.suv, VEH.tele, VEH.truck];
 
 /* ---------- easy to spot: a name pin over every vehicle you're not in, and a tall whip flag on the drone ---------- */
 const PINS = {};
-const PIN_NAMES = { ute: 'Madman\u2019s ute', combine: 'Combine', picker: 'Cotton picker', x5: 'X5', bmw: 'BMW', buggy: 'Buggy', dirtbike: 'Dirt bike', trophy: 'Trophy truck', truck: 'Truck', gyro: 'Gyro', racer: 'Racing drone', dozer: 'Dozer', tractor: 'Tractor', suv: '4WD', tele: 'Telehandler', scooter: 'E-scooter', bike: 'Bike', drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster' };
+const PIN_NAMES = { ute: 'Madman\u2019s ute', combine: 'Combine', picker: 'Cotton picker', rx: '9RX', x5: 'X5', bmw: 'BMW', buggy: 'Buggy', dirtbike: 'Dirt bike', trophy: 'Trophy truck', truck: 'Truck', gyro: 'Gyro', racer: 'Racing drone', dozer: 'Dozer', tractor: 'Tractor', suv: '4WD', tele: 'Telehandler', scooter: 'E-scooter', bike: 'Bike', drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster' };
 function pinTex(letter, color, label) {
   const c = document.createElement('canvas'); c.width = 320; c.height = 88; const x = c.getContext('2d');
   x.font = '800 34px -apple-system, system-ui, "Segoe UI", Roboto, sans-serif'; const w = label ? Math.min(300, 92 + x.measureText(label).width) : 70;
@@ -5494,7 +5592,7 @@ function updateActions() {
       const v = nearestVehicle();
       if (v) {
         const far = isRemote(v) ? F.pos.distanceTo(v.st.pos) : 0;
-        const LBL = { ute: 'Get in Madman\u2019s ute', combine: 'Drive the combine', picker: 'Drive the cotton picker', x5: 'Drive the X5', bmw: 'Drive the BMW', buggy: 'Drive the buggy', drone: 'Fly the drone', spray: 'Fly the spray drone', suv: 'Drive the 4WD', scooter: 'Ride the e-scooter', bike: 'Ride the bike', duster: 'Fly the crop duster', tele: 'Drive the telehandler', dozer: 'Drive the dozer', dirtbike: 'Ride the dirt bike', trophy: 'Drive the trophy truck', truck: 'Drive the truck', gyro: 'Fly the gyro', racer: 'Fly the racing drone' };
+        const LBL = { ute: 'Get in Madman\u2019s ute', combine: 'Drive the combine', picker: 'Drive the cotton picker', rx: 'Drive the 9RX', x5: 'Drive the X5', bmw: 'Drive the BMW', buggy: 'Drive the buggy', drone: 'Fly the drone', spray: 'Fly the spray drone', suv: 'Drive the 4WD', scooter: 'Ride the e-scooter', bike: 'Ride the bike', duster: 'Fly the crop duster', tele: 'Drive the telehandler', dozer: 'Drive the dozer', dirtbike: 'Ride the dirt bike', trophy: 'Drive the trophy truck', truck: 'Drive the truck', gyro: 'Fly the gyro', racer: 'Fly the racing drone' };
         items.push({ id: 'in:' + v.name, label: LBL[v.name] || 'Get in ' + v.label, sub: far > 10 ? Math.round(far / 5) * 5 + ' m away' : '' });
       }
     }
@@ -5700,6 +5798,7 @@ function setStickLabels(name) {
 const HINTS = {
   ute: ['Madman\u2019s ute. <b>Hold GAS</b> to go; <b>Brake</b> reverses when stopped. Drive off in it and he\u2019ll come after you in whatever he can find.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
   combine: ['<b>Left thumb</b> drives. Drive into the <b>wheat</b> and the header cuts it; the grain bin fills as you go. When it\u2019s full, pull up beside the <b>chaser trailer</b> on the headland and tap <b>Unload grain</b>.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
+  rx:      ['The 9RX: 690 hp on four tracks. It <b>bends in the middle</b> to steer, so it turns tighter than it looks. <b>Left thumb</b> drives.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   picker:  ['<b>Left thumb</b> drives; the <b>back wheels steer</b>, so the tail swings wide. <b>Start picking</b>, <b>Lower header</b> and drive up the cotton rows. The basket dumps into the chamber, a full chamber wraps a <b>module</b> and rolls it onto the handler: <b>Drop module</b> where you want it. <b>Configure</b> (stopped) picks the model and wrap colour.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out &middot; buttons for the picker'],
   dirtbike: ['<b>Left thumb</b> steers and shifts your weight. <b>GAS</b> and <b>Brake</b> on the right. Lean back + gas = <b>wheelie</b>. Jumps: lean back up the face, <b>flick forward at the lip</b>. Stopped? Hold <b>Brake</b> to back up.', '<b>W</b> gas &middot; <b>S</b> brake &middot; <b>A/D</b> steer &middot; <b>&uarr;/&darr;</b> lean &middot; <b>Q</b> camera &middot; <b>E</b> get off'],
   buggy:   ['The buggy: same go as the BMW. <b>Hold GAS</b>, steer into a corner and <b>tap Handbrake</b> to hang the tail out. <b>Brake</b> reverses when stopped.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
@@ -6156,10 +6255,10 @@ function spatial() {
       ramp(pan.pan, THREE.MathUtils.clamp((dx * rx + dz * rz) / Math.max(3, d), -0.7, 0.7), 0.05); }
   } };
 }
-const CRANK_REAL = { tractor: 'crankDiesel', truck: 'crankDiesel', dozer: 'crankDiesel', tele: 'crankDiesel', combine: 'crankDiesel', picker: 'crankDiesel', ute: 'crankDiesel',
+const CRANK_REAL = { tractor: 'crankDiesel', truck: 'crankDiesel', dozer: 'crankDiesel', tele: 'crankDiesel', combine: 'crankDiesel', picker: 'crankDiesel', rx: 'crankDiesel', ute: 'crankDiesel',
   suv: 'crankCar', x5: 'crankCar', trophy: 'crankCar', buggy: 'crankCar', dirtbike: 'crankCar', gyro: 'crankCar' };
 // real engine recordings (idling, so the recording's pitch is the engine's idle): which one each engine uses. The BMW has its own
-const REAL_ENG = { truck: 'e_trk', tractor: 'e_trac', combine: 'e_trac', picker: 'e_trac', dozer: 'e_doz', tele: 'e_tele', ute: 'e_ute', suv: 'e_car', x5: 'e_car',
+const REAL_ENG = { truck: 'e_trk', tractor: 'e_trac', combine: 'e_trac', picker: 'e_trac', rx: 'e_doz', dozer: 'e_doz', tele: 'e_tele', ute: 'e_ute', suv: 'e_car', x5: 'e_car',
   trophy: 'e_big8', dirtbike: 'e_mx', buggy: 'e_big8', gyro: 'e_gyro' };      // the buggy: the deep big-V8 recording
 const realEng = (name) => { const k = REAL_ENG[name], A = AU.real; return !!(k && A && A[k] && A[k + 'On']); };
 function realEngApply(V, name) {           // one real loop pair (off and on throttle) pitched by rpm, the way the BMW's recording runs
@@ -6189,7 +6288,7 @@ function makeEngineVoice(name, loops) {
   // turbo: compressor whistle plus intake rush
   V.tOsc = realOsc('whistle'); V.tOsc.type = 'sine'; V.tG = gn(0); V.tOsc.connect(V.tG); V.tG.connect(bus); V.tOsc.start();
   V.tN = src(AU.buf.noise, true); V.tBp = filt('bandpass', 1500, 1.1); V.tNG = gn(0); V.tN.connect(V.tBp); V.tBp.connect(V.tNG); V.tNG.connect(bus); V.tN.start();
-  if (name === 'tractor' || name === 'tele' || name === 'picker') {   // big viscous fan and the hydrostatic pump
+  if (name === 'tractor' || name === 'tele' || name === 'picker' || name === 'rx') {   // big viscous fan and the hydrostatic pump
     V.fan = src(AU.buf.noise, true); V.fanF = filt('lowpass', 420, 0.7); V.fanG = gn(0); V.fan.connect(V.fanF); V.fanF.connect(V.fanG); V.fanG.connect(bus); V.fan.start();
     V.hyd = realOsc('motor'); V.hyd.type = 'sawtooth'; V.hydF = filt('bandpass', 600, 6); V.hydG = gn(0); V.hyd.connect(V.hydF); V.hydF.connect(V.hydG); V.hydG.connect(bus); V.hyd.start();
   }
@@ -6354,7 +6453,7 @@ function hornStart(kind) {
   if (kind === 'bike' || kind === 'scooter') { sfx('bikeBell', activeVeh() ? S.pos : F.pos, 0.9); return; }
   AU.hornOn = true;
   // real horns: the truck's air horns, one electric horn on the farm machines (higher on the dirt bike), the usual car horn on the rest
-  const hk = kind === 'truck' ? 'horn_truck' : ['tractor', 'tele', 'dozer', 'combine', 'picker', 'dirtbike'].includes(kind) ? 'horn_one' : 'horn_car', hb = AU.real && AU.real[hk];
+  const hk = kind === 'truck' ? 'horn_truck' : ['tractor', 'tele', 'dozer', 'combine', 'picker', 'rx', 'dirtbike'].includes(kind) ? 'horn_one' : 'horn_car', hb = AU.real && AU.real[hk];
   if (hb) { const c = AU.ctx, out = gn(0), sp = spatial(); out.connect(sp.in); const v = activeVeh(); sp.place(v ? S.pos : F.pos, 8, 1);
     const s = src(hb, true); s.playbackRate.value = kind === 'dirtbike' ? 1.35 : 1; s.connect(out); s.start();
     out.gain.setValueAtTime(0, c.currentTime); out.gain.linearRampToValueAtTime(0.45, c.currentTime + 0.02); AU.horn = { out, oscs: [s], sp }; return; }
@@ -6401,7 +6500,7 @@ function audioInit() {
     () => { AU.buf.noise = AU.buf.noise || toBuf(noiseLoop(4.3, 1)); }, () => { AU.buf.gravel = AU.buf.gravel || toBuf(gravelLoop(5, 900, 1)); }, () => { AU.buf.scrab = AU.buf.scrab || toBuf(gravelLoop(6, 5200, 1.25)); },
     () => { AU.buf.lug = AU.buf.lug || toBuf((() => { const sr = AU.sr, n = Math.round(sr / 40) * 40, d = new Float32Array(n), lp = bq('lp', 160, 0.9, sr), r = rng(8); for (let k = 0; k < 2; k++) for (let i = 0; i < n; i++) { const t = (i % (n / 40)) / sr; const y = lp(Math.exp(-t / 0.004) * (1 + 0.2 * (r() - 0.5)) + (r() - 0.5) * 0.05); if (k) d[i] = y; } return normRms(d, 0.25); })()); }, () => shotBufs(0), () => shotBufs(1), () => shotBufs(4), () => shotBufs(2), () => shotBufs(3), () => shotBufs(5),
     () => { AU.tyre = makeTyreVoice(); AU.wind = makeWindVoice(); },
-    ...['suv', 'x5', 'bmw', 'buggy', 'tractor', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'gyro', 'combine', 'ute', 'picker'].flatMap(name => {
+    ...['suv', 'x5', 'bmw', 'buggy', 'tractor', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'gyro', 'combine', 'ute', 'picker', 'rx'].flatMap(name => {
       const L = ENG[name].rpms.map(r => ({ r, on: null, off: null }));
       return [...L.flatMap(l => [() => { if (!realEng(name)) l.on = toBuf(synthEngineLoop(ENG[name], l.r, true)); }, () => { if (!realEng(name)) l.off = toBuf(synthEngineLoop(ENG[name], l.r, false)); }]),   // (no made-up loops for an engine with a real recording)
               () => { AU.eng[name] = makeEngineVoice(name, L); }];
@@ -6475,7 +6574,7 @@ function dozerDrive(thr, v, active) {
 function audioUpdate(dt) {
   if (!AU.ctx || AU.busy || AU.ctx.state !== 'running') return;
   const v = activeVeh();
-  for (const name of ['tractor', 'suv', 'x5', 'bmw', 'buggy', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'combine', 'ute', 'picker']) {
+  for (const name of ['tractor', 'suv', 'x5', 'bmw', 'buggy', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'combine', 'ute', 'picker', 'rx']) {
     const veh = VEH[name], V = AU.eng[name]; if (!V) continue;
     const running = veh === v || veh.coast;
     if (running && !V.on) V.start(); if (!running && V.on) V.stop();
@@ -6965,7 +7064,7 @@ const BOX_DEFS = [
   { id: 'redbox', kind: 'container', cx: 49.8, cz: 3.7, ang: -18.4, L: 6.06, W: 2.44, H: 2.59, mass: 2300, color: 0x9e2a1f },
   { id: 'tank', kind: 'tank', cx: 46.1, cz: -1.6, ang: 84, L: 4.1, W: 2.3, H: 2.6, mass: 3000 },
 ];
-const VEH_MASS = { buggy: 750, ute: 2300, combine: 16000, picker: 26000, x5: 2200, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
+const VEH_MASS = { buggy: 750, ute: 2300, combine: 16000, picker: 26000, rx: 24000, x5: 2200, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
 const STRUCTS = { ready: false, parts: [], groups: [], debris: [], boxes: {}, fx: [], fires: [], blown: false, slowT: 0, scorch: null };
 
 // ---------- which scan triangles to drop (called while the scan is being set up) ----------
@@ -8074,6 +8173,7 @@ const VIEWS = {
   tractor: ['chase', 'rear', 'cine'],
   combine: ['chase', 'rear', 'cine'],
   picker: ['chase', 'rear', 'cine'],
+  rx: ['chase', 'rear', 'cine'],
   drone: ['chase', 'fpv', 'down', 'cine'],
   spray: ['chase', 'fpv', 'cine'],
   duster: ['chase', 'cockpit', 'wing', 'cine'],
@@ -10161,7 +10261,7 @@ const WPN_ORDER = ['pistol', 'shotgun', 'rifle', 'sniper', 'minigun', 'grenade',
 const WPN = { owned: {}, ammo: {}, mag: {}, cur: null, fire: false, firePrev: false, cd: 0, reloadT: 0, spin: 0, scope: false, shots: 0, flameT: 0,
               proj: [], sticks: [], fires: [], booms: [], decals: [], splats: [], hops: [], VD: {}, hitT: 0, hitKind: '', netT: 0, told: {}, locker: null, ready: false };
 const LOCKER = { x: 41.6, z: -6.4, yaw: -Math.PI / 2 };
-const VEH_HP = { buggy: 180, ute: 300, combine: 520, picker: 560, x5: 260, bmw: 260, tractor: 420, suv: 230, tele: 360, scooter: 60, bike: 45, dozer: 650, dirtbike: 95, trophy: 280, truck: 520, drone: 12, flyer: 90, spray: 70, duster: 220, gyro: 100, racer: 8 };
+const VEH_HP = { buggy: 180, ute: 300, combine: 520, picker: 560, rx: 690, x5: 260, bmw: 260, tractor: 420, suv: 230, tele: 360, scooter: 60, bike: 45, dozer: 650, dirtbike: 95, trophy: 280, truck: 520, drone: 12, flyer: 90, spray: 70, duster: 220, gyro: 100, racer: 8 };
 const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _w3 = new THREE.Vector3(), _w4 = new THREE.Vector3(), _wq = new THREE.Quaternion();
 
 /* ---------- textures and shared materials ---------- */
@@ -13339,6 +13439,7 @@ function harvReset() {
 }
 ENG.combine = Object.assign({}, ENG.tractor, { seed: 85 });
 ENG.picker = Object.assign({}, ENG.tractor, { seed: 91 });
+ENG.rx = Object.assign({}, ENG.dozer, { seed: 97 });
 
 /* ================================================================
    COTTON PICKING, FIELD 6 (west of the wheat): the CP690 round-module picker at work

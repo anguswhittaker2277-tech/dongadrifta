@@ -100,6 +100,12 @@ Its model, sticker sheet, module and wrap textures, animations and moving parts 
 beacon and sounds are made in the game. The `.i3d.shapes` decoder in `tools/fs-mod/` is a Python port of
 [I3DShapesTool](https://github.com/Donkie/I3DShapesTool) by **Donkie** (MIT). See `tools/fs-mod/README.md`.
 
+## The 9RX
+
+The John Deere 9RX quad-track (`rx9.glb`) is from the Farming Simulator 25 mod **"John Deere 9RX High-Horsepower
+Series"** (US configuration), converted with `tools/fs-mod/build_vehicle.py`. The tracks, which are a base-game asset
+in FS, are built in the game.
+
 ## Libraries
 
 Loaded from jsDelivr: [three.js](https://threejs.org) (MIT), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) (MIT),

@@ -41,3 +41,10 @@ Tyres and rims (base-game wheel library: 520/85R42 duals and 460/85R34), the bea
 the reflectors, and the sounds (the mod's `sounds/cp690.xml` points at base-game sound templates).
 
 The mod's animations and moving parts are copied into `index.html` as data (`CP_ANIM`, `CP_MP`) from `cp690.xml`.
+
+## Other vehicles: `build_vehicle.py`
+
+A generic version for the next mod (used for the 9RX): `python3 -I build_vehicle.py <mod dir> <file.i3d> <out.glb>
+[show=node,node] [hide=node,node]`, then `pack.mjs`. Textures the mod ships are used; base-game ones fall back to flat
+colours by material type; alpha decals with a missing sheet are dropped. `show=`/`hide=` pick a configuration. The
+9RX was built with the US design parts shown, the EU ones hidden, and the broad-track `Fenders` hidden.
