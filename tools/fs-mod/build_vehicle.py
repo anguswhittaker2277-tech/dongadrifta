@@ -193,6 +193,7 @@ def material(mid):
             else: col, a = [0.12, 0.14, 0.15], 0.25
         elif 'mirror' in nl: tag = 'mirror'; metal = 1.0; rough = 0.04; col = [0.85] * 3
         elif ('chrome' in nl or det.startswith('clear')) and 'staticLight' in m.get('customShaderVariation', '') : tag = 'lamp'; metal = 1.0; rough = 0.15; col = [0.9 * c for c in cs]
+        elif 'silverrough' in nl: tag = 'metal'; rough = 0.7; col = [0.11, 0.11, 0.11]     # radiator cores: matte, or their fins shimmer white through the grille
         elif 'chrome' in nl: tag = 'chrome'; metal = 1.0; rough = 0.12; col = [0.9] * 3
         elif 'silver' in nl or det.startswith(('silverScratched', 'scratched')) and 'colorScale' not in P: tag = 'steel'; metal = 1.0; rough = 0.42; col = [0.62, 0.62, 0.6]
         elif 'brass' in nl: tag = 'steel'; metal = 1.0; rough = 0.4
