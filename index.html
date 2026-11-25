@@ -1242,7 +1242,7 @@ function radialTex(rgb, soft = false) {
    an e-scooter and a push bike. Same conventions: origin = rear axle on the ground, +Z forward, +X left.
    ================================================================ */
 Object.assign(SPECS, {
-  tele:    { top: 40 / 3.6, rev: 20 / 3.6, accel: 1.8, brake: 6.0, wb: 2.9, steer: 0.6, steerFast: 0.18, steerRate: 1.3,
+  tele:    { top: 40 / 3.6, rev: 20 / 3.6, accel: 1.8, brake: 6.0, wb: 2.743, steer: 0.6, steerFast: 0.18, steerRate: 1.3,
              front: 4.0, rear: 1.05, halfW: 1.2, rayH: [0.4, 1.0, 1.8], lanes: [-1.0, 0, 1.0], noseLane: 0.8,
              rF: 0.62, rR: 0.62, step: 0.42, trackR: 0.95, trackF: 0.95, roll: 0.014, rollMax: 0.06, grip: 4.2, susK: 120, susC: 11,
              camBack: 10.5, camUp: 5.0, camPivot: 2.0, look: 3.4, lookH: 1.3, hydro: true },
@@ -1274,65 +1274,58 @@ function smallWheel(R, tw, spokes, mat = GMAT.rubber) {
   b.build(spin); return spin;
 }
 
+/* ---------- the telehandler: Merlo P41.7, from the FS25 mod "Merlo P41.7" (merlo-p417.glb, tools/fs-mod/build_vehicle.py).
+   The boom is the mod's own: the arm pivots (Arm, -63..+8 deg), the inner boom telescopes 3.6 m (boom, z 2.075..5.675)
+   and the tool carrier tilts (attacherArmRot); the lift and compensation rams point at their mod reference nodes.
+   The mod's tools hang off an attacher in FS; here the carrier wears the game's dirt bucket. The tyres (460/70R24) are
+   base-game parts in FS, built here. Same controls as before: right stick lifts and tilts, Boom out / in telescopes. */
+const ML_REAR = -1.368, ML_UP = 0.07;          // i3d z of the rear axle (the frame origin) and the lift so 0.62 m tyres sit on the ground
 function buildTele() {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-  const b = Batch(), WB = 2.9, R = 0.62;
-  // chassis, axles, counterweight, fenders
-  b.add(GMAT.teleDark, box(1.0, 0.5, 3.7), 0, 0.85, 1.4);
-  b.add(GMAT.grey, cyl(0.12, 0.12, 1.7, 10), 0, R, 0, 0, 0, Math.PI / 2); b.add(GMAT.grey, cyl(0.12, 0.12, 1.7, 10), 0, R, WB, 0, 0, Math.PI / 2);
-  b.add(GMAT.tele, box(1.5, 0.55, 0.5), 0, 0.85, -0.85); b.add(MAT.lamp, box(0.14, 0.07, 0.03), 0.6, 1.0, -1.11); b.add(MAT.red, box(0.12, 0.08, 0.03), -0.6, 1.0, -1.11);
-  for (const s of [-1, 1]) for (const z of [0, WB]) { const f = new THREE.CylinderGeometry(R + 0.1, R + 0.1, 0.5, 16, 1, true, -0.2, 1.9); b.add(GMAT.tele, f, s * 0.95, R, z, 0, 0, Math.PI / 2); }
-  // engine pod on the right (-X) with a vertical exhaust
-  b.add(GMAT.tele, box(0.58, 0.8, 2.1), -0.86, 1.32, 0.45); b.add(GMAT.teleDark, box(0.6, 0.06, 2.12), -0.86, 1.74, 0.45);
-  for (let i = 0; i < 6; i++) b.add(MAT.black, box(0.02, 0.5, 0.06), -1.16, 1.3, -0.25 + i * 0.13);
-  b.add(MAT.black, cyl(0.05, 0.05, 0.7, 8), -0.75, 2.05, 1.3);
-  // cab on the left (+X): floor, posts, roof, rear and front glass (left side is the door)
-  b.add(GMAT.teleDark, box(1.0, 0.12, 2.0), 0.65, 1.1, 1.45);
-  for (const [x, z] of [[0.17, 0.5], [1.13, 0.5], [0.17, 2.4], [1.13, 2.4]]) b.add(GMAT.tele, box(0.07, 1.45, 0.07), x, 1.85, z);
-  b.add(GMAT.tele, box(1.1, 0.1, 2.05), 0.65, 2.6, 1.45); b.add(MAT.amber, cyl(0.07, 0.08, 0.1, 10), 0.95, 2.7, 0.7);
-  b.add(GMAT.grey, box(0.08, 0.5, 0.5), 0.45, 1.4, 1.9);     // steering column
-  b.add(MAT.black, cyl(0.17, 0.17, 0.03, 16), 0.45, 1.65, 1.75, -0.9, 0, 0);
-  b.add(MAT.lamp, box(0.16, 0.08, 0.04), 1.0, 2.55, 2.45); b.add(MAT.lamp, box(0.16, 0.08, 0.04), 0.3, 2.55, 2.45);
-  // a step up to the cab on the left
-  b.add(GMAT.grey, box(0.32, 0.05, 0.3), 1.28, 0.45, 1.95);
-  b.build(body);
-  const gl = box(0.94, 1.36, 1.86); gl.setIndex(Array.from(gl.index.array).slice(6));       // no left face: that's the door
-  const cabGlass = new THREE.Mesh(gl, MAT.glass); cabGlass.position.set(0.65, 1.86, 1.45); body.add(cabGlass);
-  // cab door: hinged on the rear post, swings forward and out
-  const door = new THREE.Group(); door.position.set(1.17, 0, 0.52); body.add(door);
-  const dg = new THREE.Mesh(box(0.02, 1.3, 1.82), MAT.glass); dg.position.set(0, 1.86, 0.93); door.add(dg);
-  const db = Batch(); for (const y of [1.2, 2.52]) db.add(MAT.black, box(0.04, 0.05, 1.86), 0, y, 0.93); for (const z of [0.02, 1.84]) db.add(MAT.black, box(0.04, 1.36, 0.05), 0, 1.86, z);
-  db.add(GMAT.chrome, box(0.05, 0.2, 0.04), 0.04, 1.75, 1.7); db.build(door);
-  // boom: pivots high at the back, telescopes, bucket on a carriage at the tip
-  const pivot = new THREE.Group(); pivot.position.set(-0.05, 1.95, -0.55); body.add(pivot);
-  const bb = Batch(); bb.add(GMAT.boom, box(0.5, 0.55, 4.25), 0, 0, 2.05); bb.add(GMAT.teleDark, cyl(0.14, 0.14, 0.62, 12), 0, 0, 0, 0, 0, Math.PI / 2); bb.build(pivot);
-  const inner = new THREE.Group(); inner.position.set(0, 0, 0.6); pivot.add(inner);
-  const ib = Batch(); ib.add(GMAT.boom, box(0.4, 0.44, 3.6), 0, 0, 1.85); ib.add(GMAT.teleDark, box(0.6, 0.3, 0.3), 0, -0.05, 3.62); ib.build(inner);
-  const head = new THREE.Group(); head.position.set(0, -0.15, 3.65); inner.add(head);
-  const bucket = new THREE.Group(); head.add(bucket);
+  const frame = new THREE.Group(); frame.position.set(0, ML_UP, -ML_REAR); body.add(frame);
+  const R = 0.62, WB = 1.375 - ML_REAR;
+  // the boom parts the game drives: stand-ins until the model is in, then the mod's own nodes
+  const pivot = new THREE.Group(), inner = new THREE.Group(), bucket = new THREE.Group(), head = new THREE.Group();
   const kb = Batch();
-  kb.add(GMAT.bucket, box(2.2, 0.06, 0.9), 0, -0.72, 0.45);                 // floor
-  kb.add(GMAT.bucket, box(2.2, 0.75, 0.06), 0, -0.36, 0.0);                 // back
-  kb.add(GMAT.bucket, box(2.2, 0.06, 0.35), 0, -0.02, 0.15);                // top lip at the back
+  kb.add(GMAT.bucket, box(2.2, 0.06, 0.9), 0, -0.72, 0.45); kb.add(GMAT.bucket, box(2.2, 0.75, 0.06), 0, -0.36, 0.0); kb.add(GMAT.bucket, box(2.2, 0.06, 0.35), 0, -0.02, 0.15);
   for (const s of [-1, 1]) kb.add(GMAT.bucket, box(0.06, 0.72, 0.9), s * 1.08, -0.36, 0.45);
-  kb.add(GMAT.chrome, box(2.22, 0.05, 0.12), 0, -0.73, 0.92);               // cutting edge
-  for (let i = 0; i < 6; i++) kb.add(GMAT.grey, box(0.08, 0.05, 0.14), -0.9 + i * 0.36, -0.73, 1.0);   // teeth
-  kb.add(GMAT.teleDark, box(0.7, 0.4, 0.15), 0, -0.2, -0.08);               // coupling plate
+  kb.add(GMAT.chrome, box(2.22, 0.05, 0.12), 0, -0.73, 0.92); for (let i = 0; i < 6; i++) kb.add(GMAT.grey, box(0.08, 0.05, 0.14), -0.9 + i * 0.36, -0.73, 1.0);
   kb.build(bucket);
   const dirt = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), GMAT.dirt); dirt.position.set(0, -0.69, 0.42); dirt.scale.set(1.0, 0.01, 0.4); dirt.visible = false; bucket.add(dirt);
   const lip = new THREE.Object3D(); lip.position.set(0, -0.73, 0.95); bucket.add(lip);
   const mid = new THREE.Object3D(); mid.position.set(0, -0.5, 0.45); bucket.add(mid);
-  // lift ram from the chassis to the underside of the boom
-  const ram = new THREE.Mesh(cyl(0.09, 0.09, 1, 10), GMAT.chrome); body.add(ram);
-  const ramBase = new THREE.Vector3(0, 1.15, 0.9);
+  const boom = { pivot, inner, head, bucket, dirt, lip, mid, ram: null, ramBase: null, mp: [], ready: false };
+  // the door: a hinge the game swings; the mod's door goes on it once loaded
+  const door = new THREE.Group(); door.position.set(1.112, 1.311 + ML_UP, -0.119 - ML_REAR); body.add(door);
+  // tyres: rims in Merlo grey
+  const tm = { rubber: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.93 }), rim: new THREE.MeshStandardMaterial({ color: 0x3a3d3f, roughness: 0.45, metalness: 0.4, envMap: cpEnv(), envMapIntensity: 0.6 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1, envMap: cpEnv() }), dark: new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.8 }) };
+  for (const m of Object.values(tm)) m.userData.wet = 1;
   const wheels = [], steerPivots = [];
   for (const s of [-1, 1]) {
-    const w = makeWheel(R, 0.46, 0.38, 16); w.position.set(s * 0.95, R, 0); root.add(w); wheels.push({ spin: w, r: R, rear: true });
+    const w = cpTyre(R, 0.31, 0.46, 18, tm); if (s < 0) w.scale.x = -1; const sp = new THREE.Group(); sp.add(w); sp.position.set(s * 0.95, R, 0); root.add(sp); wheels.push({ spin: sp, r: R, rear: true });
     const p = new THREE.Group(); p.position.set(s * 0.95, R, WB); root.add(p);
-    const f = makeWheel(R, 0.46, 0.38, 16); p.add(f); wheels.push({ spin: f, r: R }); steerPivots.push(p);
+    const f = cpTyre(R, 0.31, 0.46, 18, tm); if (s < 0) f.scale.x = -1; const fs = new THREE.Group(); fs.add(f); p.add(fs); wheels.push({ spin: fs, r: R }); steerPivots.push(p);
   }
-  return { root, body, wheels, steerPivots, halo: null, dome: null, door, exhaustTip: new THREE.Vector3(-0.75, 2.42, 1.3),
-           boom: { pivot, inner, head, bucket, dirt, lip, mid, ram, ramBase } };
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('merlo-p417.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    const N = {}, cache = new Map();
+    g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); if (o.material.map) { m.map = o.material.map; m.alphaTest = o.material.alphaTest || (o.material.transparent ? 0.4 : 0); } cache.set(o.material, m); }
+        o.material = m; if (o.isSkinnedMesh) { o.frustumCulled = false; o.userData.nodent = true; } } });
+    frame.add(g.scene); frame.updateMatrixWorld(true);
+    // the physics stand-ins (…Dummy) aren't drawn; the bucket sits on the tool carrier
+    if (N.ArmDummy) N.ArmDummy.visible = false;
+    Object.assign(boom, { pivot: N.Arm, inner: N.boom, head: N.attacherArmRot, ext0: N.boom.position.clone(), rot0: N.Arm.rotation.x });
+    N.attacherArm.add(bucket); bucket.position.set(0, 0.32, 0.14);
+    if (N.door) door.attach(N.door);
+    for (const [n, ref] of [['mainCylinder', 'mainRef'], ['secondaryCylinder', 'secondaryRef']]) {
+      const c = N[n], r = N[ref]; if (!c || !r) continue; const punch = c.children.find(k => /^punch/.test(k.name));
+      boom.mp.push({ n: c, ref: r, frame: r, len0: c.getWorldPosition(new THREE.Vector3()).distanceTo(r.getWorldPosition(new THREE.Vector3())), punch, punch0: punch ? punch.position.z : 0, stretch: false });
+    }
+    boom.glb = g.scene; boom.ready = true; root.userData.ready = true; teleApply();
+  }, e => console.warn('Merlo model', e))).catch(e => console.warn('Merlo file', e));
+  return { root, body, wheels, steerPivots, halo: null, dome: null, door, exhaustTip: new THREE.Vector3(-0.9, 2.3, 0.3 - ML_REAR), boom };
 }
 
 function buildScooter() {
@@ -4838,7 +4831,7 @@ const GROUND = ['bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'do
 VEH.tractor.pose = VEH.suv.pose = 'wheel'; VEH.flyer.pose = 'stick';
 Object.assign(VEH, {
   tele:    { name: 'tele', kind: 'ground', label: 'the telehandler', model: VEHICLES.tele, spec: SPECS.tele, state: null, pose: 'wheel', coast: false,
-             seat: { x: 0.62, hip: 1.5, z: 1.35, k: 0.85 }, exit: [[2.0, 1.5], [-2.0, 1.5], [0, -2.3]], range: 4, top: 2.7, icon: ['L', '#4f8a2b'] },
+             seat: { x: 0.675, hip: 1.58, z: 1.28, k: 0.85 }, exit: [[2.0, 1.5], [-2.0, 1.5], [0, -2.3]], range: 4, top: 2.7, icon: ['L', '#4f8a2b'] },
   scooter: { name: 'scooter', kind: 'ground', label: 'the e-scooter', model: VEHICLES.scooter, spec: SPECS.scooter, state: null, pose: 'stand', coast: false,
              seat: { x: 0, hip: 0.172 + 0.702, z: 0.36, k: 1 }, exit: [[0.8, 0.4], [-0.8, 0.4], [0, -0.9]], range: 2.6, top: 1.3, icon: ['S', '#e05a1a'] },
   bike:    { name: 'bike', kind: 'ground', label: 'the bike', model: VEHICLES.bike, spec: SPECS.bike, state: null, pose: 'pedal', coast: false,
@@ -5076,20 +5069,17 @@ function updatePins() {
 const TB = { a: -0.25, ext: 0, tilt: 0.2, fill: 0, extIn: 0, digAcc: 0, pourAcc: 0, markAcc: 0, hyd: 0, told: false };
 const BUCKET_M3 = 1.0;
 function teleApply() {
-  const B = VEH.tele.model.boom;
-  B.pivot.rotation.x = -TB.a; B.inner.position.z = 0.6 + TB.ext; B.bucket.rotation.x = -TB.tilt + TB.a;   // self-levelling: the tilt is relative to the ground
+  const B = VEH.tele.model.boom; if (!B.ready) return;
+  B.pivot.rotation.x = B.rot0 - TB.a; B.inner.position.z = B.ext0.z + TB.ext; B.head.rotation.x = -TB.tilt + TB.a;   // self-levelling: the tilt is relative to the ground
   B.dirt.visible = TB.fill > 0.02; B.dirt.scale.set(1.0, 0.05 + 0.6 * TB.fill, 0.43);
-  // lift ram from the chassis to a point under the boom
-  B.pivot.updateMatrix(); const tip = _v3.set(0, -0.28, 1.7).applyMatrix4(B.pivot.matrix);
-  const d = _v2.subVectors(tip, B.ramBase), L = d.length();
-  B.ram.position.copy(B.ramBase).addScaledVector(d, 0.5); B.ram.quaternion.setFromUnitVectors(UPV, d.normalize()); B.ram.scale.set(1, L, 1);
+  cpSolve({ glb: B.glb, mp: B.mp });                // lift and compensation rams follow the arm
 }
 function teleStep(dt) {
   const ry = THREE.MathUtils.clamp(input.ry + input.kUD, -1, 1), rx = THREE.MathUtils.clamp(input.rx + input.kLR, -1, 1);
   const ext = TB.extIn || ((keys.has('x') ? 1 : 0) - (keys.has('c') ? 1 : 0));
-  TB.ext = THREE.MathUtils.clamp(TB.ext + ext * 0.9 * dt, 0, 2.4);
-  const L = 4.25 + TB.ext, aMin = Math.asin(THREE.MathUtils.clamp(-1.18 / L, -1, 1));
-  TB.a = THREE.MathUtils.clamp(TB.a + ry * 0.55 * dt, aMin, 1.05);
+  TB.ext = THREE.MathUtils.clamp(TB.ext + ext * 0.9 * dt, 0, 3.6);
+  const L = 4.1 + TB.ext, aMin = Math.max(-0.14, Math.asin(THREE.MathUtils.clamp(-1.3 / L, -1, 1)));    // (the Merlo's arm: 8 deg down to 63 up)
+  TB.a = THREE.MathUtils.clamp(TB.a + ry * 0.5 * dt, aMin, 1.1);
   TB.tilt = THREE.MathUtils.clamp(TB.tilt - rx * 1.2 * dt, -1.05, 0.75);
   TB.hyd += ((Math.abs(ry) + Math.abs(rx) * 0.6 + Math.abs(ext)) * 0.7 - TB.hyd) * (1 - Math.exp(-8 * dt));
   teleApply();
