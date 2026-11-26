@@ -141,6 +141,13 @@ The Module 8 Express cotton trailer (`module8-trailer.glb`) is from the Farming 
 Cotton Trailer"** by **Jolly Farms Modding**, converted with `tools/fs-mod/build_vehicle.py`. It hitches to the prime
 mover or, through a dolly made in the game, to the Mack; the tyres and the deck's timber colour are made in the game.
 
+## The excavator
+
+The John Deere 50G (`jd50g.glb`, `jd50g-bucket.glb`, `jd50g-track.glb`) is from the Farming Simulator 25 mod
+**"John Deere 50G"**, converted with `tools/fs-mod/build_vehicle.py`. Its slew, boom, dipper, bucket, blade and boom swing
+are the mod's moving tools with the mod's limits and speeds, and its rams are the mod's moving parts; the bucket linkage is
+solved in the game.
+
 ## Libraries
 
 Loaded from jsDelivr: [three.js](https://threejs.org) (MIT), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) (MIT),
