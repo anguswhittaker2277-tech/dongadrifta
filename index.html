@@ -3621,7 +3621,7 @@ function buildFarmer(look) {
     pm(new THREE.SphereGeometry(0.017, 8, 6), M.eye, s * 0.056, 0.225, 0.17, head);
     pm(new THREE.BoxGeometry(fem ? 0.055 : 0.06, fem ? 0.008 : 0.013, 0.015), M.brow, s * 0.058, 0.262, 0.166, head).rotation.z = -s * (fem ? 0.2 : 0.12);
     if (fem) pm(new THREE.BoxGeometry(0.042, 0.009, 0.01), M.dark, s * 0.058, 0.24, 0.178, head).rotation.z = -s * 0.15;          // lashes
-    pm(new THREE.SphereGeometry(0.035, 8, 6), M.skin, s * 0.167, 0.2, 0.0, head).scale.set(0.45, 1, 0.8);   // ears
+    if (L.hair !== 'long' && L.hair !== 'bob') pm(new THREE.SphereGeometry(0.035, 8, 6), M.skin, s * 0.167, 0.2, 0.0, head).scale.set(0.45, 1, 0.8);   // ears (under the hair, with it long or in a bob)
   }
   pm(new THREE.BoxGeometry(fem ? 0.064 : 0.07, fem ? 0.019 : 0.013, 0.012), M.lip, 0, 0.128, 0.171, head);
   // face hair
@@ -3638,13 +3638,26 @@ function buildFarmer(look) {
       const r = 0.04 + rnd() * 0.018;
       pm(new THREE.SphereGeometry(r, 7, 6), rnd() < 0.6 ? M.hair : M.hair2, x * 0.168, 0.21 + y * 0.18, 0.01 + z * 0.17, head);
     }
+  } else if (hs === 'long' || hs === 'bob' || hs === 'pony') {
+    // a woman's styles: a cap with the hairline up on the forehead, and (long, bob) hair falling round the sides and back,
+    // open at the face. (They used to be one shell pulled down over the whole head, so the face showed through it like a mask.)
+    const hm = M.hairDS || (M.hairDS = M.hair.clone()); hm.side = THREE.DoubleSide;
+    const cap = pm(new THREE.SphereGeometry(0.186, 18, 12, 0, Math.PI * 2, 0, 1.62), M.hair, 0, 0.2, 0.01, head); cap.scale.set(0.97, 1.09, 1.02); cap.rotation.x = -0.55;
+    if (hs !== 'pony') {
+      const len = hs === 'long' ? 0.27 : 0.2, w = hs === 'long' ? 0.92 : 1.02, top = 0.255;          // (w: half the opening round the face, from straight ahead)
+      // round the sides and back from just above the ears, flush with the cap where they meet
+      const cur = pm(new THREE.CylinderGeometry(0.177, hs === 'long' ? 0.192 : 0.19, len, 22, 1, true, w, Math.PI * 2 - 2 * w), hm, 0, top - len / 2, 0.005, head); cur.scale.set(1, 1, 1.04);
+      if (hs === 'bob') {            // the ends turned under
+        const t = pm(new THREE.CylinderGeometry(0.19, 0.163, 0.035, 22, 1, true, w, Math.PI * 2 - 2 * w), M.hair2, 0, top - len - 0.0175, 0.005, head); t.material = hm; t.scale.set(1, 1, 1.04);
+      } else {                       // long: on down the back, lying on it
+        const b = pm(new THREE.CylinderGeometry(0.192, 0.178, 0.24, 16, 1, true, Math.PI - 0.95, 1.9), hm, 0, top - len - 0.12, 0.005, head); b.scale.set(1, 1, 1.04);
+      }
+    }
+    if (hs === 'pony') { pm(new THREE.SphereGeometry(0.04, 8, 6), M.hair2, 0, 0.25, -0.19, head); const t = pm(new THREE.CapsuleGeometry(0.045, 0.2, 4, 8), M.hair, 0, 0.13, -0.24, head); t.rotation.x = 0.35; }      // tied back
   } else if (hs !== 'bald') {
-    const R = hs === 'buzz' ? 0.178 : 0.186, tl = hs === 'long' ? 2.15 : hs === 'bob' ? 2.0 : hs === 'mullet' ? 1.85 : 1.72;
+    const R = hs === 'buzz' ? 0.178 : 0.186, tl = hs === 'mullet' ? 1.85 : 1.72;
     const cap = pm(new THREE.SphereGeometry(R, 18, 12, 0, Math.PI * 2, 0, tl), hs === 'buzz' ? M.buzz : M.hair, 0, 0.2, 0.01, head); cap.scale.set(0.97, 1.09, 1.02); cap.rotation.x = -0.3;
     if (hs === 'mullet') { pm(new THREE.BoxGeometry(0.22, 0.2, 0.06), M.hair2, 0, 0.08, -0.15, head).rotation.x = 0.25; for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.04, 0.12, 0.12), M.hair, s * 0.165, 0.2, -0.04, head); }
-    if (hs === 'long') { pm(new THREE.BoxGeometry(0.34, 0.42, 0.05), M.hair2, 0, 0.04, -0.17, head).rotation.x = 0.12; for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.04, 0.34, 0.16), M.hair, s * 0.17, 0.08, -0.06, head); }
-    if (hs === 'pony') { pm(new THREE.SphereGeometry(0.035, 8, 6), M.hair2, 0, 0.27, -0.185, head); const t = pm(new THREE.CapsuleGeometry(0.042, 0.2, 4, 8), M.hair, 0, 0.14, -0.235, head); t.rotation.x = 0.35; }      // tied back
-    if (hs === 'bob') { pm(new THREE.BoxGeometry(0.33, 0.2, 0.06), M.hair2, 0, 0.11, -0.16, head).rotation.x = 0.1; for (const s of [-1, 1]) pm(new THREE.BoxGeometry(0.045, 0.2, 0.2), M.hair, s * 0.168, 0.12, -0.02, head); }
   }
   // glasses
   const gl = pivotAt(head, 0, 0.212, 0.188); P.glasses = gl;
@@ -19163,7 +19176,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
 }
 
-window.__game = { PCL_get: () => PCL, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
