@@ -1868,6 +1868,7 @@ function tipperPlace() {
 }
 // called every frame the truck moves (and while it's parked, to keep the trailer with it)
 function tipperFollow(st, dt) {
+  if (TIP.free) return;                          // (unhooked: it stays where it was left)
   const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
   const h = new THREE.Vector3(st.pos.x + fx * TIP.kz, st.pos.y, st.pos.z + fz * TIP.kz);
   // the axle group gets dragged along its own heading (a tractrix): the classic articulated behaviour
@@ -1901,6 +1902,7 @@ function overTipper(p) {
 }
 // trailer sweep against walls and structures: the corners of the bin as it moves
 function tipperBlocked(st) {
+  if (TIP.free) return null;
   const fwd = Math.sign(st.v || 0); if (!fwd) return null;
   const c = Math.cos(TIP.yaw), s = Math.sin(TIP.yaw);
   for (const [lx, lz] of [[1.3, -10.8], [-1.3, -10.8], [1.3, -4], [-1.3, -4]]) {
@@ -5795,7 +5797,7 @@ function updateActions() {
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
-      cpFootItems(items); gsItems(items); ujItems(items);
+      cpFootItems(items); gsItems(items); ujItems(items); m8Items(items);
       const v = nearestVehicle();
       if (v) {
         const far = isRemote(v) ? F.pos.distanceTo(v.st.pos) : 0;
@@ -5821,8 +5823,8 @@ function updateActions() {
         }
       }
       if (v.name === 'picker') cpItems(items);
-      gsItems(items); ujItems(items);
-      if (v.name === 'truck') { items.push({ id: 'tip', label: TIP.tiltT > 0 ? 'Lower the bin' : TIP.load > 0.5 ? 'Tip it out' : 'Bin empty', cls: 'ghost', pressed: TIP.tiltT > 0 });
+      gsItems(items); ujItems(items); m8Items(items);
+      if (v.name === 'truck' && !TIP.free) { items.push({ id: 'tip', label: TIP.tiltT > 0 ? 'Lower the bin' : TIP.load > 0.5 ? 'Tip it out' : 'Bin empty', cls: 'ghost', pressed: TIP.tiltT > 0 });
         items.push({ id: 'jake', label: AU.eng.truck && AU.eng.truck.jakeOn === false ? 'Jake off' : 'Jake on', cls: 'ghost', pressed: !(AU.eng.truck && AU.eng.truck.jakeOn === false) }); }
       if (v.name === 'tele') { items.push({ id: 'extOut', label: 'Boom out', cls: 'ghost hold' }); items.push({ id: 'extIn', label: 'Boom in', cls: 'ghost hold' }); }
     }
@@ -5844,7 +5846,7 @@ function updateActions() {
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
-  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa|px):|^radio$|^cp:(on|hdr|drop|wrap)$|^gs:|^uj:/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
+  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa|px):|^radio$|^cp:(on|hdr|drop|wrap)$|^gs:|^uj:|^m8:|^tip:/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
   if (items.length > 3) { const keep = items.filter(pri), rest = items.filter(it => !pri(it));
     if (rest.length) items = ACT.more ? [...keep, { id: 'more', label: '\u2715', cls: 'more' }, ...rest] : [...keep, { id: 'more', label: '\u22ef', cls: 'more' }]; }
   const key = JSON.stringify(items); if (key === actKey) return; actKey = key;
@@ -5884,6 +5886,7 @@ function doAction(id) {
   else if (id.startsWith('cp:')) cpAct(id);
   else if (id === 'gs:door') gsToggle();
   else if (id.startsWith('uj:')) ujAct(id);
+  else if (id.startsWith('m8:') || id.startsWith('tip:')) m8Act(id);
   else if (id === 'tip' && v && v.name === 'truck') { if (TIP.tiltT > 0) TIP.tiltT = 0; else if (TIP.load > 0.5) { TIP.tiltT = 0.85; if (!TIP.told) { TIP.told = true; toast('Tipping out the left side. Keep rolling slowly for a windrow, or sit still for one big heap', 3); } } else toast('Bin\u2019s empty. Load it with the telehandler bucket', 2.4); }
   else if (id === 'hook' && v && v.name === 'tractor') { const I = implNear(); if (I) implHook(I); }
   else if (id === 'unhook' && v && v.name === 'tractor') implUnhook();
@@ -6132,7 +6135,7 @@ function resetAll() {
     v.state = snapshotS(); engineOff(v);
   }
   if (!TIP.model) TIP.model = buildTipper();
-  tipperAttach(); TIP.side = 1;
+  TIP.free = false; tipperAttach(); TIP.side = 1; if (typeof m8Reset === 'function' && M8.model) m8Reset();
   for (const name of AIRS) {
     const ac = VEH[name], h = HOME[name], A = ac.st;
     if (A.crashed) rebuildAircraft(ac);
@@ -6207,7 +6210,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); ujStep(dt); gsStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt); rideStep(dt);
+  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); ujStep(dt); m8Step(dt); gsStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt); rideStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) { drawMinimap(); if (CHAT.open && CHAT.map) drawMinimap(CHAT.map, CHAT.R); }
@@ -9141,6 +9144,7 @@ function faBlockers(force) {
   for (const n of AIRS) { const v = VEH[n]; if (!v || !v.st || !v.st.landed) continue; const r = v.P.obb ? Math.max(...v.P.obb) : v.P.r + 0.3; add(v.st.pos.x, v.st.pos.z, v.st.yaw || 0, r, r, r); }
   for (const I of IMPL.list) if (IMPL.hooked !== I) add(I.hitch.x, I.hitch.z, I.yaw, 0.4, I.D.L, I.D.width / 2);
   if (TIP.model) add(TIP.hitch.x, TIP.hitch.z, TIP.yaw, 0.5, TIP.L + 1, 1.3);
+  if (typeof M8 !== 'undefined' && M8.model) add(M8.kp.x, M8.kp.z, M8.yaw, 0.3, 17.2, 1.3);
 }
 function faThreats() {
   const T = FA.threats; T.length = 0; const v = activeVeh();
@@ -14610,6 +14614,129 @@ function ujPush(lip, dt) {   // the Merlo's bucket into loose urea in the shed: 
   return true;
 }
 
+/* ---------- the Module 8 Express cotton trailer, from the FS25 mod "Module 8 Express Cotton Trailer" by Jolly Farms
+   Modding (module8-trailer.glb, tools/fs-mod/build_vehicle.py): a drop-deck semi that carries round cotton modules
+   lying on the bed. Any truck can take it: the prime mover on its turntable (unhook the tipper first), the Mack
+   through a converter dolly (it's a rigid truck: a dog trailer, Aussie style). Self-loading, as the mod's store option:
+   stop beside modules on the ground and load them; unload drops them in a row beside it. Six fit at full size. ---------- */
+const M8_KP = 8.43, M8_L = 12.99, M8_LD = 3.0, M8_PINTLE = -4.36, M8_HOME = { x: -100, z: 44, yaw: Math.PI / 2 };
+const M8_SLOTS = [[2.69, 7.35], [2.21, 4.76], [2.21, 2.36], [2.21, -0.04], [2.21, -2.44], [2.21, -4.84]];
+const M8 = { model: null, ready: false, hitch: null, kp: new THREE.Vector3(), yaw: 0, dYaw: 0, legs: 1, slots: [null, null, null, null, null, null], anim: null, queue: 0, dolly: null, jk: false, roll: 0 };
+function m8Build() {
+  if (M8.model) return; const root = new THREE.Group(), frame = new THREE.Group(); frame.position.y = 0.04; root.add(frame); scene.add(root);
+  const tm = { rubber: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.9 }), rim: new THREE.MeshStandardMaterial({ color: 0xe9e9e6, roughness: 0.35, metalness: 0.4 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1 }), dark: new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.8 }) };
+  const wheels = [];
+  for (const z of [-3.78, -5.34]) { const ax = new THREE.Group(); ax.position.set(0, 0.48, z); root.add(ax);
+    for (const s of [-1, 1]) for (const dx of [0.65, 0.95]) { const t = cpTyre(0.48, 0.29, 0.27, 20, tm); t.position.x = s * dx; if (s < 0) t.scale.x = -1; ax.add(t); } wheels.push(ax); }
+  // the converter dolly, for the Mack
+  const D = new THREE.Group(), dm = new THREE.MeshStandardMaterial({ color: 0x1b1b1b, roughness: 0.6, metalness: 0.3 });
+  for (const s of [-1, 1]) { const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 3.1), dm); bar.position.set(s * 0.32, 0.72, 1.45); bar.rotation.y = -s * 0.1; D.add(bar); }
+  const fr = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.25, 2.2), dm); fr.position.set(0, 0.95, 0); D.add(fr);
+  const fw = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.12, 24), dm); fw.position.set(0, 1.12, 0.2); D.add(fw);
+  const dw = []; for (const z of [0.65, -0.65]) { const ax = new THREE.Group(); ax.position.set(0, 0.48, z); D.add(ax); for (const s of [-1, 1]) for (const dx of [0.65, 0.95]) { const t = cpTyre(0.48, 0.29, 0.27, 20, tm); t.position.x = s * dx; if (s < 0) t.scale.x = -1; ax.add(t); } dw.push(ax); }
+  D.visible = false; scene.add(D); M8.dolly = { root: D, wheels: dw };
+  M8.model = { root, frame, wheels, nodes: {} };
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('module8-trailer.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    const N = M8.model.nodes, cache = new Map(), wood = new THREE.MeshStandardMaterial({ color: 0x7d5f42, roughness: 0.85 });
+    g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { const wd = /wood/i.test(o.name) || /wood/i.test((o.parent && o.parent.name) || '');
+        let m = wd ? wood : cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); if (o.material.map) { m.map = o.material.map; m.alphaTest = o.material.alphaTest || (o.material.transparent ? 0.4 : 0); } cache.set(o.material, m); }
+        o.material = m; o.castShadow = true; } });
+    frame.add(g.scene); M8.legsNode = N.supportArm; M8.legs0 = N.supportArm ? N.supportArm.position.y : 0; M8.ready = true; m8Place();
+  }, e => console.warn('module trailer', e))).catch(e => console.warn('module trailer file', e));
+  m8Reset();
+}
+function m8Reset() {
+  for (let i = 0; i < M8.slots.length; i++) { const m = M8.slots[i]; if (m && m.parent) m.parent.remove(m); M8.slots[i] = null; }
+  M8.hitch = null; M8.anim = null; M8.queue = 0; M8.legs = 1; M8.yaw = M8_HOME.yaw; M8.kp.set(M8_HOME.x + Math.sin(M8_HOME.yaw) * M8_KP, 0, M8_HOME.z + Math.cos(M8_HOME.yaw) * M8_KP);
+  if (M8.dolly) M8.dolly.root.visible = false; m8Place();
+}
+function m8Dir(y) { return [Math.sin(y), Math.cos(y)]; }
+function m8Place() {
+  const M = M8.model; if (!M) return; const [fx, fz] = m8Dir(M8.yaw), ox = M8.kp.x - fx * M8_KP, oz = M8.kp.z - fz * M8_KP;
+  const ga = rawGround(ox - fx * 4.5, oz - fz * 4.5, 40), gk = rawGround(M8.kp.x, M8.kp.z, 40), pitch = Math.atan2(gk - ga, M8_KP + 4.5) * 0.6;
+  M.root.position.set(ox, ga + (gk - ga) * (4.5 / (M8_KP + 4.5)), oz); M.root.rotation.set(-pitch, M8.yaw, 0, 'YXZ');
+  if (M8.legsNode) M8.legsNode.position.y = M8.legs0 - (M8.legs0 - 0.32) * M8.legs;
+  for (const w of M.wheels) w.rotation.x = M8.roll / 0.48;
+  if (M8.hitch === 'mack' && M8.dolly) { const D = M8.dolly, [dx, dz] = m8Dir(M8.dYaw); D.root.visible = true; D.root.position.set(M8.kp.x + dx * 0.2 * -1, rawGround(M8.kp.x, M8.kp.z, 40), M8.kp.z - dz * 0.2); D.root.rotation.set(0, M8.dYaw, 0); for (const w of D.wheels) w.rotation.x = M8.roll / 0.48; }
+}
+function m8St(name) { return name === activeName ? S : VEH[name] && VEH[name].state; }
+// where a truck takes the trailer: the prime mover's turntable, or the end of the dolly's drawbar off the Mack's tow hitch
+function m8TruckHitch(name) { const st = m8St(name); if (!st || !st.pos) return null; const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw), k = name === 'truck' ? TIP.kz : M8_PINTLE; return [st.pos.x + fx * k, st.pos.z + fz * k, st.yaw, st]; }
+function m8Step(dt) {
+  if (!M8.model) { if (VEHICLES.mack && VEHICLES.mack.ready) m8Build(); return; }
+  M8.legs = THREE.MathUtils.clamp(M8.legs + (M8.hitch ? -1 : 1) * dt / 2.5, 0, 1);
+  if (M8.hitch) {
+    const h = m8TruckHitch(M8.hitch); if (!h) return; const [hx, hz, ty] = h, old = M8.kp.clone();
+    let px = hx, pz = hz, pullYaw = ty;
+    if (M8.hitch === 'mack') {   // drawbar eye on the hitch; the dolly trails it; its turntable is the kingpin's pivot
+      const [dx, dz] = m8Dir(M8.dYaw), ax = (M8.dEye ? M8.dEye[0] : hx) - dx * M8_LD, az = (M8.dEye ? M8.dEye[1] : hz) - dz * M8_LD;
+      let ny = Math.atan2(hx - ax, hz - az), rel = faAng(ny - ty); if (Math.abs(rel) > 1.25) ny = ty + Math.sign(rel) * 1.25;
+      M8.dYaw = ny; M8.dEye = [hx, hz]; const [ex, ez] = m8Dir(ny); px = hx - ex * (M8_LD - 0.2); pz = hz - ez * (M8_LD - 0.2); pullYaw = ny;
+    }
+    const [fx, fz] = m8Dir(M8.yaw), ax = M8.kp.x - fx * M8_L, az = M8.kp.z - fz * M8_L;
+    let ny = Math.atan2(px - ax, pz - az), rel = faAng(ny - pullYaw);
+    if (Math.abs(rel) > 1.3) { ny = pullYaw + Math.sign(rel) * 1.3; if (!M8.jk) { M8.jk = true; toast('Jackknifed! Pull forward to straighten up', 2); } } else M8.jk = false;
+    M8.yaw = ny; M8.kp.set(px, 0, pz);
+    const mv = Math.hypot(px - old.x, pz - old.z); M8.roll += mv * Math.sign((px - old.x) * Math.sin(ny) + (pz - old.z) * Math.cos(ny) || 1);
+  }
+  // loading: a module lifts off the ground and swings onto its spot on the bed
+  if (M8.anim) { const A = M8.anim; A.t = Math.min(1, A.t + dt / 1.3); const k = A.t * A.t * (3 - 2 * A.t);
+    const R = M8.model.root; R.updateMatrixWorld(true); const to = R.localToWorld(new THREE.Vector3(0, A.slot[0], A.slot[1])), toQ = R.getWorldQuaternion(new THREE.Quaternion());
+    A.m.position.lerpVectors(A.from, to, k); A.m.position.y += Math.sin(k * Math.PI) * 2.2; A.m.quaternion.slerpQuaternions(A.q, toQ, k);
+    if (A.t >= 1) { R.attach(A.m); A.m.position.set(0, A.slot[0], A.slot[1]); A.m.quaternion.identity(); M8.slots[A.i] = A.m; sfx('thud', to, 0.5, 0.6, 25); M8.anim = null; if (M8.queue > 0) { M8.queue--; if (!m8LoadOne()) M8.queue = 0; } } }
+  m8Place();
+}
+function m8Centre() { const [fx, fz] = m8Dir(M8.yaw); return [M8.kp.x - fx * 6.5, M8.kp.z - fz * 6.5]; }
+function m8NearMods() { const [cx, cz] = m8Centre(); return CP.mods.filter(M => M.settled && Math.hypot(M.pos.x - cx, M.pos.z - cz) < 14); }
+function m8LoadOne() {
+  const i = M8.slots.indexOf(null); if (i < 0) { toast('Trailer’s full: ' + M8.slots.length + ' modules on', 2); return false; }
+  const [cx, cz] = m8Centre(), L = m8NearMods().sort((a, b) => Math.hypot(a.pos.x - cx, a.pos.z - cz) - Math.hypot(b.pos.x - cx, b.pos.z - cz)); if (!L.length) return false;
+  const M = L[0]; CP.mods.splice(CP.mods.indexOf(M), 1); scene.attach(M.m);
+  M8.anim = { m: M.m, from: M.m.position.clone(), q: M.m.quaternion.clone(), slot: M8_SLOTS[i], i, t: 0 }; return true;
+}
+function m8Unload() {
+  const R = M8.model.root; R.updateMatrixWorld(true); const q = R.getWorldQuaternion(new THREE.Quaternion()), axis = new THREE.Vector3(1, 0, 0).applyQuaternion(q); axis.y = 0; axis.normalize(); let n = 0;
+  for (let i = M8.slots.length - 1; i >= 0; i--) { const m = M8.slots[i]; if (!m) continue; M8.slots[i] = null; const p = R.localToWorld(new THREE.Vector3(-3.6, 0, M8_SLOTS[i][1]));
+    p.y = groundAt(p.x, p.z, p.y + 4, 0) + CP_R + 0.4; scene.attach(m); m.position.copy(p); m.quaternion.copy(q);
+    CP.mods.push({ m, pos: p.clone(), v: new THREE.Vector3(), axis: axis.clone(), q: q.clone(), settled: false, t: 0 }); n++; }
+  if (n) { toast(n + (n === 1 ? ' module' : ' modules') + ' off', 2); sfx('thud', M8.kp, 0.6, 0.55, 30); }
+}
+function m8Items(items) {
+  if (!M8.ready) return; const cnt = M8.slots.filter(Boolean).length, [cx, cz] = m8Centre();
+  const v = activeVeh(), truck = v && (v.name === 'truck' || v.name === 'mack') ? v.name : null, slow = Math.abs(S.v) < 0.6;
+  let near = false;
+  if (activeName === 'foot') near = Math.hypot(F.pos.x - cx, F.pos.z - cz) < 11;
+  else if (truck && M8.hitch === truck) near = slow;
+  if (truck && slow) {
+    if (M8.hitch === truck) items.push({ id: 'm8:unhitch', label: 'Unhook the module trailer', cls: 'ghost' });
+    else if (!M8.hitch) { const h = m8TruckHitch(truck), [fx, fz] = m8Dir(M8.yaw), ex = truck === 'mack' ? M8.kp.x + fx * (M8_LD - 0.2) : M8.kp.x, ez = truck === 'mack' ? M8.kp.z + fz * (M8_LD - 0.2) : M8.kp.z;
+      if (Math.hypot(h[0] - ex, h[1] - ez) < (truck === 'mack' ? 2.2 : 1.8) && Math.abs(faAng(h[2] - M8.yaw)) < 0.6) {
+        if (truck === 'truck' && !TIP.free) items.push({ id: 'tip:unhook', label: 'Unhook the tipper first', cls: 'warn' });
+        else items.push({ id: 'm8:hitch', label: 'Hook up the module trailer', cls: 'warn' }); } }
+    if (truck === 'truck' && M8.hitch !== 'truck') {
+      if (!TIP.free && TIP.tilt < 0.02) items.push({ id: 'tip:unhook', label: 'Unhook the tipper', cls: 'ghost' });
+      else if (TIP.free && !M8.hitch) { const h = m8TruckHitch('truck'); if (Math.hypot(h[0] - TIP.hitch.x, h[1] - TIP.hitch.z) < 1.8 && Math.abs(faAng(h[2] - TIP.yaw)) < 0.6) items.push({ id: 'tip:hook', label: 'Hook up the tipper', cls: 'warn' }); }
+    }
+  }
+  if (near && !M8.anim) {
+    if (cnt < M8.slots.length && m8NearMods().length) items.push({ id: 'm8:load', label: 'Load modules (' + cnt + '/' + M8.slots.length + ')', cls: 'warn' });
+    if (cnt) items.push({ id: 'm8:unload', label: 'Unload ' + cnt + (cnt === 1 ? ' module' : ' modules'), cls: 'ghost' });
+  }
+}
+function m8Act(id) {
+  if (id === 'm8:hitch') { const v = activeVeh(); M8.hitch = v.name; if (v.name === 'mack') { M8.dYaw = M8.yaw; const [fx, fz] = m8Dir(M8.yaw); M8.dEye = [M8.kp.x + fx * (M8_LD - 0.2), M8.kp.z + fz * (M8_LD - 0.2)]; }
+    sfx('thud', M8.kp, 0.6, 0.8, 20); toast(v.name === 'mack' ? 'Module trailer on, on the dolly' : 'Module trailer on', 1.8); }
+  else if (id === 'm8:unhitch') { M8.hitch = null; if (M8.dolly) M8.dolly.root.visible = false; sfx('thud', M8.kp, 0.5, 0.9, 20); toast('Module trailer off: legs going down', 1.8); }
+  else if (id === 'm8:load') { if (m8LoadOne()) M8.queue = 8; }
+  else if (id === 'm8:unload') m8Unload();
+  else if (id === 'tip:unhook') { TIP.free = true; sfx('thud', TIP.hitch, 0.5, 0.9, 20); toast('Tipper off', 1.5); }
+  else if (id === 'tip:hook') { TIP.free = false; sfx('thud', TIP.hitch, 0.6, 0.8, 20); toast('Tipper back on', 1.5); }
+  actKey = '';
+}
+
 /* ================================================================
    ANIMAL SOUNDS, take two (Nov 2026): simpler and more natural
    Angus: "only really need a standard bird chirp and a pig oink". So every bird uses one songbird
@@ -19689,7 +19816,7 @@ window.__game = { PCL_get: () => PCL, RIDE, RIDE_SEATS, rideIn, rideOut, rideabl
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
 Object.assign(window.__game, { lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
-Object.assign(window.__game, { GS, gsToggle, UJ, ujAct, mackTip, TK, drvPath, PILES, addToPile, ujMat, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
+Object.assign(window.__game, { GS, gsToggle, UJ, ujAct, mackTip, TK, drvPath, PILES, addToPile, ujMat, M8, m8Act, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
 load().catch(e => console.error(e));
 </script>
 </body>
