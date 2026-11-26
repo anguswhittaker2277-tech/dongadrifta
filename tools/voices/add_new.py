@@ -7,11 +7,12 @@ def enc(src, fx, dst):
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', src, '-af', fx + ',loudnorm=I=-17:TP=-1.5:LRA=11', '-ar', '24000', '-ac', '1', '-c:a', 'libmp3lame', '-b:a', '32k', dst], check=True)
     return float(subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', dst]).decode().strip())
 path, who, src = sys.argv[1], sys.argv[2], sys.argv[3]
-assert who in ('mm', 'dm'), 'mm or dm'
+assert who in ('mm', 'dm', 'tk'), 'mm, dm or tk'
 raw = open(path, 'rb').read(); n = struct.unpack('<I', raw[:4])[0]; head = json.loads(raw[4:4 + n]); base = 4 + n
 idx = json.load(open(os.path.join(src, 'index.json'))); blob = bytearray()
 def keep(ent): b = raw[base + ent[0]: base + ent[0] + ent[1]]; ent[0] = len(blob); blob.extend(b)
-for w in ('mm', 'dm', 'mt'):
+head.setdefault(who, {})
+for w in ('mm', 'dm', 'mt', 'tk'):
     for k, e in list(head.get(w, {}).items()):
         if w == who and k in idx: del head[w][k]
         else: keep(e)

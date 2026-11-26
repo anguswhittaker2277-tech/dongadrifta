@@ -7,6 +7,8 @@ FX = {
   # the backpackers off one French voice: Chloe as recorded, the two blokes pitched down (formants and all, so they sound bigger)
   # Dima: a huge Russian: pitched down a little, a big chest and a slow, heavy delivery, clean (no gravel; he's healthy)
   'dm': TRIM + ",asetrate=24000*0.9,aresample=24000,atempo=1.04,equalizer=f=110:t=q:w=0.9:g=6,equalizer=f=300:t=q:w=1:g=2,equalizer=f=2600:t=q:w=1.2:g=1.5,acompressor=threshold=0.12:ratio=3:attack=5:release=80,volume=2",
+  # the urea truckie: a wiry young bogan: up a touch, a nasal honk, a bit of chest, squashed flat like he's yelling over the engine
+  'tk': TRIM + ",asetrate=24000*1.03,aresample=24000,atempo=0.97,equalizer=f=1350:t=q:w=1.1:g=5,equalizer=f=220:t=q:w=1:g=2.5,equalizer=f=3800:t=q:w=1.4:g=2,acompressor=threshold=0.1:ratio=4:attack=4:release=60,volume=2.4,asoftclip=type=tanh",
   # Matt: his own recordings (Voicebox, off his voice profile), just trimmed and levelled
   'mt': TRIM,
   'C': TRIM, 'M': TRIM + ",asetrate=24000*0.82,aresample=24000,atempo=1.2195", 'A': TRIM + ",asetrate=24000*0.77,aresample=24000,atempo=1.2987",

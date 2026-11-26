@@ -216,6 +216,9 @@ body.c-foot #jump{display:grid}
 body.c-foot #lookZone{display:block;width:100%}
 body.gnd #lookZone{display:block;width:100%}
 body.c-foot #stickZone{left:env(safe-area-inset-left,0px);bottom:0;width:224px;height:214px}
+/* fixed sticks: each one's touch area is the corner round it */
+#stickZone{left:env(safe-area-inset-left,0px)!important;width:236px!important;height:226px!important}body.c-duster #stickZone{left:calc(110px + env(safe-area-inset-left,0px))!important}
+#stickZoneR{right:env(safe-area-inset-right,0px)!important;width:236px!important;height:226px!important}
 body.c-foot #brake,body.c-drone #brake,body.c-flyer #brake{display:none}
 body.c-foot .tick{display:none}
 /* second stick for flying */
@@ -477,8 +480,6 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 @media (max-height:360px){#wFire{width:78px;height:78px;bottom:calc(22px + env(safe-area-inset-bottom,0px))}#wPill{bottom:calc(108px + env(safe-area-inset-bottom,0px));height:34px}#wHolster{bottom:calc(148px + env(safe-area-inset-bottom,0px));width:34px;height:34px}
   #wAlt{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(86px + env(safe-area-inset-bottom,0px));height:34px}body.armed #jump{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}
   #hpbar{top:calc(130px + env(safe-area-inset-top,0px));width:76px}#wasted{font-size:44px}}
-/* the telehandler on the car controls: GAS and BRAKE sit left of the boom stick, no handbrake */
-body.c-tele.drift #hbrake{display:none!important}body.c-tele.drift #stickR .tick.f,body.c-tele.drift #stickR .tick.r{display:block!important}body.c-tele.drift #gas{right:calc(max(16px,env(safe-area-inset-right,0px)) + 168px)!important;bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}body.c-tele.drift #brake{display:grid!important;right:calc(max(16px,env(safe-area-inset-right,0px)) + 258px)!important;bottom:calc(40px + env(safe-area-inset-bottom,0px))!important}
 </style>
 
 <div id="view"></div>
@@ -3006,8 +3007,7 @@ placeStickHome();
 zone.addEventListener('pointerdown', e => {
   if (stickId !== null) return;
   stickId = e.pointerId; try { zone.setPointerCapture(e.pointerId); } catch (_) {}
-  if (document.body.classList.contains('c-foot')) { const r = stick.getBoundingClientRect(); sx = r.left + r.width / 2; sy = r.top + r.height / 2; }      // on foot it's a fixed stick: push it from where it is
-  else { sx = e.clientX; sy = e.clientY; stick.style.left = sx + 'px'; stick.style.top = sy + 'px'; }
+  { const r = stick.getBoundingClientRect(); sx = r.left + r.width / 2; sy = r.top + r.height / 2; }      // a fixed stick: it stays where it is and you push it from there
   stick.classList.remove('idle');
   moveStick(e); dismissHint();
 });
@@ -4772,8 +4772,9 @@ const PARK = {
   duster:  { at: [-7, 108],  dir: [0.41, -0.91] },
 };
 const HOME = {};
-// the machines live in the open machinery shed: front row nosed out to the south, bikes in the back row nosed out north
-const SHED_PARK = [['bmw', 0, 1], ['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['suv', 4, -1], ['dirtbike', 1, 1], ['bike', 2, 1], ['scooter', 3, 1]];
+// the machines live in the open machinery shed: front row nosed out to the south, the truck and the 9RX in the back row nosed
+// out north (the bikes and the scooter are in Matt's shed: see shedParking)
+const SHED_PARK = [['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['rx', 1, 1, 4.0], ['truck', 3, 1, 8.0]];      // (the back row sits further in; the truck's tipper is long, so its cab noses just out the open side and the tail clears the trophy truck)
 function homeY(x, z) { const sf = STRUCTS.ready ? shedFloorAt(x, z) : null; return groundAt(x, z, sf !== null ? sf + 2.5 : 30, 0); }    // under a shed roof, start below it
 // where you start (and get back up): the dunny by the dongas, or out the front of the machinery shed (menu: Start at)
 let START_AT = (() => { try { return localStorage.getItem('wfy.start') === 'shed' ? 'shed' : 'dongas'; } catch (_) { return 'dongas'; } })();
@@ -4787,20 +4788,22 @@ function startSpot() { return START_AT === 'shed' && HOME.shedStart ? HOME.shedS
 function farmerHomeY(h0) { const h = h0 || startSpot(); if (h.dunny && DN.root) return groundAt(h.x, h.z, DN.gy + 1.4, DN.gy); return h.indoors && typeof DG !== 'undefined' && DG.root ? groundAt(h.x, h.z, DG.gy + 1.5, DG.gy) : homeY(h.x, h.z); }      // under a roof: look for the floor from head height
 function shedParking() {
   const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], da = 2 * D.hv / D.bays;
-  for (const [name, bay, row] of SHED_PARK) {
-    const u = row * 6.2, v = -D.hv + da * (bay + 0.5), x = D.cx + U[0] * u + V[0] * v, z = D.cz + U[1] * u + V[1] * v;
+  for (const [name, bay, row, uu] of SHED_PARK) {
+    const u = uu !== undefined ? uu : row * 6.2, v = -D.hv + da * (bay + 0.5), x = D.cx + U[0] * u + V[0] * v, z = D.cz + U[1] * u + V[1] * v;
     HOME[name] = { x, z, yaw: Math.atan2(U[0] * row, U[1] * row) };
   }
-  HOME.truck = { x: -56, z: 28, yaw: Math.PI };
+  // the dirt bike, the push bike and the e-scooter: in a row in the open lean-to of Matt's shed, nosed out its open side, clear of
+  // his workshop and of the rocket's way out down the middle
+  { const A = STRUCT_DEFS.find(d => d.id === 'shedA'), t = A.ang * Math.PI / 180, yaw = Math.atan2(Math.cos(t), Math.sin(t));
+    for (const [name, v] of [['scooter', 5.2], ['bike', 7.3], ['dirtbike', 9.6]]) { const [x, z] = mtW(11.4, v); HOME[name] = { x, z, yaw }; } }
   HOME.mack = { x: 48, z: 50, yaw: -Math.PI / 2 };               // the Mack: waiting outside the grain shed, tail to the door
-  HOME.rx = { x: -61, z: 13, yaw: Math.PI };                     // the 9RX: on the open ground south of the road train, nose to the south
   { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], v = -D.hv + 2 * D.hv / D.bays * 4.5, yaw = Math.atan2(-U[0], -U[1]);
     HOME.picker = { x: D.cx + V[0] * v - Math.sin(yaw) * 4.2, z: D.cz + V[1] * v - Math.cos(yaw) * 4.2, yaw }; }   // the cotton picker: the whole end bay of the machinery shed, header up, nose out
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
   HOME.buggy = { x: 166.3, z: 53.4, yaw: -Math.PI / 2 };       // the buggy: north end of the dongas' gravel past Madman's ute, nose out, its driver's side (left) to the open ground
   { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], u = D.hu + 2.5;
-    HOME.shedStart = { x: D.cx + U[0] * u, z: D.cz + U[1] * u, yaw: Math.atan2(-U[0], -U[1]) }; }   // out the front of the machinery shed, looking in at the bikes
+    HOME.shedStart = { x: D.cx + U[0] * u, z: D.cz + U[1] * u, yaw: Math.atan2(-U[0], -U[1]) }; }   // out the front of the machinery shed, looking in at the machines
   { const [x, z] = dgW(0, 0.12, DN); HOME.farmer = { x, z, yaw: DN.yaw, indoors: true, dunny: true }; }   // you wake up in the dunny south of the water tanks, facing the door (not in the bunks: they might be on fire)
   HOME.ute = { x: 166.3, z: 50.4, yaw: -Math.PI / 2 };   // on the gravel beside the BMW, nose out to the open ground (tailgate to the dongas)   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
@@ -5775,7 +5778,7 @@ function setActive(name, opts = {}) {
   } else drift.on = false;
   if (name === 'foot' && F.mode === 'pilot') { F.mode = 'walk'; setFarmerProps('walk'); }
   S.air = false; S.vy = 0; S.pitchV = 0; MOTO.lean = MOTO.x = 0;
-  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'tele' || name === 'mack' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
+  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'mack' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
   camYaw = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   if (name === 'foot') camYawF = camYaw;
   input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
@@ -5931,7 +5934,7 @@ placeStickRHome();
 zoneR.addEventListener('pointerdown', e => {
   if (stickRId !== null) return;
   stickRId = e.pointerId; try { zoneR.setPointerCapture(e.pointerId); } catch (_) {}
-  rsx = e.clientX; rsy = e.clientY; stickR.style.left = rsx + 'px'; stickR.style.top = rsy + 'px'; stickR.classList.remove('idle'); moveStickR(e); dismissHint();
+  { const r = stickR.getBoundingClientRect(); rsx = r.left + r.width / 2; rsy = r.top + r.height / 2; } stickR.classList.remove('idle'); moveStickR(e); dismissHint();      // fixed too
 });
 zoneR.addEventListener('pointermove', e => { if (e.pointerId === stickRId) moveStickR(e); });
 const endStickR = e => { if (e.pointerId !== stickRId) return; stickRId = null; input.rx = input.ry = 0; knobR.style.transform = ''; stickR.classList.add('idle'); placeStickRHome(); };
@@ -12533,7 +12536,7 @@ function bubDom() {
    as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, url: 'voices-v1.bin?v=f2a94a30', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
+const VOX = { on: true, url: 'voices-v1.bin?v=18540c38', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
 const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
 // the same normalising the recording script used, so the game's text finds its clips
@@ -12570,7 +12573,7 @@ function voxSay(n, text) {
   if (d > 32) return 0;
   const now = AU.ctx.currentTime;
   let parts;
-  if (who === 'mm') parts = voxSplit(text); else if (who === 'dm' || who === 'mt') { const e = VOX.head[who] && VOX.head[who][voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
+  if (who === 'mm') parts = voxSplit(text); else if (who === 'dm' || who === 'mt' || who === 'tk') { const e = VOX.head[who] && VOX.head[who][voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
   if (!parts || !parts.length) return 0;
   voxStop(who);
   const g = AU.ctx.createGain(); g.gain.value = THREE.MathUtils.clamp(1.25 - d / 26, 0.12, 1) * (who === 'mm' ? 1.15 : 0.95); g.connect(AU.master);
@@ -12587,7 +12590,7 @@ function voxSay(n, text) {
 // where a voice comes from: the car only while he's actually driving it (a stale link to a ute parked somewhere else had Madman
 // heard right across the farm)
 function npcSpkPos(n) { return n.veh && n.veh.state && (n.st === 'drive' || n.veh.npc === n) ? n.veh.state.pos : n.pos; }
-const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : n.matt ? 'mt' : VOX_WHO[n.name];
+const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : n.matt ? 'mt' : n.tk ? 'tk' : VOX_WHO[n.name];
 document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
   if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; } if (n.dima) { dmSayNpc(n, line); return; } if (n.matt) { mtSayNpc(n, line); return; }     // Madman never gets the backpackers' French: map to his own lines
@@ -13736,8 +13739,7 @@ ENG.mack = Object.assign({}, ENG.truck, { seed: 101 });
 // two-handed controls like the X5 and the ute (left thumb steers, GAS and BRAKE on the right): a machine this big is
 // hard to hold on one stick. The numbers are its own, not a car's
 SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40 / 3.6, rev: 15 / 3.6, drive: 1.7, steer: 0.58, steerFast: 0.24, kick: 0.6, catch: 0.3 });
-// the telehandler too: steer on the left, GAS and BRAKE beside the boom stick on the right
-SPECS.tele.drift = Object.assign({}, DRIFT, { m: 7500, Iz: 9000, a: 1.4, top: 40 / 3.6, rev: 20 / 3.6, drive: 1.8, steer: 0.6, steerFast: 0.18, kick: 0.6, catch: 0.3 });
+// (the telehandler drives on the left joystick, like the tractor and the dozer: the right one works the boom)
 SPECS.mack.drift = Object.assign({}, DRIFT, { m: 14000, Iz: 60000, a: 3.2, top: 100 / 3.6, rev: 12 / 3.6, drive: 1.5, steer: 0.6, steerFast: 0.14, kick: 0.5, catch: 0.3 });
 
 /* ================================================================
@@ -14487,10 +14489,11 @@ function tkPick(a) { return Array.isArray(a) ? a[Math.floor(Math.random() * a.le
 function tkBuild() {
   if (TK.n) return TK.n; const L = lookFix(TK_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root); P.root.scale.setScalar(s); P.root.visible = false;
   const el = document.createElement('div'); el.className = 'nbub'; el.innerHTML = '<div class="bx"></div><div class="tl"></div>'; bubLayer().appendChild(el);
-  TK.n = { P, root: P.root, s, pos: new THREE.Vector3(), yaw: 0, sp: 0, ph: 0, tgt: null, el, bx: el.firstChild, bubT: 0, face: null, cross: 0 };
+  TK.n = { tk: true, P, root: P.root, s, pos: new THREE.Vector3(), yaw: 0, sp: 0, ph: 0, tgt: null, el, bx: el.firstChild, bubT: 0, face: null, cross: 0 };
   return TK.n;
 }
-function tkSay(line, dur) { const n = TK.n; if (!n || !n.root.visible || !line) return; n.bx.textContent = line; n.bubT = dur || Math.max(2.8, Math.min(6, line.length * 0.07)); }
+function tkSay(line, dur) { const n = TK.n; if (!n || !n.root.visible || !line) return; n.bx.textContent = line; n.bubT = dur || Math.max(2.8, Math.min(6, line.length * 0.07));
+  const t = voxSay(n, line); if (t > 0) n.bubT = Math.max(n.bubT, t + 0.6); }
 function tkVehW(lx, lz) { const st = VEH.mack.state, fx = Math.sin(st.yaw), fz = Math.cos(st.yaw); return [st.pos.x + fz * lx + fx * lz, st.pos.z - fx * lx + fz * lz]; }
 function tkHide() {
   const v = VEH.mack; if (!v || !v.state || activeName === 'mack') return; v.npc = TK; TK.veh = v;
@@ -19827,7 +19830,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
 }
 
-window.__game = { PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { TK_L_get: () => TK_L, VOX_get: () => VOX, voxSay2: (...a) => voxSay(...a), PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
