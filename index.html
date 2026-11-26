@@ -216,6 +216,9 @@ body.c-foot #jump{display:grid}
 body.c-foot #lookZone{display:block;width:100%}
 body.gnd #lookZone{display:block;width:100%}
 body.c-foot #stickZone{left:env(safe-area-inset-left,0px);bottom:0;width:224px;height:214px}
+/* fixed sticks: each one's touch area is the corner round it */
+#stickZone{left:env(safe-area-inset-left,0px)!important;width:236px!important;height:226px!important}body.c-duster #stickZone{left:calc(110px + env(safe-area-inset-left,0px))!important}
+#stickZoneR{right:env(safe-area-inset-right,0px)!important;width:236px!important;height:226px!important}
 body.c-foot #brake,body.c-drone #brake,body.c-flyer #brake{display:none}
 body.c-foot .tick{display:none}
 /* second stick for flying */
@@ -477,8 +480,6 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 @media (max-height:360px){#wFire{width:78px;height:78px;bottom:calc(22px + env(safe-area-inset-bottom,0px))}#wPill{bottom:calc(108px + env(safe-area-inset-bottom,0px));height:34px}#wHolster{bottom:calc(148px + env(safe-area-inset-bottom,0px));width:34px;height:34px}
   #wAlt{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(86px + env(safe-area-inset-bottom,0px));height:34px}body.armed #jump{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}
   #hpbar{top:calc(130px + env(safe-area-inset-top,0px));width:76px}#wasted{font-size:44px}}
-/* the telehandler on the car controls: GAS and BRAKE sit left of the boom stick, no handbrake */
-body.c-tele.drift #hbrake{display:none!important}body.c-tele.drift #stickR .tick.f,body.c-tele.drift #stickR .tick.r{display:block!important}body.c-tele.drift #gas{right:calc(max(16px,env(safe-area-inset-right,0px)) + 168px)!important;bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}body.c-tele.drift #brake{display:grid!important;right:calc(max(16px,env(safe-area-inset-right,0px)) + 258px)!important;bottom:calc(40px + env(safe-area-inset-bottom,0px))!important}
 </style>
 
 <div id="view"></div>
@@ -3006,8 +3007,7 @@ placeStickHome();
 zone.addEventListener('pointerdown', e => {
   if (stickId !== null) return;
   stickId = e.pointerId; try { zone.setPointerCapture(e.pointerId); } catch (_) {}
-  if (document.body.classList.contains('c-foot')) { const r = stick.getBoundingClientRect(); sx = r.left + r.width / 2; sy = r.top + r.height / 2; }      // on foot it's a fixed stick: push it from where it is
-  else { sx = e.clientX; sy = e.clientY; stick.style.left = sx + 'px'; stick.style.top = sy + 'px'; }
+  { const r = stick.getBoundingClientRect(); sx = r.left + r.width / 2; sy = r.top + r.height / 2; }      // a fixed stick: it stays where it is and you push it from there
   stick.classList.remove('idle');
   moveStick(e); dismissHint();
 });
@@ -5775,7 +5775,7 @@ function setActive(name, opts = {}) {
   } else drift.on = false;
   if (name === 'foot' && F.mode === 'pilot') { F.mode = 'walk'; setFarmerProps('walk'); }
   S.air = false; S.vy = 0; S.pitchV = 0; MOTO.lean = MOTO.x = 0;
-  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'tele' || name === 'mack' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
+  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'mack' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
   camYaw = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   if (name === 'foot') camYawF = camYaw;
   input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
@@ -5931,7 +5931,7 @@ placeStickRHome();
 zoneR.addEventListener('pointerdown', e => {
   if (stickRId !== null) return;
   stickRId = e.pointerId; try { zoneR.setPointerCapture(e.pointerId); } catch (_) {}
-  rsx = e.clientX; rsy = e.clientY; stickR.style.left = rsx + 'px'; stickR.style.top = rsy + 'px'; stickR.classList.remove('idle'); moveStickR(e); dismissHint();
+  { const r = stickR.getBoundingClientRect(); rsx = r.left + r.width / 2; rsy = r.top + r.height / 2; } stickR.classList.remove('idle'); moveStickR(e); dismissHint();      // fixed too
 });
 zoneR.addEventListener('pointermove', e => { if (e.pointerId === stickRId) moveStickR(e); });
 const endStickR = e => { if (e.pointerId !== stickRId) return; stickRId = null; input.rx = input.ry = 0; knobR.style.transform = ''; stickR.classList.add('idle'); placeStickRHome(); };
@@ -13736,8 +13736,7 @@ ENG.mack = Object.assign({}, ENG.truck, { seed: 101 });
 // two-handed controls like the X5 and the ute (left thumb steers, GAS and BRAKE on the right): a machine this big is
 // hard to hold on one stick. The numbers are its own, not a car's
 SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40 / 3.6, rev: 15 / 3.6, drive: 1.7, steer: 0.58, steerFast: 0.24, kick: 0.6, catch: 0.3 });
-// the telehandler too: steer on the left, GAS and BRAKE beside the boom stick on the right
-SPECS.tele.drift = Object.assign({}, DRIFT, { m: 7500, Iz: 9000, a: 1.4, top: 40 / 3.6, rev: 20 / 3.6, drive: 1.8, steer: 0.6, steerFast: 0.18, kick: 0.6, catch: 0.3 });
+// (the telehandler drives on the left joystick, like the tractor and the dozer: the right one works the boom)
 SPECS.mack.drift = Object.assign({}, DRIFT, { m: 14000, Iz: 60000, a: 3.2, top: 100 / 3.6, rev: 12 / 3.6, drive: 1.5, steer: 0.6, steerFast: 0.14, kick: 0.5, catch: 0.3 });
 
 /* ================================================================
