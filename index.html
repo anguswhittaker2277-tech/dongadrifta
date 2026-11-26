@@ -480,8 +480,6 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 @media (max-height:360px){#wFire{width:78px;height:78px;bottom:calc(22px + env(safe-area-inset-bottom,0px))}#wPill{bottom:calc(108px + env(safe-area-inset-bottom,0px));height:34px}#wHolster{bottom:calc(148px + env(safe-area-inset-bottom,0px));width:34px;height:34px}
   #wAlt{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(86px + env(safe-area-inset-bottom,0px));height:34px}body.armed #jump{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}
   #hpbar{top:calc(130px + env(safe-area-inset-top,0px));width:76px}#wasted{font-size:44px}}
-/* the telehandler on the car controls: GAS and BRAKE sit left of the boom stick, no handbrake */
-body.c-tele.drift #hbrake{display:none!important}body.c-tele.drift #stickR .tick.f,body.c-tele.drift #stickR .tick.r{display:block!important}body.c-tele.drift #gas{right:calc(max(16px,env(safe-area-inset-right,0px)) + 168px)!important;bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}body.c-tele.drift #brake{display:grid!important;right:calc(max(16px,env(safe-area-inset-right,0px)) + 258px)!important;bottom:calc(40px + env(safe-area-inset-bottom,0px))!important}
 </style>
 
 <div id="view"></div>
@@ -2531,10 +2529,11 @@ SPECS.mack = Object.assign({}, SPECS.truck, { revCam: true, top: 100 / 3.6, rev:
    rubber track jd50g-track.glb, tools/fs-mod/build_vehicle.py). Its moving tools are the mod's: the upper slews all the way
    round (40 deg/s), the boom (-95..0 deg), dipper (65..180) and bucket (-10..100) at 20 deg/s, the blade (-10..25) and the
    boom swing. The rams are the mod's movingParts; the bucket's four-bar linkage (armMover / armMoverPart) is solved here.
-   Controls, as a phone game: Drive mode, left stick drives the tracks (spins on the spot), right stick works boom and
-   bucket. Dig mode locks the tracks and puts slew and dipper on the left stick (ISO pattern). Blade and swing on buttons.
+   Controls, like its cab: the two sticks always work the arm, ISO pattern (left: slew and dipper, right: boom and bucket), and
+   the two track levers between them drive it (both up to go, one each way to spin it round). No modes. Blade and swing on
+   buttons. Keys: W A S D drive, I J K L slew and reach, arrows boom and bucket.
    The bucket digs where its teeth go into the ground (or a heap), and tips into the tipper or onto the ground. ---------- */
-const EX = { slew: 0, boom: -52, arm: 130, bkt: 45, blade: 0, swing: 0, dig: false, fill: 0, hold: null, hyd: 0, seated: false, seatRot0: 0, told: {}, digAcc: 0, pourAcc: 0, markAcc: 0 };
+const EX = { slew: 0, boom: -52, arm: 130, bkt: 45, blade: 0, swing: 0, dig: false, trL: 0, trR: 0, fill: 0, hold: null, hyd: 0, seated: false, seatRot0: 0, told: {}, digAcc: 0, pourAcc: 0, markAcc: 0 };
 const EX_LIM = { boom: [-95, 0], arm: [65, 180], bkt: [-10, 100], blade: [-10, 25], swing: [-45, 45] }, EX_BV = 0.35;
 function buildExc() {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
@@ -2594,7 +2593,8 @@ function excStep(dt) {
   // the sticks: a curve for fine work near the middle (full speed only at the edge), and the hydraulics take a moment to
   // come up to speed and to stop, like the mod's rotAcceleration, so a twitch of the thumb doesn't jerk the arm about
   const cv = (v) => { v = exAxis(THREE.MathUtils.clamp(v, -1, 1)); return Math.sign(v) * Math.pow(Math.abs(v), 1.7); };
-  const want = { ry: cv(input.ry + input.kUD), rx: cv(input.rx + input.kLR), lx: EX.dig ? cv(input.x + input.kx) : 0, ly: EX.dig ? cv(input.y + input.ky) : 0 };
+  const kIJKL = (a, b) => (keys.has(a) ? 1 : 0) - (keys.has(b) ? 1 : 0);
+  const want = { ry: cv(input.ry + input.kUD), rx: cv(input.rx + input.kLR), lx: cv(input.x + kIJKL('l', 'j')), ly: cv(input.y + kIJKL('i', 'k')) };
   const SV = EX.sv || (EX.sv = { ry: 0, rx: 0, lx: 0, ly: 0 }), kk = 1 - Math.exp(-dt / 0.14);
   for (const q in want) SV[q] += (want[q] - SV[q]) * kk;
   const rx = SV.rx, ry = SV.ry, lx = SV.lx, ly = SV.ly;
@@ -2604,7 +2604,7 @@ function excStep(dt) {
   EX.slew -= lx * 40 * dt; EX.slew = ((EX.slew + 540) % 360) - 180;
   const h = EX.hold;
   if (h === 'ex:bladeU') EX.blade = Math.min(EX_LIM.blade[1], EX.blade + 25 * dt); else if (h === 'ex:bladeD') EX.blade = Math.max(EX_LIM.blade[0], EX.blade - 25 * dt);
-  if (h === 'ex:swL') EX.swing = Math.min(EX_LIM.swing[1], EX.swing + 15 * dt); else if (h === 'ex:swR') EX.swing = Math.max(EX_LIM.swing[0], EX.swing - 15 * dt);
+  if (h === 'ex2:swL') EX.swing = Math.min(EX_LIM.swing[1], EX.swing + 15 * dt); else if (h === 'ex2:swR') EX.swing = Math.max(EX_LIM.swing[0], EX.swing - 15 * dt);
   exApply();
   // the ground stops the bucket: its teeth can't go more than a bite under
   const tip = C.tip.getWorldPosition(new THREE.Vector3()), g = groundAt(tip.x, tip.z, tip.y + 2, -1e9);
@@ -2639,9 +2639,8 @@ function excStep(dt) {
 }
 function exItems(items) {
   const v = activeVeh(); if (!v || v.name !== 'exc') return;
-  items.push({ id: 'ex:dig', label: EX.dig ? 'Drive mode' : 'Dig mode', cls: EX.dig ? 'warn' : 'ghost', pressed: EX.dig });
-  if (EX.dig) { items.push({ id: 'ex:swL', label: 'Swing ◀', cls: 'ghost hold' }); items.push({ id: 'ex:swR', label: 'Swing ▶', cls: 'ghost hold' }); }
-  else { items.push({ id: 'ex:bladeU', label: 'Blade ▲', cls: 'ghost hold' }); items.push({ id: 'ex:bladeD', label: 'Blade ▼', cls: 'ghost hold' }); }
+  items.push({ id: 'ex:bladeU', label: 'Blade ▲', cls: 'ghost hold' }); items.push({ id: 'ex:bladeD', label: 'Blade ▼', cls: 'ghost hold' });
+  items.push({ id: 'ex2:swL', label: 'Swing ◀', cls: 'ghost hold' }); items.push({ id: 'ex2:swR', label: 'Swing ▶', cls: 'ghost hold' });      // (ex2: behind the ⋯)
 }
 // the operator's views: from the seat (turning with the upper, drag to look round), or up over the cab watching the bucket
 function excView(view, dt) {
@@ -2665,21 +2664,38 @@ function exChip() {
   let c = EX.chip; const on = activeName === 'exc';
   if (!c) { if (!on) return; c = EX.chip = document.createElement('div'); c.className = 'ui'; c.style.cssText = 'position:fixed;z-index:9;left:calc(120px + env(safe-area-inset-left,0px));top:calc(80px + env(safe-area-inset-top,0px));background:rgba(22,26,25,.78);color:#fff;border-radius:10px;padding:4px 10px;font:600 12px/1.25 system-ui,sans-serif;pointer-events:none;display:none'; document.body.appendChild(c); }
   c.style.display = on ? 'block' : 'none'; if (!on) return;
-  const t = (EX.dig ? 'DIG' : 'DRIVE') + ' \u00b7 Bucket ' + Math.round(EX.fill * 100) + '%'; if (c.textContent !== t) c.textContent = t;
+  const t = 'Bucket ' + Math.round(EX.fill * 100) + '%'; if (c.textContent !== t) c.textContent = t;
 }
 function exTicks() {
   const t = (s, v) => { const e = document.querySelector(s); if (e) e.textContent = v; };
-  t('#stickR .tick.f', 'BOOM UP'); t('#stickR .tick.r', 'BOOM DN'); t('#stickR .tick.l', '◀ CURL'); t('#stickR .tick.rt', 'DUMP ▶');
-  if (EX.dig) { t('#stick .tick.f', 'REACH'); t('#stick .tick.r', 'PULL IN'); t('#stick .tick.l', '⟲'); t('#stick .tick.rt', '⟳'); }
-  else { t('#stick .tick.f', 'FWD'); t('#stick .tick.r', 'REV'); t('#stick .tick.l', '◀'); t('#stick .tick.rt', '▶'); }
-  document.body.classList.toggle('exdig', EX.dig);
+  t('#stickR .tick.f', 'BOOM UP'); t('#stickR .tick.r', 'BOOM DN'); t('#stickR .tick.l', 'CURL'); t('#stickR .tick.rt', 'DUMP');
+  t('#stick .tick.f', 'REACH'); t('#stick .tick.r', 'PULL IN'); t('#stick .tick.l', '⟲'); t('#stick .tick.rt', '⟳');
+  exTrackUI();
 }
-function exAct(id) {
-  if (id === 'ex:dig') { EX.dig = !EX.dig; exTicks();
-    // dig mode goes to the cab (or whichever dig view you last had); drive mode back to yours
-    if (EX.dig) { EX.driveView = VIEW.cur; VIEW.cur = EX.digView || 'cab'; } else { EX.digView = VIEW.cur; VIEW.cur = EX.driveView && viewList('exc').includes(EX.driveView) ? EX.driveView : 'chase'; }
-    VIEW.cine = null; viewChanged(); if (typeof PCL !== 'undefined') { PCL.vyaw = 0; PCL.vpitch = 0; }
-    toast(EX.dig ? 'Dig mode: tracks locked. Left stick swings the cab and reaches; right stick boom and bucket. Camera button for other views' : 'Drive mode: left stick drives', 3); actKey = ''; }
+function exAct(id) { }
+// the two track levers, between the sticks: drag each up or down (it springs back to the middle when you let go), like the
+// travel levers in the cab: both up, it goes; both back, it backs up; one each way, it spins round on the spot
+function exTrackUI() {
+  if (EX.trUI) return; const st = document.createElement('style');
+  st.textContent = '#exTr{position:fixed;z-index:8;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom,0px));display:none;gap:16px;touch-action:none}body.c-exc #exTr{display:flex}' +
+    '#exTr .lv{position:relative;width:56px;height:156px;border-radius:28px;background:var(--glass);box-shadow:var(--shadow);touch-action:none;-webkit-user-select:none;user-select:none}' +
+    '#exTr .th{position:absolute;left:6px;top:56px;width:44px;height:44px;border-radius:50%;background:var(--accent);box-shadow:0 2px 6px rgba(0,0,0,.3);transition:top .12s}#exTr .lv.on .th{transition:none}' +
+    '#exTr .mk{position:absolute;left:0;right:0;text-align:center;font:700 10px var(--font);color:var(--accent);opacity:.75}#exTr .mk.u{top:6px}#exTr .mk.d{bottom:6px}#exTr .nm{position:absolute;left:0;right:0;top:69px;text-align:center;font:800 11px var(--font);color:#fff;pointer-events:none}' +
+    'body.c-exc .tick.l,body.c-exc .tick.rt{display:block}body.c-exc #stick .tick.l,body.c-exc #stickR .tick.l{left:6px;font-size:9px}body.c-exc #stick .tick.rt,body.c-exc #stickR .tick.rt{right:6px;font-size:9px}';
+  document.head.appendChild(st);
+  const box = document.createElement('div'); box.id = 'exTr'; box.className = 'ui';
+  for (const side of ['L', 'R']) {
+    const lv = document.createElement('div'); lv.className = 'lv'; lv.innerHTML = '<div class="mk u">\u25b2</div><div class="mk d">\u25bc</div><div class="th"></div><div class="nm">' + side + '</div>';
+    const th = lv.querySelector('.th'), nm = lv.querySelector('.nm'); let id = null;
+    const set = v => { v = THREE.MathUtils.clamp(v, -1, 1); if (Math.abs(v) < 0.1) v = 0; EX['tr' + side] = v; const top = 56 - v * 50; th.style.top = top + 'px'; nm.style.top = (top + 13) + 'px'; };
+    const at = e => { const r = lv.getBoundingClientRect(); return -(e.clientY - (r.top + r.height / 2)) / 50; };
+    lv.addEventListener('pointerdown', e => { e.preventDefault(); if (id !== null) return; id = e.pointerId; try { lv.setPointerCapture(id); } catch (_) {} lv.classList.add('on'); set(at(e)); dismissHint(); });
+    lv.addEventListener('pointermove', e => { if (e.pointerId === id) set(at(e)); });
+    const end = e => { if (e.pointerId !== id) return; id = null; lv.classList.remove('on'); set(0); };
+    lv.addEventListener('pointerup', end); lv.addEventListener('pointercancel', end); lv.addEventListener('lostpointercapture', end);
+    box.appendChild(lv);
+  }
+  document.body.appendChild(box); EX.trUI = true;
 }
 
 SPECS.exc = Object.assign({}, SPECS.dozer, { top: 9 / 3.6, rev: 9 / 3.6, accel: 1.2, brake: 5, wb: 1.82, front: 1.7, rear: 1.3, halfW: 1.0, rayH: [0.35, 0.9, 1.8], lanes: [-0.8, 0, 0.8], noseLane: 0.7,
@@ -2690,7 +2706,7 @@ const CP_CFG = (() => { let o = {}; try { o = JSON.parse(localStorage.getItem('w
   for (const k in CP_CFG_DEF) if (typeof c[k] !== typeof CP_CFG_DEF[k]) c[k] = CP_CFG_DEF[k]; return c; })();
 // handling: a 26 t rear-steer machine; 25 km/h on the road (10 picking, see cpStep), 12 back; the back wheels steer (rs)
 SPECS.picker = Object.assign({}, SPECS.tractor, { top: 25 / 3.6, rev: 12 / 3.6, accel: 1.2, brake: 5.0, wb: 4.31, steer: 0.62, steerFast: 0.3, steerRate: 1.1, rs: true,
-  front: 8.1, rear: 2.45, halfW: 2.7, rayH: [0.5, 1.3, 2.6, 3.8],          // (the model: header tips 7.97 m ahead of the back axle, tail 2.33 behind, 6.3 m across the header) lanes: [-2.9, -1.45, 0, 1.45, 2.8], noseLane: 0.5, rF: 1.0, rR: 0.83, step: 0.55,
+  front: 8.1, rear: 2.45, halfW: 2.7, rayH: [0.5, 1.3, 2.6, 3.8], lanes: [-2.9, -1.45, 0, 1.45, 2.8], noseLane: 0.5, rF: 1.0, rR: 0.83, step: 0.55,      // (front, rear, halfW: the model's header tips are 7.97 m ahead of the back axle, its tail 2.33 behind, 6.3 m across the header)
   trackR: 1.06, trackF: 1.55, roll: 0.01, rollMax: 0.04, grip: 3.0, susK: 120, susC: 11, camBack: 19, camUp: 8.6, camPivot: 3.4, look: 5.2, lookH: 3.0 });
 
 
@@ -3392,7 +3408,8 @@ function step(dt) {
     steerIn = THREE.MathUtils.clamp(input.x + input.kx, -1, 1);
     braking = input.brake || input.kb;
   }
-  if (activeName === 'exc' && EX.dig && !SIM.npc) { throttle = 0; steerIn = 0; braking = true; }      // (dig mode: the sticks work the arm, the tracks stay put)
+  if (activeName === 'exc' && !SIM.npc) {      // the excavator: its track levers (or W A S D) drive it; the sticks are the arm's
+    throttle = THREE.MathUtils.clamp((EX.trL + EX.trR) / 2 + input.ky, -1, 1); steerIn = THREE.MathUtils.clamp((EX.trL - EX.trR) / 2 + input.kx, -1, 1); braking = input.kb; }
   if (DMG.v[activeName]) steerIn = dmgPre(activeName, V, steerIn);          // flat tyres: slower, greasier, and it pulls to that side
 
   const slip = !V.moto && !V.skid;                  // wheeled machines: the weight-based model (tracks and bikes keep the simple one)
@@ -4951,7 +4968,7 @@ const PARK = {
 const HOME = {};
 // the machines live in the open machinery shed: front row nosed out to the south, the truck and the 9RX in the back row nosed
 // out north (the bikes and the scooter are in Matt's shed: see shedParking)
-const SHED_PARK = [['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['rx', 1, 1, 4.0], ['truck', 3, 1, 8.0]];      // (the back row sits further in; the truck's tipper is long, so its cab noses just out the open side and the tail clears the trophy truck)
+const SHED_PARK = [['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['rx', 1, 1, 4.0], ['truck', 3, 1, 8.0], ['exc', 0, 1, 4.5]];      // (the back row sits further in; the truck's tipper is long, so its cab noses just out the open side and the tail clears the trophy truck)
 function homeY(x, z) { const sf = STRUCTS.ready ? shedFloorAt(x, z) : null; return groundAt(x, z, sf !== null ? sf + 2.5 : 30, 0); }    // under a shed roof, start below it
 // where you start (and get back up): the dunny by the dongas, or out the front of the machinery shed (menu: Start at)
 let START_AT = (() => { try { return localStorage.getItem('wfy.start') === 'shed' ? 'shed' : 'dongas'; } catch (_) { return 'dongas'; } })();
@@ -4969,7 +4986,6 @@ function shedParking() {
     const u = uu !== undefined ? uu : row * 6.2, v = -D.hv + da * (bay + 0.5), x = D.cx + U[0] * u + V[0] * v, z = D.cz + U[1] * u + V[1] * v;
     HOME[name] = { x, z, yaw: Math.atan2(U[0] * row, U[1] * row) };
   }
-  HOME.exc = { x: -80, z: 31, yaw: Math.PI / 2 };              // the excavator: on the open ground west of the grain shed, by the module trailer
   // the dirt bike, the push bike and the e-scooter: in a row in the open lean-to of Matt's shed, nosed out its open side, clear of
   // his workshop and of the rocket's way out down the middle
   { const A = STRUCT_DEFS.find(d => d.id === 'shedA'), t = A.ang * Math.PI / 180, yaw = Math.atan2(Math.cos(t), Math.sin(t));
@@ -5964,7 +5980,7 @@ function setActive(name, opts = {}) {
   } else drift.on = false;
   if (name === 'foot' && F.mode === 'pilot') { F.mode = 'walk'; setFarmerProps('walk'); }
   S.air = false; S.vy = 0; S.pitchV = 0; MOTO.lean = MOTO.x = 0;
-  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'tele' || name === 'mack' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
+  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'mack' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
   camYaw = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   if (name === 'foot') camYawF = camYaw;
   input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
@@ -6104,7 +6120,7 @@ function doAction(id) {
   actKey = '';
 }
 $('act').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.dataset.id === 'horn' || b.dataset.id === 'extOut' || b.dataset.id === 'extIn' || /^ex:(blade|sw)/.test(b.dataset.id)) return; doAction(b.dataset.id); b.blur(); dismissHint(); });
-$('act').addEventListener('pointerdown', e => { const xb = e.target.closest('button'); if (xb && /^ex:(blade|sw)/.test(xb.dataset.id)) { e.preventDefault(); EX.hold = xb.dataset.id; xb.classList.add('on'); } });
+$('act').addEventListener('pointerdown', e => { const xb = e.target.closest('button'); if (xb && /^ex2?:(blade|sw)/.test(xb.dataset.id)) { e.preventDefault(); EX.hold = xb.dataset.id; xb.classList.add('on'); } });
 $('act').addEventListener('pointerdown', e => { const hb = e.target.closest('button'); if (hb && (hb.dataset.id === 'extOut' || hb.dataset.id === 'extIn')) { e.preventDefault(); TB.extIn = hb.dataset.id === 'extOut' ? 1 : -1; hb.classList.add('on'); return; } });
 $('act').addEventListener('pointerdown', e => { const b = e.target.closest('button'); if (!b || b.dataset.id !== 'horn') return; e.preventDefault(); audioInit(); hornStart(activeName); b.classList.add('on'); });
 const hornUp = () => { TB.extIn = 0; if (typeof EX !== 'undefined') EX.hold = null; if (AU.hornOn) hornStop(); document.querySelectorAll('#act button.on').forEach(b => b.classList.remove('on')); };
@@ -6219,7 +6235,7 @@ function setStickLabels(name) {
 
 const HINTS = {
   ute: ['Madman\u2019s ute. <b>Hold GAS</b> to go; <b>Brake</b> reverses when stopped. Drive off in it and he\u2019ll come after you in whatever he can find.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
-  exc:     ['The John Deere 50G excavator. <b>Drive mode</b>: left stick drives the tracks, right stick works the boom (up/down) and bucket (left curls, right dumps). <b>Dig mode</b> locks the tracks: left stick slews and reaches. Dig by curling the bucket into the dirt; dump into the tipper or on the ground.', '<b>W A S D</b> drive / slew and reach &middot; <b>arrow keys</b> boom and bucket &middot; <b>E</b> get out'],
+  exc:     ['The John Deere 50G excavator, worked like the real one. <b>Left stick</b>: swing the cab round and reach the dipper out or in. <b>Right stick</b>: boom up and down, curl or dump the bucket. <b>The two track levers</b> in the middle drive it: both up to go, both back to back up, one each way to spin round. Dig by curling the bucket into the dirt; dump into the tipper or on the ground. Camera button for the cab and bucket views.', '<b>W A S D</b> drive &middot; <b>I J K L</b> swing and reach &middot; <b>arrow keys</b> boom and bucket &middot; <b>E</b> get out'],
   mack:    ['The Mack grain truck. Order a load at the grain shed for the <b>urea job</b>: open the shed door, <b>reverse into the marked bay</b> without touching anything, stay under 10 km/h in the shed, and tip. Five levels; three stars each.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   rx:      ['The 9RX: 690 hp on four tracks. It <b>bends in the middle</b> to steer, so it turns tighter than it looks. <b>Left thumb</b> drives.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   picker:  ['<b>Left thumb</b> drives; the <b>back wheels steer</b>, so the tail swings wide. <b>Start picking</b>, <b>Lower header</b> and drive up the cotton rows. The basket dumps into the chamber, a full chamber wraps a <b>module</b> and rolls it onto the handler: <b>Drop module</b> where you want it. <b>Configure</b> (stopped) picks the model and wrap colour.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out &middot; buttons for the picker'],
@@ -8604,7 +8620,7 @@ const VIEWS = {
 };
 const VIEW_NAMES = { cab: 'In the cab', dig: 'Over the bucket', rear: 'Looking back', chase: 'Chase camera', operator: 'Over the bucket', bucket: 'Bucket view', cine: 'Cinematic', fpv: 'Camera view', down: "Bird's-eye", cockpit: 'Cockpit', wing: 'Wingtip camera' };
 const VIEW = { sel: STORE.get('wfy.views', {}), cur: 'chase', for: '', cine: null, fpvT: 0, battery: 100, baseFov: 58 };
-function viewList(name) { if (name === 'exc') return EX.dig ? ['cab', 'dig', 'chase'] : ['chase', 'cab', 'rear', 'cine']; return VIEWS[name] || ['chase', 'cine']; }
+function viewList(name) { if (name === 'exc') return ['chase', 'cab', 'dig', 'cine']; return VIEWS[name] || ['chase', 'cine']; }
 function currentView() {
   const name = activeName;
   if (VIEW.for !== name) { VIEW.for = name; VIEW.cine = null; const l = viewList(name); VIEW.cur = l.includes(VIEW.sel[name]) ? VIEW.sel[name] : l[0]; viewChanged(); }
@@ -13933,8 +13949,8 @@ ENG.exc = Object.assign({}, ENG.tele, { seed: 113 });
 // two-handed controls like the X5 and the ute (left thumb steers, GAS and BRAKE on the right): a machine this big is
 // hard to hold on one stick. The numbers are its own, not a car's
 SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40 / 3.6, rev: 15 / 3.6, drive: 1.7, steer: 0.58, steerFast: 0.24, kick: 0.6, catch: 0.3 });
-// the telehandler too: steer on the left, GAS and BRAKE beside the boom stick on the right (a touch quicker than it was)
-SPECS.tele.drift = Object.assign({}, DRIFT, { m: 7500, Iz: 9000, a: 1.4, top: 48 / 3.6, rev: 22 / 3.6, drive: 2.2, steer: 0.6, steerFast: 0.18, kick: 0.6, catch: 0.3 });
+// The telehandler drives on the LEFT JOYSTICK (forward/back and steer, like the tractor and the dozer); the right stick works the
+// boom. The owner has asked for this twice: keep it off the car controls (no SPECS.tele.drift, no 'drift' class for it)
 SPECS.mack.drift = Object.assign({}, DRIFT, { m: 14000, Iz: 60000, a: 3.2, top: 100 / 3.6, rev: 12 / 3.6, drive: 1.5, steer: 0.6, steerFast: 0.14, kick: 0.5, catch: 0.3 });
 
 /* ================================================================
