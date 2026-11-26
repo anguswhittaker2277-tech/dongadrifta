@@ -5746,7 +5746,7 @@ function updateActions() {
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
-      cpFootItems(items);
+      cpFootItems(items); gsItems(items);
       const v = nearestVehicle();
       if (v) {
         const far = isRemote(v) ? F.pos.distanceTo(v.st.pos) : 0;
@@ -5772,6 +5772,7 @@ function updateActions() {
         }
       }
       if (v.name === 'picker') cpItems(items);
+      gsItems(items);
       if (v.name === 'truck') { items.push({ id: 'tip', label: TIP.tiltT > 0 ? 'Lower the bin' : TIP.load > 0.5 ? 'Tip it out' : 'Bin empty', cls: 'ghost', pressed: TIP.tiltT > 0 });
         items.push({ id: 'jake', label: AU.eng.truck && AU.eng.truck.jakeOn === false ? 'Jake off' : 'Jake on', cls: 'ghost', pressed: !(AU.eng.truck && AU.eng.truck.jakeOn === false) }); }
       if (v.name === 'tele') { items.push({ id: 'extOut', label: 'Boom out', cls: 'ghost hold' }); items.push({ id: 'extIn', label: 'Boom in', cls: 'ghost hold' }); }
@@ -5794,7 +5795,7 @@ function updateActions() {
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
-  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa|px):|^radio$|^cp:(on|hdr|drop|wrap)$/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
+  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa|px):|^radio$|^cp:(on|hdr|drop|wrap)$|^gs:/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
   if (items.length > 3) { const keep = items.filter(pri), rest = items.filter(it => !pri(it));
     if (rest.length) items = ACT.more ? [...keep, { id: 'more', label: '\u2715', cls: 'more' }, ...rest] : [...keep, { id: 'more', label: '\u22ef', cls: 'more' }]; }
   const key = JSON.stringify(items); if (key === actKey) return; actKey = key;
@@ -5832,6 +5833,7 @@ function doAction(id) {
   else if (id === 'sport' && v && v.name === 'drone') v.st.sport = !v.st.sport;
   else if (id === 'flip' && v && v.name === 'racer' && !v.st.landed && !(v.st.flipT > 0)) { v.st.flipT = 0.5; }
   else if (id.startsWith('cp:')) cpAct(id);
+  else if (id === 'gs:door') gsToggle();
   else if (id === 'tip' && v && v.name === 'truck') { if (TIP.tiltT > 0) TIP.tiltT = 0; else if (TIP.load > 0.5) { TIP.tiltT = 0.85; if (!TIP.told) { TIP.told = true; toast('Tipping out the left side. Keep rolling slowly for a windrow, or sit still for one big heap', 3); } } else toast('Bin\u2019s empty. Load it with the telehandler bucket', 2.4); }
   else if (id === 'hook' && v && v.name === 'tractor') { const I = implNear(); if (I) implHook(I); }
   else if (id === 'unhook' && v && v.name === 'tractor') implUnhook();
@@ -6154,7 +6156,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt); rideStep(dt);
+  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); gsStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt); rideStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) { drawMinimap(); if (CHAT.open && CHAT.map) drawMinimap(CHAT.map, CHAT.R); }
@@ -14084,6 +14086,68 @@ function makePickerVoice() {
 }
 
 /* ================================================================
+   THE GRAIN SHED: the green barn from the FS25 "Grain Shed Pack" mod (grain-shed.glb, tools/fs-mod/build_vehicle.py),
+   on the levelled pad west of the drone strip, its roller door facing the yard. The door rolls up into its housing over
+   5 s like the mod's (the part that's gone up is cut away, as the mod's shader does), from a button when you're on foot
+   or driving near it. The walls are solid; the doorway lets you through once the door's up (vehicles need it all the way up).
+   ================================================================ */
+const GS = { x: -67.5, z: 71.5, yaw: Math.PI, ready: false, busy: false, door: 0, want: 0, root: null, dn: null, d0: 0, y0: 0, clip: null, told: false };
+const GS_BOX = [[7.65, 8.3, -12.1, 12.1], [-8.3, -7.65, -12.1, 12.1], [-8.3, 8.3, -12.1, -11.5], [-8.3, -2.45, 11.5, 12.1], [2.45, 8.3, 11.5, 12.1]], GS_DOOR = [-2.45, 2.45, 11.5, 12.1];
+function gsBuild() {
+  if (GS.busy) return; GS.busy = true;
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('grain-shed.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    GS.y0 = groundAt(GS.x, GS.z, 20, 0.25);
+    const root = new THREE.Group(); root.position.set(GS.x, GS.y0, GS.z); root.rotation.y = GS.yaw; scene.add(root); root.add(g.scene); GS.root = root;
+    const N = {}, cache = new Map();
+    g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); if (o.material.map) { m.map = o.material.map; m.alphaTest = o.material.alphaTest || (o.material.transparent ? 0.4 : 0); } cache.set(o.material, m); } o.material = m; } });
+    // the door: its own material, cut off above the opening so it disappears up into the housing
+    GS.dn = N.rollingDoor1; GS.d0 = GS.dn.position.y; renderer.localClippingEnabled = true;
+    GS.clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), GS.y0 + 5.66);
+    GS.dn.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.clippingPlanes = [GS.clip]; o.material.side = THREE.DoubleSide; } });
+    GS.ready = true;
+  }, e => console.warn('grain shed', e))).catch(e => console.warn('grain shed file', e));
+}
+function gsLocal(x, z) { const c = Math.cos(GS.yaw), s = Math.sin(GS.yaw), dx = x - GS.x, dz = z - GS.z; return [dx * c - dz * s, dx * s + dz * c]; }
+function gsWorldDir(lx, lz) { const c = Math.cos(GS.yaw), s = Math.sin(GS.yaw); return [lx * c + lz * s, -lx * s + lz * c]; }
+function gsDoorDist(p) { const [lx, lz] = gsLocal(p.x, p.z); return Math.hypot(lx, Math.max(0, Math.abs(lz - 11.8) - 0.5)); }
+function gsItems(items) {
+  if (!GS.ready) return; const p = activeName === 'foot' ? F.pos : S.pos;
+  if (gsDoorDist(p) > (activeName === 'foot' ? 7 : 12)) return;
+  const moving = GS.door > 0.001 && GS.door < 0.999;
+  items.push({ id: 'gs:door', label: moving ? (GS.want ? 'Door going up\u2026' : 'Door coming down\u2026') : GS.want ? 'Close the shed door' : 'Open the shed door', cls: 'ghost', pressed: !!GS.want });
+}
+function gsToggle() { if (!GS.ready) return; GS.want = GS.want ? 0 : 1; const p = GS.dn.getWorldPosition(new THREE.Vector3()); metalSound(p, 0.6, 0.7); }
+// circle (x, z, r) against the walls (and the door unless it's up): how far to push it back out, in world space
+function gsPushOut(x, z, r, doorUp) {
+  const [lx, lz] = gsLocal(x, z); if (Math.abs(lx) > 9.5 + r || Math.abs(lz) > 13.5 + r) return null;
+  let px = 0, pz = 0, hit = false;
+  for (const b of doorUp ? GS_BOX : GS_BOX.concat([GS_DOOR])) {
+    const cx = THREE.MathUtils.clamp(lx + px, b[0], b[1]), cz = THREE.MathUtils.clamp(lz + pz, b[2], b[3]), dx = lx + px - cx, dz = lz + pz - cz, d = Math.hypot(dx, dz);
+    if (d >= r) continue; hit = true;
+    if (d > 1e-4) { px += dx / d * (r - d); pz += dz / d * (r - d); }
+    else { const o = [[b[0] - r - (lx + px), 0], [b[1] + r - (lx + px), 0], [0, b[2] - r - (lz + pz)], [0, b[3] + r - (lz + pz)]].sort((a, c) => Math.hypot(...a) - Math.hypot(...c))[0]; px += o[0]; pz += o[1]; }
+  }
+  return hit ? gsWorldDir(px, pz) : null;
+}
+function gsStep(dt) {
+  if (!GS.ready) { if (window.__game && __game.ready) gsBuild(); return; }
+  if (GS.door !== GS.want) { const was = GS.door; GS.door = THREE.MathUtils.clamp(GS.door + Math.sign(GS.want - GS.door) * dt / 5, 0, 1);
+    GS.dn.position.y = GS.d0 + 4.35 * GS.door;
+    if ((GS.door === 0 || GS.door === 1) && was !== GS.door) { metalSound(GS.dn.getWorldPosition(new THREE.Vector3()), 0.8, 0.6); if (GS.door === 1 && !GS.told) { GS.told = true; toast('Shed door up. 4.3 m clear', 1.8); } } }
+  const v = activeVeh();
+  if (v && v.kind === 'ground' && !SIM.npc) {
+    const sp = v.spec, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), r = Math.min(1.5, (sp.halfW || 1) * 0.95), up = GS.door > 0.97 && (v.top || 3) < 4.3;
+    for (let t = -(sp.rear || 1) + r * 0.6; t <= (sp.front || 3) - r * 0.4; t += Math.max(0.6, r * 0.8)) {
+      const h = gsPushOut(S.pos.x + fx * t, S.pos.z + fz * t, r, up); if (!h) continue;
+      S.pos.x += h[0]; S.pos.z += h[1]; if (Math.abs(S.v) > 2.5) { sfx('thud', S.pos, Math.min(1, Math.abs(S.v) / 10), 0.7, 20); S.shake = Math.min(1, (S.shake || 0) + 0.3); }
+      S.v *= -0.1; if (S.vx !== undefined) { S.vx *= -0.1; S.vz *= -0.1; } break;
+    }
+  } else if (activeName === 'foot' && F && F.pos && F.pos.y < GS.y0 + 8) { const h = gsPushOut(F.pos.x, F.pos.z, 0.35, GS.door > 0.42); if (h) { F.pos.x += h[0]; F.pos.z += h[1]; } }
+}
+
+/* ================================================================
    ANIMAL SOUNDS, take two (Nov 2026): simpler and more natural
    Angus: "only really need a standard bird chirp and a pig oink". So every bird uses one songbird
    chirp voice (fast pitch sweeps, nearly pure tone, a touch of 2nd harmonic), and the pigs use one
@@ -19162,7 +19226,7 @@ window.__game = { PCL_get: () => PCL, RIDE, RIDE_SEATS, rideIn, rideOut, rideabl
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
 Object.assign(window.__game, { lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
-Object.assign(window.__game, { CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
+Object.assign(window.__game, { GS, gsToggle, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
 load().catch(e => console.error(e));
 </script>
 </body>

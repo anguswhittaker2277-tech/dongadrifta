@@ -124,6 +124,11 @@ The Merlo P41.7 (`merlo-p417.glb`) is from the Farming Simulator 25 mod **"Merlo
 `tools/fs-mod/build_vehicle.py`. Its own arm, telescope, tool carrier, rams and cab door move; the tyres and the dirt
 bucket are made in the game.
 
+## The grain shed
+
+The green barn (`grain-shed.glb`) is from the Farming Simulator 25 mod **"Grain Shed Pack"**, converted with
+`tools/fs-mod/build_vehicle.py`. Its roller door works as in the mod.
+
 ## Libraries
 
 Loaded from jsDelivr: [three.js](https://threejs.org) (MIT), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) (MIT),
