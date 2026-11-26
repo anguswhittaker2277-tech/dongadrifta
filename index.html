@@ -2515,7 +2515,7 @@ const CP_CFG = (() => { let o = {}; try { o = JSON.parse(localStorage.getItem('w
   for (const k in CP_CFG_DEF) if (typeof c[k] !== typeof CP_CFG_DEF[k]) c[k] = CP_CFG_DEF[k]; return c; })();
 // handling: a 26 t rear-steer machine; 25 km/h on the road (10 picking, see cpStep), 12 back; the back wheels steer (rs)
 SPECS.picker = Object.assign({}, SPECS.tractor, { top: 25 / 3.6, rev: 12 / 3.6, accel: 1.2, brake: 5.0, wb: 4.31, steer: 0.62, steerFast: 0.3, steerRate: 1.1, rs: true,
-  front: 11.4, rear: 2.95, halfW: 2.3, rayH: [0.5, 1.3, 2.6, 3.8], lanes: [-2.9, -1.45, 0, 1.45, 2.8], noseLane: 0.5, rF: 1.0, rR: 0.83, step: 0.55,
+  front: 8.1, rear: 2.45, halfW: 2.7, rayH: [0.5, 1.3, 2.6, 3.8],          // (the model: header tips 7.97 m ahead of the back axle, tail 2.33 behind, 6.3 m across the header) lanes: [-2.9, -1.45, 0, 1.45, 2.8], noseLane: 0.5, rF: 1.0, rR: 0.83, step: 0.55,
   trackR: 1.06, trackF: 1.55, roll: 0.01, rollMax: 0.04, grip: 3.0, susK: 120, susC: 11, camBack: 19, camUp: 8.6, camPivot: 3.4, look: 5.2, lookH: 3.0 });
 
 
@@ -14028,14 +14028,19 @@ function cpStep(dt) {
   let picked = 0;
   if (inP && CF.ready && drumA > 0.6 && CP.ft < 0.02 && S.v > 0.15 && (CP.acc < CP_ACC || CP.phase === 'pick')) {
     const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), lx = Math.cos(S.yaw), lz = -Math.sin(S.yaw);
-    for (const d of [9.2, 10.2]) for (let a = -2.95; a <= 2.65; a += 0.5) { const x = S.pos.x + fx * d + lx * a, z = S.pos.z + fz * d + lz * a;
+    // the row units take the plants in as they reach them: a 2 m stretch of row goes once its front end is inside their snouts
+    // (the tips are 7.9 m ahead of the back axle, the drum housings start at 7.0), not before
+    for (const d of [4.6, 5.6, 6.6, 7.6]) for (let a = -2.95; a <= 2.65; a += 0.5) { const x = S.pos.x + fx * d + lx * a, z = S.pos.z + fz * d + lz * a;
       if (CP.acc + picked * CP_CELL_L >= CP_ACC && CP.phase !== 'pick') break;
-      if (cfPick(cfCellAt(x, z))) picked++; }
+      const k = cfCellAt(x, z); if (k < 0 || CF.cut[k]) continue;
+      const cx = CF.x0 + (k % CF.rows) + 0.5, cz = CF.z0 + (Math.floor(k / CF.rows) + 0.5) * CF.seg, c = (cx - S.pos.x) * fx + (cz - S.pos.z) * fz;
+      if (c > 6.4 || c < 4.4) continue;
+      if (cfPick(k)) picked++; }
     if (picked) {
       CP.acc += picked * CP_CELL_L;
       if (!CF.left) toast('That’s the last of the cotton. Good pick!', 3);
       // lint off the row units, and the dust plume out of the top of the basket
-      if (Math.random() < 0.7) { _cpA.set(S.pos.x + fx * 9.6 + lx * (Math.random() * 5.6 - 3), S.pos.y + 0.8 + Math.random() * 0.5, S.pos.z + fz * 9.6 + lz * (Math.random() * 5.6 - 3)); _cpB.set(fx * S.v * 0.5 + (Math.random() - 0.5), 0.8 + Math.random(), fz * S.v * 0.5 + (Math.random() - 0.5)); cpFx(_cpA, _cpB, 0.9, 0.08, 0.35, 0.85, 0xffffff, 0.6); }
+      if (Math.random() < 0.7) { _cpA.set(S.pos.x + fx * 7.2 + lx * (Math.random() * 5.6 - 3), S.pos.y + 0.8 + Math.random() * 0.5, S.pos.z + fz * 7.2 + lz * (Math.random() * 5.6 - 3)); _cpB.set(fx * S.v * 0.5 + (Math.random() - 0.5), 0.8 + Math.random(), fz * S.v * 0.5 + (Math.random() - 0.5)); cpFx(_cpA, _cpB, 0.9, 0.08, 0.35, 0.85, 0xffffff, 0.6); }
     }
   }
   // the basket's smoke: while there's cotton moving
