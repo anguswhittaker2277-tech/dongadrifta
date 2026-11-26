@@ -1,4 +1,4 @@
-// offline renderer: Kokoro-82M (q8 ONNX) -> 24 kHz mono WAVs. Usage: node render.mjs mm|fr|dm [limit]
+// offline renderer: Kokoro-82M (q8 ONNX) -> 24 kHz mono WAVs. Usage: node render.mjs mm|fr|dm|tk [limit]
 import ort from 'onnxruntime-node'; import fs from 'fs'; import { phonemize } from './phonemize.js'; import { phonemize as espeak } from 'phonemizer';
 const FRPH = fs.existsSync('fr_ph.json') ? JSON.parse(fs.readFileSync('fr_ph.json')) : {};
 const which = process.argv[2], limit = +process.argv[3] || 1e9;
@@ -6,7 +6,8 @@ const vocab = JSON.parse(fs.readFileSync('kokoro-config.json')).vocab;
 const voice = (n) => new Float32Array(fs.readFileSync(n + '.bin').buffer.slice(0));
 const mix = (a, b, k) => a.map((x, i) => x * k + b[i] * (1 - k));
 const VOX = { mm: mix(voice('bm_lewis'), voice('bm_george'), 0.6), fr: voice('ff_siwis'), dm: mix(voice('am_onyx'), voice('am_fenrir'), 0.7) };
-const SPEED = { mm: 0.86, fr: 1.0, dm: 0.9 };
+if (which === 'tk') VOX.tk = mix(voice('bm_fable'), voice('bm_daniel'), 0.55);          // the urea truckie: a younger, quicker bogan, broad Australian too
+const SPEED = { mm: 0.86, fr: 1.0, dm: 0.9, tk: 1.06 };
 const sess = await ort.InferenceSession.create('model_q8.onnx', { intraOpNumThreads: 4 });
 // broad Australian on top of British English (the vowels that give it away, a raised TRAP, flapped t, open final schwa)
 const VW = 'aeiouyæɐɑɒɔəɛɜɪʊʌøœ';
@@ -32,7 +33,7 @@ const dmPhon = async (text) => { let t = text.replace(/[’‘]/g, "'").replace(
   const parts = []; for (const seg of t.split(/(\bDo svidaniya\b|\bDima\b|\bvodka\b|\bPfft\b|\bda\b|\bLEILX\b)/i)) { if (!seg) continue; const w = RU_WORD[seg.toLowerCase()];
     parts.push(w || russki(await phonemize(seg, 'a'))); }
   return parts.join(' ').replace(/ +/g, ' ').replace(/ ([,.!?])/g, '$1').trim(); };
-const prep = (t) => t.replace(/[’‘]/g, "'").replace(/\bG'day\b/gi, 'Gidday').replace(/XXXX/g, 'four ex').replace(/'(em|ere)\b/g, '$1').replace(/\.\.\./g, ', ').replace(/\bfucken\b/gi, "fuckin'").replace(/\bJD\b/g, 'Jay Dee')
+const prep = (t) => t.replace(/[’‘]/g, "'").replace(/\bG'day\b/gi, 'Gidday').replace(/\bHooroo\b/gi, 'hoo roo').replace(/XXXX/g, 'four ex').replace(/'(em|ere)\b/g, '$1').replace(/\.\.\./g, ', ').replace(/\bfucken\b/gi, "fuckin'").replace(/\bJD\b/g, 'Jay Dee')
   .replace(/(\w)in'(?=\W|$)/g, '$1ing').replace(/\b(?!JD\b)[A-Z]{2,}\b/g, (w) => w.toLowerCase());     // shouted words in capitals are words, not letters
 async function phon(text, lang) {
   if (lang === 'fr') return FRPH[text];          // French phonemes come from espeak-ng's own French (fr_ph.py)
@@ -43,7 +44,7 @@ function wav(f32, sr) { const n = f32.length, b = Buffer.alloc(44 + n * 2); b.wr
   for (let i = 0; i < n; i++) b.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(f32[i] * 32767))), 44 + i * 2); return b; }
 const clips = JSON.parse(fs.readFileSync(process.env.CLIPS || 'clips.json'))[which], keys = Object.keys(clips).slice(0, limit), dir = process.env.OUT || ('out_' + which); fs.mkdirSync(dir, { recursive: true });
 const idx = {}; let i = 0, skipped = [];
-for (const k of keys) { const text = clips[k], ph = await phon(text, which === 'mm' ? 'en' : which);
+for (const k of keys) { const text = clips[k], ph = await phon(text, which === 'mm' || which === 'tk' ? 'en' : which);
   const ids = [...ph].map(c => vocab[c]).filter(x => x !== undefined); if (!ids.length) { skipped.push(k); continue; }
   const tok = [0, ...ids.slice(0, 500), 0], V = VOX[which], row = Math.min(ids.length, 509), style = V.slice(row * 256, row * 256 + 256);
   const out = await sess.run({ input_ids: new ort.Tensor('int64', BigInt64Array.from(tok.map(BigInt)), [1, tok.length]), style: new ort.Tensor('float32', style, [1, 256]), speed: new ort.Tensor('float32', new Float32Array([SPEED[which]]), [1]) });

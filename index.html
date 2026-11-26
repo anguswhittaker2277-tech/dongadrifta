@@ -12536,7 +12536,7 @@ function bubDom() {
    as is, the two blokes pitched down). Dima: a deep American voice with a heavy Russian accent put on. A line that isn't in the pack just stays a speech bubble.
    The backpackers keep quiet while you're with Madman (his menu open, him talking, or you right beside him). Menu: Voices on/off.
    ================================================================ */
-const VOX = { on: true, url: 'voices-v1.bin?v=f2a94a30', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
+const VOX = { on: true, url: 'voices-v1.bin?v=18540c38', head: null, data: null, loading: false, failed: false, bufs: new Map(), mmKeys: null, maxW: 1, cur: {}, mmUntil: 0, dmUntil: 0 };
 try { const v = localStorage.getItem('wfy.voices'); if (v !== null) VOX.on = v === '1'; } catch (_) {}
 const VOX_WHO = { Mathieu: 'M', Alexandre: 'A', 'Chloé': 'C' };
 // the same normalising the recording script used, so the game's text finds its clips
@@ -12573,7 +12573,7 @@ function voxSay(n, text) {
   if (d > 32) return 0;
   const now = AU.ctx.currentTime;
   let parts;
-  if (who === 'mm') parts = voxSplit(text); else if (who === 'dm' || who === 'mt') { const e = VOX.head[who] && VOX.head[who][voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
+  if (who === 'mm') parts = voxSplit(text); else if (who === 'dm' || who === 'mt' || who === 'tk') { const e = VOX.head[who] && VOX.head[who][voxNorm(text)]; parts = e ? [e] : null; } else { const e = VOX.head.fr[who][text]; parts = e ? [e] : null; }
   if (!parts || !parts.length) return 0;
   voxStop(who);
   const g = AU.ctx.createGain(); g.gain.value = THREE.MathUtils.clamp(1.25 - d / 26, 0.12, 1) * (who === 'mm' ? 1.15 : 0.95); g.connect(AU.master);
@@ -12590,7 +12590,7 @@ function voxSay(n, text) {
 // where a voice comes from: the car only while he's actually driving it (a stale link to a ute parked somewhere else had Madman
 // heard right across the farm)
 function npcSpkPos(n) { return n.veh && n.veh.state && (n.st === 'drive' || n.veh.npc === n) ? n.veh.state.pos : n.pos; }
-const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : n.matt ? 'mt' : VOX_WHO[n.name];
+const voxWho = (n) => n.mm ? 'mm' : n.dima ? 'dm' : n.matt ? 'mt' : n.tk ? 'tk' : VOX_WHO[n.name];
 document.addEventListener('visibilitychange', () => { if (document.hidden) for (const k of Object.keys(VOX.cur)) voxStop(k); });
 function npcSay(n, line, dur = 3.2) {
   if (!n.bub) return; if (n.mm) { mmSayNpc(n, line, dur); return; } if (n.dima) { dmSayNpc(n, line); return; } if (n.matt) { mtSayNpc(n, line); return; }     // Madman never gets the backpackers' French: map to his own lines
@@ -14489,10 +14489,11 @@ function tkPick(a) { return Array.isArray(a) ? a[Math.floor(Math.random() * a.le
 function tkBuild() {
   if (TK.n) return TK.n; const L = lookFix(TK_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root); P.root.scale.setScalar(s); P.root.visible = false;
   const el = document.createElement('div'); el.className = 'nbub'; el.innerHTML = '<div class="bx"></div><div class="tl"></div>'; bubLayer().appendChild(el);
-  TK.n = { P, root: P.root, s, pos: new THREE.Vector3(), yaw: 0, sp: 0, ph: 0, tgt: null, el, bx: el.firstChild, bubT: 0, face: null, cross: 0 };
+  TK.n = { tk: true, P, root: P.root, s, pos: new THREE.Vector3(), yaw: 0, sp: 0, ph: 0, tgt: null, el, bx: el.firstChild, bubT: 0, face: null, cross: 0 };
   return TK.n;
 }
-function tkSay(line, dur) { const n = TK.n; if (!n || !n.root.visible || !line) return; n.bx.textContent = line; n.bubT = dur || Math.max(2.8, Math.min(6, line.length * 0.07)); }
+function tkSay(line, dur) { const n = TK.n; if (!n || !n.root.visible || !line) return; n.bx.textContent = line; n.bubT = dur || Math.max(2.8, Math.min(6, line.length * 0.07));
+  const t = voxSay(n, line); if (t > 0) n.bubT = Math.max(n.bubT, t + 0.6); }
 function tkVehW(lx, lz) { const st = VEH.mack.state, fx = Math.sin(st.yaw), fz = Math.cos(st.yaw); return [st.pos.x + fz * lx + fx * lz, st.pos.z - fx * lx + fz * lz]; }
 function tkHide() {
   const v = VEH.mack; if (!v || !v.state || activeName === 'mack') return; v.npc = TK; TK.veh = v;
@@ -19829,7 +19830,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
 }
 
-window.__game = { PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { TK_L_get: () => TK_L, VOX_get: () => VOX, voxSay2: (...a) => voxSay(...a), PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
