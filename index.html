@@ -2494,6 +2494,8 @@ function buildMack() {
     const N = C.nodes, cache = new Map();
     g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
       if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); cache.set(o.material, m); } o.material = m; o.castShadow = true; } });
+    // right-hand drive, as the Macks here are: the cab's insides mirrored across (the outside, badges and all, stays as it is)
+    for (const k of ['InteriorDayCab', 'InteriorShared', 'interiorDayCab_decal', 'steeringWheelRot', 'pedals', 'interiorScreenLight']) { const o = N[k]; if (o) { o.position.x *= -1; o.scale.x *= -1; } }
     frame.add(g.scene);
     C.box = N.grainBox; C.box0 = C.box.rotation.x; C.gate = N.backDoor; C.gate0 = C.gate ? C.gate.position.y : 0;
     root.updateMatrixWorld(true);
@@ -4898,7 +4900,7 @@ Object.assign(VEH, {
   rx:      { name: 'rx', kind: 'ground', label: 'the 9RX', model: VEHICLES.rx, spec: SPECS.rx, state: null, pose: 'wheel', coast: false,
              seat: { x: 0, hip: 2.66, z: 2.51, k: 0.85 }, exit: [[2.6, 2.45], [-2.6, 2.45], [0, -2.6]], range: 4.5, top: 4.4, icon: ['9', '#367c2b'] },
   mack:    { name: 'mack', kind: 'ground', label: 'the Mack', model: VEHICLES.mack, spec: SPECS.mack, state: null, pose: 'wheel', coast: false,
-             seat: { x: 0.52, hip: 1.82, z: 4.55, k: 0.85 }, exit: [[2.2, 4.6], [-2.2, 4.6], [0, -4.8]], range: 4.5, top: 3.4, icon: ['K', '#a3201d'] },
+             seat: { x: -0.52, hip: 1.82, z: 4.55, k: 0.85 }, exit: [[2.2, 4.6], [-2.2, 4.6], [0, -4.8]], range: 4.5, top: 3.4, icon: ['K', '#a3201d'] },
   truck:   { name: 'truck', kind: 'ground', label: 'the truck', model: VEHICLES.truck, spec: SPECS.truck, state: null, pose: 'wheel', coast: false,
              seat: { x: -0.6, hip: 2.35, z: 3.0, k: 0.85 }, exit: [[-2.4, 3.0], [2.4, 3.0], [0, 8.0]], range: 4.5, top: 4.3, icon: ['R', '#9c1b1b'] },
   gyro: makeAircraft('gyro', buildGyro()),
@@ -4946,11 +4948,11 @@ Object.assign(DOORS, {
   ute: { side: -1, max: 0, bail: [-1.3, 0.75, UTE_RIG.door.z],
     inn: v => ({ end: 1.7, ev: [], keys: [K(0, -1.6, 0, UTE_RIG.door.z, HP), K(0.3, -1.6, 0, UTE_RIG.door.z, HP, { reach: 1 }), K(0.85, -1.2, 0.18, UTE_RIG.door.z, HP, { duck: 0.45, sit: 0.15, climb: 0.5 }), seatKey(v, 1.4)] }),
     out: v => ({ end: 1.25, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3, 0, { reach: 0.7 }), K(0.75, -1.2, 0.18, UTE_RIG.door.z, -HP, { duck: 0.45, sit: 0.15, climb: 0.5 }), K(1.25, -1.65, 0, UTE_RIG.door.z, -2.2)] }) },
-  // the Mack: up the steps on the left (it's a left-hand drive)
-  mack: { side: 1, max: 0, bail: [1.9, 1.9, 4.6],
-    inn: v => ({ end: 2.1, ev: [], keys: [K(0, 2.15, 0, 4.6, -HP), K(0.35, 2.05, 0, 4.6, -HP, { reach: 1 }), K(0.85, 1.75, 0.75, 4.6, -HP, { climb: 1 }),
-      K(1.4, 1.2, 1.35, 4.55, -1.2, { climb: 0.5, duck: 0.3, sc: 0.85 }), seatKey(v, 2.1)] }),
-    out: v => ({ end: 1.9, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.8, 1.2, 1.35, 4.55, 1.2, { duck: 0.3, sc: 0.85 }), K(1.35, 1.75, 0.75, 4.6, HP, { climb: 1 }), K(1.9, 2.15, 0, 4.6, HP)] }) },
+  // the Mack: up the steps on the right (right-hand drive)
+  mack: { side: -1, max: 0, bail: [-1.9, 1.9, 4.6],
+    inn: v => ({ end: 2.1, ev: [], keys: [K(0, -2.15, 0, 4.6, HP), K(0.35, -2.05, 0, 4.6, HP, { reach: 1 }), K(0.85, -1.75, 0.75, 4.6, HP, { climb: 1 }),
+      K(1.4, -1.2, 1.35, 4.55, 1.2, { climb: 0.5, duck: 0.3, sc: 0.85 }), seatKey(v, 2.1)] }),
+    out: v => ({ end: 1.9, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.8, -1.2, 1.35, 4.55, -1.2, { duck: 0.3, sc: 0.85 }), K(1.35, -1.75, 0.75, 4.6, -HP, { climb: 1 }), K(1.9, -2.15, 0, 4.6, -HP)] }) },
   // the 9RX: up the steps on the left of the cab
   rx: { side: 1, max: 0, bail: [1.9, 2.2, 2.45],
     inn: v => ({ end: 2.1, ev: [], keys: [K(0, 2.4, 0, 2.45, -HP), K(0.35, 2.3, 0, 2.45, -HP, { reach: 1 }), K(0.9, 1.85, 1.05, 2.45, -HP, { climb: 1 }),
@@ -14403,6 +14405,7 @@ function ujStep(dt) {
   if (GS.ready) { ujBay(); if (UJ.st !== 'on') { const sh = ujBayShift(); if (Math.abs(sh - (UJ.shift || 0)) > 0.02) ujApplyShift(sh); } }
   tkStep(dt);
   const inMack = activeName === 'mack';
+  if (inMack && !seqBusy() && TK.st === 'wait' && UJ.st !== 'on' && !UJ.pend) { tkSay(TK_L.accept, 3); TK.st = 'watch'; tkGo(...tkWatchSpot()); ujBegin(); }
   if (UJ.pend && inMack && !seqBusy()) ujBegin();
   if (UJ.showT > 0) UJ.showT -= dt;
   if (UJ.tip !== UJ.tipT) { UJ.tip = THREE.MathUtils.clamp(UJ.tip + Math.sign(UJ.tipT - UJ.tip) * dt / (UJ.tipT ? 5 : 4), 0, 1); mackTip(UJ.tip); }
@@ -14508,8 +14511,8 @@ function tkParked() {   // ease the last bit into the exact spot, then out he ge
   npcDrive(v, 1 / 120, 0, 0); st.pos.x = S0.x + (L.at[0] - S0.x) * k; st.pos.z = S0.z + (L.at[1] - S0.z) * k; st.yaw = S0.yaw + faAng(L.at[2] - S0.yaw) * k; st.v = st.vx = st.vz = 0;
   return S0.t >= 1;
 }
-function tkPlaceDriverAtDoor() { const n = tkBuild(), [x, z] = tkVehW(2.15, 4.6); n.pos.set(x, groundAt(x, z, 30, 0), z); n.yaw = VEH.mack.state.yaw + Math.PI / 2; n.root.visible = true; if (AU.buf && AU.buf.thud) sfx('thud', n.pos, 0.3, 1.2, 10); }
-function tkWatchSpot() { const [wx, wz] = gsWorldDir(5.8, 14.8); return [GS.x + wx, GS.z + wz]; }
+function tkPlaceDriverAtDoor() { const n = tkBuild(), [x, z] = tkVehW(-2.15, 4.6); n.pos.set(x, groundAt(x, z, 30, 0), z); n.yaw = VEH.mack.state.yaw - Math.PI / 2; n.root.visible = true; if (AU.buf && AU.buf.thud) sfx('thud', n.pos, 0.3, 1.2, 10); }
+function tkWatchSpot() { const [wx, wz] = gsWorldDir(-5.8, 14.8); return [GS.x + wx, GS.z + wz]; }
 // walk to a spot, in or out of the shed by the door (he can't walk through its walls)
 function tkGo(x, z) {
   const n = TK.n, ins = (px, pz) => { const [a, b] = gsLocal(px, pz); return Math.abs(a) < 8.4 && Math.abs(b) < 12.2; }, w = (a, b) => { const [dx, dz] = gsWorldDir(a, b); return [GS.x + dx, GS.z + dz]; };
@@ -14548,11 +14551,11 @@ function tkStep(dt) {
   if (!TK.veh) { tkBuild(); tkHide(); }
   const n = TK.n;
   if (TK.st === 'coming') tkDrive(dt, 7, () => { TK.st = 'parking'; });
-  else if (TK.st === 'parking') { if (tkParked()) { TK.st = 'out'; TK.t = 0; tkPlaceDriverAtDoor(); const [x, z] = tkVehW(3.6, 3.2); n.route = null; n.tgt = [x, z]; } }
+  else if (TK.st === 'parking') { if (tkParked()) { TK.st = 'out'; TK.t = 0; tkPlaceDriverAtDoor(); const [x, z] = tkVehW(-3.6, 3.2); n.route = null; n.tgt = [x, z]; } }
   else if (TK.st === 'out') { TK.t += dt; n.face = tkMe(); if (tkWalk(dt) && TK.t > 1) { TK.st = 'wait'; v.npc = null; tkSay(TK_L.hello, 5.5); toast(tkMe().distanceTo(n.pos) > 40 ? 'The urea truck’s here at the grain shed.' : 'Truckie: “' + TK_L.hello + '”', 5.5); actKey = ''; } }
   else if (TK.st === 'wait') { n.face = tkMe(); tkWalk(dt); }
   else if (TK.st === 'watch') { n.face = activeName === 'mack' ? S.pos : tkMe(); tkWalk(dt);
-    if (UJ.st === 'done' && activeName !== 'mack' && !seqBusy()) { TK.st = 'board'; tkGo(...tkVehW(2.15, 4.6)); tkSay(TK_L.bye, 3); } }
+    if (UJ.st === 'done' && activeName !== 'mack' && !seqBusy()) { TK.st = 'board'; tkGo(...tkVehW(-2.15, 4.6)); tkSay(TK_L.bye, 3); } }
   else if (TK.st === 'board') { n.face = null; if (tkWalk(dt)) { n.root.visible = false; n.el.style.display = 'none'; v.npc = TK; if (AU.buf && AU.buf.thud) sfx('thud', n.pos, 0.3, 1.2, 10);
       const st = v.state, [ox, oz] = tkVehW(0, 14), P = drvPath(ox, oz, TK_SPAWN[0], TK_SPAWN[1]); TK.path = [[ox, oz]].concat(P && P.length > 1 ? P.slice(1) : [[TK_SPAWN[0], TK_SPAWN[1]]]); TK.bi = 0; TK.t = 0; TK.st = 'leaving'; } }
   else if (TK.st === 'leaving') tkDrive(dt, 7, () => tkHide());
