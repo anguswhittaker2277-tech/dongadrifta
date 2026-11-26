@@ -15801,12 +15801,19 @@ function bbReset() { BB.st = 'ok'; BB.t = 0; BB.prog = 0; BB.byPl = 0; BB.byNpc 
 
 /* ================================================================
    THE SNIPER (Nov 2026): Alexandre's taken to the edge of the woods north of the yard with a scoped rifle, "hunting pigs".
-   Stand still somewhere out in the open for a bit, on your own, where he can see you, and you'll see a glint; stay put and
-   he takes the shot. Walk up to him and he's all innocence. Every few minutes he moves to his other spot.
+   Stand still out in the open (past the yard, in the scrub or the paddocks, nothing built and no tree close by for cover) for a
+   good while, on your own, where he can see you, and you'll see a glint; stay put and he takes the shot. In the yard you're safe. Walk up to him and he's all innocence. Every few minutes he moves to his other spot.
    The host runs him; his state (and so the glint) goes to everyone with the rest of the NPCs.
    ================================================================ */
 const SN = { perches: [[120, -70, 0.3], [90, -70, -0.35]], i: 0, moveT: 200, still: new Map(), cd: 4, aim: null, saidT: 0, glint: null, glintT: 8, hitAt: new Map() };
 const snPerch = () => SN.perches[SN.i];
+const SN_STILL = 12, SN_AIM = 3;          // seconds stood still before he lines you up, and how long the glint shows before he fires
+// out in the open: past the yard (in the scrub and the paddocks), with nothing built and no tree within a few metres to hide by
+function snOpen(x, z) {
+  if (insideYard(x, z)) return false;
+  for (const G of STRUCTS.groups) if (Math.hypot(G.ctr.x - x, G.ctr.z - z) < G.rad + 3) return false;
+  return true;
+}
 function snPlace(n) { const [x, z, yaw] = snPerch(); n.pos.set(x, 0, z); n.gy = n.pos.y = standY(x, z); n.yaw = yaw; n.st = 'snPerch'; n.t = 0; }
 function snEye(n, out) { return out.set(n.pos.x, n.pos.y + 1.55, n.pos.z); }
 function snSees(n, x, y, z) { const e = snEye(n, _w3), d = _w4.set(x - e.x, y - e.y, z - e.z), L = d.length(); d.normalize(); return !castHit(e, d, L - 0.7); }
@@ -15830,8 +15837,9 @@ function snThink(n, dt) {
   // looking over the yard; someone out on their own and standing still, in the open: him
   n.yaw += faAng(pyaw + Math.sin(n.t * 0.15) * 0.5 - n.yaw) * Math.min(1, dt * 0.8);
   if (SN.cd <= 0 && dN > 25) for (const q of L) {
-    const s = SN.still.get(q.id); if (!s || s.t < 6 || q.dead || q.veh || !(q.mode === 'walk' || q.mode === 'emote') || (q.local && (saSitting() || CRE.on))) continue;      // (standing about, or dancing; not sat in the tub)
+    const s = SN.still.get(q.id); if (!s || s.t < SN_STILL || q.dead || q.veh || !(q.mode === 'walk' || q.mode === 'emote') || (q.local && (saSitting() || CRE.on))) continue;      // (standing about, or dancing; not sat in the tub)
     const d = Math.hypot(q.pos.x - n.pos.x, q.pos.z - n.pos.z); if (d < 25 || d > 175) continue;
+    if (!snOpen(q.pos.x, q.pos.z)) continue;      // in the yard, or by a shed or a tree: not worth the risk
     if (snCompany(n, q, L)) continue;      // not with anyone about
     if (!snSees(n, q.pos.x, q.pos.y + 1.2, q.pos.z)) continue;
     SN.aim = { id: q.id, t: 0, x: q.pos.x, y: q.pos.y + 1.15, z: q.pos.z }; n.st = 'snAim'; n.t = 0; break; }
@@ -15846,8 +15854,8 @@ function snCompany(n, q, L) {
   const R = 18; if (NPC.list.some(m => m !== n && npcAlive(m) && Math.hypot(m.pos.x - q.pos.x, m.pos.z - q.pos.z) < R)) return true;
   return (L || plList()).some(o => o.id !== q.id && !o.dead && Math.hypot(o.pos.x - q.pos.x, o.pos.z - q.pos.z) < R); }
 function snAim(n, dt) {
-  const A = SN.aim, q = plById(A.id); if (!q || q.dead || q.veh || snCompany(n, q)) { SN.aim = null; SN.cd = Math.max(SN.cd, 4); n.st = 'snPerch'; return; }      // (someone's wandered over: lower the rifle)
-  A.t += dt; npcFace(n, A.x, A.z, 6, dt); if (A.t < 2.0) return;
+  const A = SN.aim, q = plById(A.id); if (!q || q.dead || q.veh || snCompany(n, q) || !snOpen(snPosOf(q).x, snPosOf(q).z)) { SN.aim = null; SN.cd = Math.max(SN.cd, 4); n.st = 'snPerch'; return; }      // (someone's wandered over: lower the rifle)
+  A.t += dt; npcFace(n, A.x, A.z, 6, dt); if (A.t < SN_AIM) return;
   // the shot: anyone who's stayed put in the open cops it; anyone who's moved gets a puff of dirt by their feet
   SN.aim = null; SN.cd = 9; n.st = 'snPerch'; const s = SN.still.get(q.id); if (s) s.t = 0;
   const m = snEye(n, new THREE.Vector3()); m.y += 0.05; const qp = snPosOf(q), stay = Math.hypot(qp.x - A.x, qp.z - A.z) < 0.8, clear = snSees(n, q.pos.x, q.pos.y + 1.2, q.pos.z), hit = stay && clear;
@@ -20042,7 +20050,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
 }
 
-window.__game = { TK_L_get: () => TK_L, VOX_get: () => VOX, voxSay2: (...a) => voxSay(...a), PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { snOpen, TK_L_get: () => TK_L, VOX_get: () => VOX, voxSay2: (...a) => voxSay(...a), PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
