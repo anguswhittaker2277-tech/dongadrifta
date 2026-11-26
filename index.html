@@ -477,6 +477,8 @@ body.hurt #hpbar,body.armed #hpbar{display:block}#hpFill{display:block;height:10
 @media (max-height:360px){#wFire{width:78px;height:78px;bottom:calc(22px + env(safe-area-inset-bottom,0px))}#wPill{bottom:calc(108px + env(safe-area-inset-bottom,0px));height:34px}#wHolster{bottom:calc(148px + env(safe-area-inset-bottom,0px));width:34px;height:34px}
   #wAlt{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(86px + env(safe-area-inset-bottom,0px));height:34px}body.armed #jump{right:calc(max(16px,env(safe-area-inset-right,0px)) + 104px);bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}
   #hpbar{top:calc(130px + env(safe-area-inset-top,0px));width:76px}#wasted{font-size:44px}}
+/* the telehandler on the car controls: GAS and BRAKE sit left of the boom stick, no handbrake */
+body.c-tele.drift #hbrake{display:none!important}body.c-tele.drift #stickR .tick.f,body.c-tele.drift #stickR .tick.r{display:block!important}body.c-tele.drift #gas{right:calc(max(16px,env(safe-area-inset-right,0px)) + 168px)!important;bottom:calc(22px + env(safe-area-inset-bottom,0px))!important}body.c-tele.drift #brake{display:grid!important;right:calc(max(16px,env(safe-area-inset-right,0px)) + 258px)!important;bottom:calc(40px + env(safe-area-inset-bottom,0px))!important}
 </style>
 
 <div id="view"></div>
@@ -1242,7 +1244,7 @@ function radialTex(rgb, soft = false) {
    an e-scooter and a push bike. Same conventions: origin = rear axle on the ground, +Z forward, +X left.
    ================================================================ */
 Object.assign(SPECS, {
-  tele:    { top: 40 / 3.6, rev: 20 / 3.6, accel: 1.8, brake: 6.0, wb: 2.9, steer: 0.6, steerFast: 0.18, steerRate: 1.3,
+  tele:    { top: 40 / 3.6, rev: 20 / 3.6, accel: 1.8, brake: 6.0, wb: 2.743, steer: 0.6, steerFast: 0.18, steerRate: 1.3,
              front: 4.0, rear: 1.05, halfW: 1.2, rayH: [0.4, 1.0, 1.8], lanes: [-1.0, 0, 1.0], noseLane: 0.8,
              rF: 0.62, rR: 0.62, step: 0.42, trackR: 0.95, trackF: 0.95, roll: 0.014, rollMax: 0.06, grip: 4.2, susK: 120, susC: 11,
              camBack: 10.5, camUp: 5.0, camPivot: 2.0, look: 3.4, lookH: 1.3, hydro: true },
@@ -1274,65 +1276,58 @@ function smallWheel(R, tw, spokes, mat = GMAT.rubber) {
   b.build(spin); return spin;
 }
 
+/* ---------- the telehandler: Merlo P41.7, from the FS25 mod "Merlo P41.7" (merlo-p417.glb, tools/fs-mod/build_vehicle.py).
+   The boom is the mod's own: the arm pivots (Arm, -63..+8 deg), the inner boom telescopes 3.6 m (boom, z 2.075..5.675)
+   and the tool carrier tilts (attacherArmRot); the lift and compensation rams point at their mod reference nodes.
+   The mod's tools hang off an attacher in FS; here the carrier wears the game's dirt bucket. The tyres (460/70R24) are
+   base-game parts in FS, built here. Same controls as before: right stick lifts and tilts, Boom out / in telescopes. */
+const ML_REAR = -1.368, ML_UP = 0.07;          // i3d z of the rear axle (the frame origin) and the lift so 0.62 m tyres sit on the ground
 function buildTele() {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-  const b = Batch(), WB = 2.9, R = 0.62;
-  // chassis, axles, counterweight, fenders
-  b.add(GMAT.teleDark, box(1.0, 0.5, 3.7), 0, 0.85, 1.4);
-  b.add(GMAT.grey, cyl(0.12, 0.12, 1.7, 10), 0, R, 0, 0, 0, Math.PI / 2); b.add(GMAT.grey, cyl(0.12, 0.12, 1.7, 10), 0, R, WB, 0, 0, Math.PI / 2);
-  b.add(GMAT.tele, box(1.5, 0.55, 0.5), 0, 0.85, -0.85); b.add(MAT.lamp, box(0.14, 0.07, 0.03), 0.6, 1.0, -1.11); b.add(MAT.red, box(0.12, 0.08, 0.03), -0.6, 1.0, -1.11);
-  for (const s of [-1, 1]) for (const z of [0, WB]) { const f = new THREE.CylinderGeometry(R + 0.1, R + 0.1, 0.5, 16, 1, true, -0.2, 1.9); b.add(GMAT.tele, f, s * 0.95, R, z, 0, 0, Math.PI / 2); }
-  // engine pod on the right (-X) with a vertical exhaust
-  b.add(GMAT.tele, box(0.58, 0.8, 2.1), -0.86, 1.32, 0.45); b.add(GMAT.teleDark, box(0.6, 0.06, 2.12), -0.86, 1.74, 0.45);
-  for (let i = 0; i < 6; i++) b.add(MAT.black, box(0.02, 0.5, 0.06), -1.16, 1.3, -0.25 + i * 0.13);
-  b.add(MAT.black, cyl(0.05, 0.05, 0.7, 8), -0.75, 2.05, 1.3);
-  // cab on the left (+X): floor, posts, roof, rear and front glass (left side is the door)
-  b.add(GMAT.teleDark, box(1.0, 0.12, 2.0), 0.65, 1.1, 1.45);
-  for (const [x, z] of [[0.17, 0.5], [1.13, 0.5], [0.17, 2.4], [1.13, 2.4]]) b.add(GMAT.tele, box(0.07, 1.45, 0.07), x, 1.85, z);
-  b.add(GMAT.tele, box(1.1, 0.1, 2.05), 0.65, 2.6, 1.45); b.add(MAT.amber, cyl(0.07, 0.08, 0.1, 10), 0.95, 2.7, 0.7);
-  b.add(GMAT.grey, box(0.08, 0.5, 0.5), 0.45, 1.4, 1.9);     // steering column
-  b.add(MAT.black, cyl(0.17, 0.17, 0.03, 16), 0.45, 1.65, 1.75, -0.9, 0, 0);
-  b.add(MAT.lamp, box(0.16, 0.08, 0.04), 1.0, 2.55, 2.45); b.add(MAT.lamp, box(0.16, 0.08, 0.04), 0.3, 2.55, 2.45);
-  // a step up to the cab on the left
-  b.add(GMAT.grey, box(0.32, 0.05, 0.3), 1.28, 0.45, 1.95);
-  b.build(body);
-  const gl = box(0.94, 1.36, 1.86); gl.setIndex(Array.from(gl.index.array).slice(6));       // no left face: that's the door
-  const cabGlass = new THREE.Mesh(gl, MAT.glass); cabGlass.position.set(0.65, 1.86, 1.45); body.add(cabGlass);
-  // cab door: hinged on the rear post, swings forward and out
-  const door = new THREE.Group(); door.position.set(1.17, 0, 0.52); body.add(door);
-  const dg = new THREE.Mesh(box(0.02, 1.3, 1.82), MAT.glass); dg.position.set(0, 1.86, 0.93); door.add(dg);
-  const db = Batch(); for (const y of [1.2, 2.52]) db.add(MAT.black, box(0.04, 0.05, 1.86), 0, y, 0.93); for (const z of [0.02, 1.84]) db.add(MAT.black, box(0.04, 1.36, 0.05), 0, 1.86, z);
-  db.add(GMAT.chrome, box(0.05, 0.2, 0.04), 0.04, 1.75, 1.7); db.build(door);
-  // boom: pivots high at the back, telescopes, bucket on a carriage at the tip
-  const pivot = new THREE.Group(); pivot.position.set(-0.05, 1.95, -0.55); body.add(pivot);
-  const bb = Batch(); bb.add(GMAT.boom, box(0.5, 0.55, 4.25), 0, 0, 2.05); bb.add(GMAT.teleDark, cyl(0.14, 0.14, 0.62, 12), 0, 0, 0, 0, 0, Math.PI / 2); bb.build(pivot);
-  const inner = new THREE.Group(); inner.position.set(0, 0, 0.6); pivot.add(inner);
-  const ib = Batch(); ib.add(GMAT.boom, box(0.4, 0.44, 3.6), 0, 0, 1.85); ib.add(GMAT.teleDark, box(0.6, 0.3, 0.3), 0, -0.05, 3.62); ib.build(inner);
-  const head = new THREE.Group(); head.position.set(0, -0.15, 3.65); inner.add(head);
-  const bucket = new THREE.Group(); head.add(bucket);
+  const frame = new THREE.Group(); frame.position.set(0, ML_UP, -ML_REAR); body.add(frame);
+  const R = 0.62, WB = 1.375 - ML_REAR;
+  // the boom parts the game drives: stand-ins until the model is in, then the mod's own nodes
+  const pivot = new THREE.Group(), inner = new THREE.Group(), bucket = new THREE.Group(), head = new THREE.Group();
   const kb = Batch();
-  kb.add(GMAT.bucket, box(2.2, 0.06, 0.9), 0, -0.72, 0.45);                 // floor
-  kb.add(GMAT.bucket, box(2.2, 0.75, 0.06), 0, -0.36, 0.0);                 // back
-  kb.add(GMAT.bucket, box(2.2, 0.06, 0.35), 0, -0.02, 0.15);                // top lip at the back
+  kb.add(GMAT.bucket, box(2.2, 0.06, 0.9), 0, -0.72, 0.45); kb.add(GMAT.bucket, box(2.2, 0.75, 0.06), 0, -0.36, 0.0); kb.add(GMAT.bucket, box(2.2, 0.06, 0.35), 0, -0.02, 0.15);
   for (const s of [-1, 1]) kb.add(GMAT.bucket, box(0.06, 0.72, 0.9), s * 1.08, -0.36, 0.45);
-  kb.add(GMAT.chrome, box(2.22, 0.05, 0.12), 0, -0.73, 0.92);               // cutting edge
-  for (let i = 0; i < 6; i++) kb.add(GMAT.grey, box(0.08, 0.05, 0.14), -0.9 + i * 0.36, -0.73, 1.0);   // teeth
-  kb.add(GMAT.teleDark, box(0.7, 0.4, 0.15), 0, -0.2, -0.08);               // coupling plate
+  kb.add(GMAT.chrome, box(2.22, 0.05, 0.12), 0, -0.73, 0.92); for (let i = 0; i < 6; i++) kb.add(GMAT.grey, box(0.08, 0.05, 0.14), -0.9 + i * 0.36, -0.73, 1.0);
   kb.build(bucket);
   const dirt = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), GMAT.dirt); dirt.position.set(0, -0.69, 0.42); dirt.scale.set(1.0, 0.01, 0.4); dirt.visible = false; bucket.add(dirt);
   const lip = new THREE.Object3D(); lip.position.set(0, -0.73, 0.95); bucket.add(lip);
   const mid = new THREE.Object3D(); mid.position.set(0, -0.5, 0.45); bucket.add(mid);
-  // lift ram from the chassis to the underside of the boom
-  const ram = new THREE.Mesh(cyl(0.09, 0.09, 1, 10), GMAT.chrome); body.add(ram);
-  const ramBase = new THREE.Vector3(0, 1.15, 0.9);
+  const boom = { pivot, inner, head, bucket, dirt, lip, mid, ram: null, ramBase: null, mp: [], ready: false };
+  // the door: a hinge the game swings; the mod's door goes on it once loaded
+  const door = new THREE.Group(); door.position.set(1.112, 1.311 + ML_UP, -0.119 - ML_REAR); body.add(door);
+  // tyres: rims in Merlo grey
+  const tm = { rubber: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.93 }), rim: new THREE.MeshStandardMaterial({ color: 0x3a3d3f, roughness: 0.45, metalness: 0.4, envMap: cpEnv(), envMapIntensity: 0.6 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1, envMap: cpEnv() }), dark: new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.8 }) };
+  for (const m of Object.values(tm)) m.userData.wet = 1;
   const wheels = [], steerPivots = [];
   for (const s of [-1, 1]) {
-    const w = makeWheel(R, 0.46, 0.38, 16); w.position.set(s * 0.95, R, 0); root.add(w); wheels.push({ spin: w, r: R, rear: true });
+    const w = cpTyre(R, 0.31, 0.46, 18, tm); if (s < 0) w.scale.x = -1; const sp = new THREE.Group(); sp.add(w); sp.position.set(s * 0.95, R, 0); root.add(sp); wheels.push({ spin: sp, r: R, rear: true });
     const p = new THREE.Group(); p.position.set(s * 0.95, R, WB); root.add(p);
-    const f = makeWheel(R, 0.46, 0.38, 16); p.add(f); wheels.push({ spin: f, r: R }); steerPivots.push(p);
+    const f = cpTyre(R, 0.31, 0.46, 18, tm); if (s < 0) f.scale.x = -1; const fs = new THREE.Group(); fs.add(f); p.add(fs); wheels.push({ spin: fs, r: R }); steerPivots.push(p);
   }
-  return { root, body, wheels, steerPivots, halo: null, dome: null, door, exhaustTip: new THREE.Vector3(-0.75, 2.42, 1.3),
-           boom: { pivot, inner, head, bucket, dirt, lip, mid, ram, ramBase } };
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('merlo-p417.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    const N = {}, cache = new Map();
+    g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); if (o.material.map) { m.map = o.material.map; m.alphaTest = o.material.alphaTest || (o.material.transparent ? 0.4 : 0); } cache.set(o.material, m); }
+        o.material = m; if (o.isSkinnedMesh) { o.frustumCulled = false; o.userData.nodent = true; } } });
+    frame.add(g.scene); frame.updateMatrixWorld(true);
+    // the physics stand-ins (…Dummy) aren't drawn; the bucket sits on the tool carrier
+    if (N.ArmDummy) N.ArmDummy.visible = false;
+    Object.assign(boom, { pivot: N.Arm, inner: N.boom, head: N.attacherArmRot, ext0: N.boom.position.clone(), rot0: N.Arm.rotation.x });
+    N.attacherArm.add(bucket); bucket.position.set(0, 0.32, 0.14);
+    if (N.door) door.attach(N.door);
+    for (const [n, ref] of [['mainCylinder', 'mainRef'], ['secondaryCylinder', 'secondaryRef']]) {
+      const c = N[n], r = N[ref]; if (!c || !r) continue; const punch = c.children.find(k => /^punch/.test(k.name));
+      boom.mp.push({ n: c, ref: r, frame: r, len0: c.getWorldPosition(new THREE.Vector3()).distanceTo(r.getWorldPosition(new THREE.Vector3())), punch, punch0: punch ? punch.position.z : 0, stretch: false });
+    }
+    boom.glb = g.scene; boom.ready = true; root.userData.ready = true; teleApply();
+  }, e => console.warn('Merlo model', e))).catch(e => console.warn('Merlo file', e));
+  return { root, body, wheels, steerPivots, halo: null, dome: null, door, exhaustTip: new THREE.Vector3(-0.9, 2.3, 0.3 - ML_REAR), boom };
 }
 
 function buildScooter() {
@@ -1873,6 +1868,7 @@ function tipperPlace() {
 }
 // called every frame the truck moves (and while it's parked, to keep the trailer with it)
 function tipperFollow(st, dt) {
+  if (TIP.free) return;                          // (unhooked: it stays where it was left)
   const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw);
   const h = new THREE.Vector3(st.pos.x + fx * TIP.kz, st.pos.y, st.pos.z + fz * TIP.kz);
   // the axle group gets dragged along its own heading (a tractrix): the classic articulated behaviour
@@ -1906,6 +1902,7 @@ function overTipper(p) {
 }
 // trailer sweep against walls and structures: the corners of the bin as it moves
 function tipperBlocked(st) {
+  if (TIP.free) return null;
   const fwd = Math.sign(st.v || 0); if (!fwd) return null;
   const c = Math.cos(TIP.yaw), s = Math.sin(TIP.yaw);
   for (const [lx, lz] of [[1.3, -10.8], [-1.3, -10.8], [1.3, -4], [-1.3, -4]]) {
@@ -2472,6 +2469,46 @@ SPECS.rx = Object.assign({}, SPECS.tractor, { top: 40 / 3.6, rev: 15 / 3.6, acce
   front: 7.05, rear: 1.85, halfW: 1.6, rayH: [0.5, 1.3, 2.4, 3.6], lanes: [-1.5, -0.75, 0, 0.75, 1.5], noseLane: 0.9, rF: 0.56, rR: 0.56, step: 0.55,
   trackR: 1.12, trackF: 1.12, roll: 0.012, rollMax: 0.05, grip: 3.6, susK: 130, susC: 12, camBack: 13.5, camUp: 6.2, camPivot: 2.6, look: 4.2, lookH: 2.2 });
 
+/* ---------- the Mack: Pinnacle 64R grain truck, from the FS25 mod "Mack Pinnacle 64R" (mack-pinnacle.glb,
+   tools/fs-mod/build_vehicle.py). A rigid 6x4 with its own tipping grain box: the box tips back 19.5 deg over 5 s and
+   the grain door slides up, as in the mod (mackTip drives both). Tyres are base-game parts in FS, built here
+   (385/65R22.5 steer, 315/80R22.5 duals). Frame origin: the ground under the middle of the rear tandem. */
+const MK_REAR = -4.32, MK_UP = 0.03;
+function buildMack() {
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const frame = new THREE.Group(); frame.position.set(0, MK_UP, -MK_REAR); body.add(frame);
+  const tm = { rubber: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.9 }), rim: new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.25, metalness: 1, envMap: cpEnv(), envMapIntensity: 0.9 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1, envMap: cpEnv() }), dark: new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.8 }) };
+  for (const m of Object.values(tm)) m.userData.wet = 1;
+  const wheels = [], steerPivots = [];
+  for (const s of [-1, 1]) {
+    const p = new THREE.Group(); p.position.set(s * 0.96, 0.53, 1.94 - MK_REAR); root.add(p);
+    const fs = new THREE.Group(); const f = cpTyre(0.53, 0.29, 0.38, 22, tm); if (s < 0) f.scale.x = -1; fs.add(f); p.add(fs); wheels.push({ spin: fs, r: 0.53 }); steerPivots.push(p);
+    for (const z of [-3.67, -4.97]) { const sp = new THREE.Group(); sp.position.set(s * 0.69, 0.53, z - MK_REAR); root.add(sp);
+      for (const dx of [-0.17, 0.17]) { const t = cpTyre(0.53, 0.29, 0.31, 20, tm); t.position.x = dx; if (s < 0) t.scale.x = -1; sp.add(t); }
+      wheels.push({ spin: sp, r: 0.53, rear: true }); }
+  }
+  const C = { root, body, wheels, steerPivots, halo: null, dome: null, door: null, exhaustTip: new THREE.Vector3(1.05, 3.3, -0.2 - MK_REAR), nodes: {}, ready: false, frame };
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('mack-pinnacle.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    const N = C.nodes, cache = new Map();
+    g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); cache.set(o.material, m); } o.material = m; o.castShadow = true; } });
+    // right-hand drive, as the Macks here are: the cab's insides mirrored across (the outside, badges and all, stays as it is)
+    for (const k of ['InteriorDayCab', 'InteriorShared', 'interiorDayCab_decal', 'steeringWheelRot', 'pedals', 'interiorScreenLight']) { const o = N[k]; if (o) { o.position.x *= -1; o.scale.x *= -1; } }
+    frame.add(g.scene);
+    C.box = N.grainBox; C.box0 = C.box.rotation.x; C.gate = N.backDoor; C.gate0 = C.gate ? C.gate.position.y : 0;
+    root.updateMatrixWorld(true);
+    // the front top corners of the box (for the roof check when it's tipped) and its tail
+    C.tops = [[1.25, 3.2, -0.6], [-1.25, 3.2, -0.6], [1.25, 3.2, -4.0], [-1.25, 3.2, -4.0]].map(q => { const o = new THREE.Object3D(); o.position.copy(C.box.worldToLocal(new THREE.Vector3(...q).applyMatrix4(frame.matrixWorld))); C.box.add(o); return o; });
+    C.spout = N.fillVolumeDischargeNode || C.gate;
+    C.ready = true; root.userData.ready = true;
+  }, e => console.warn('Mack model', e))).catch(e => console.warn('Mack file', e));
+  return C;
+}
+function mackTip(t) { const C = VEHICLES.mack; if (!C || !C.ready) return; C.box.rotation.x = C.box0 - 19.5 * Math.PI / 180 * t; if (C.gate) C.gate.position.y = C.gate0 + 0.302 * Math.min(1, t * 5); }
+SPECS.mack = Object.assign({}, SPECS.truck, { revCam: true, top: 100 / 3.6, rev: 12 / 3.6, wb: 6.26, front: 7.02, rear: 4.11, halfW: 1.27, rF: 0.53, rR: 0.53, trackR: 0.86, trackF: 0.96 });
+
 const CP_CFG_DEF = { model: 'cp690', wrap: 'yellow', tint: 0, gps: 'sf3000', num: 0, numLoc: 'picker' };
 const CP_CFG = (() => { let o = {}; try { o = JSON.parse(localStorage.getItem('wfy.cp') || '{}') || {}; } catch (_) {} const c = Object.assign({}, CP_CFG_DEF, o);
   for (const k in CP_CFG_DEF) if (typeof c[k] !== typeof CP_CFG_DEF[k]) c[k] = CP_CFG_DEF[k]; return c; })();
@@ -2506,6 +2543,7 @@ const UTE_GLB = "Z2xURgIAAABkThAA+A8AAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6ImdsVEY
 const VEHICLES = { bmw: buildE70(), tractor: buildTractor(), suv: buildSuv(), tele: buildTele(), scooter: buildScooter(), bike: buildBike(), dozer: buildDozer(), dirtbike: buildDirtBike(), trophy: buildTrophy(), truck: buildTruck() };
 VEHICLES.picker = cpModel(CP_CFG);
 VEHICLES.rx = buildRX();
+VEHICLES.mack = buildMack();
 VEHICLES.ute = buildX5(UTE_META, UTE_GLB);
 /* THE BUGGY: the owner's own youth side-by-side, cut out of their photo scan of it under the carport (buggy-v1.glb, built by
    tools in the session that made it: the buggy boxed out of the scan, the ground and the reflective blob on the roof dropped,
@@ -3062,7 +3100,7 @@ const HND = {
   buggy:   { g: 1.35, cs: 17, fw: 0.45, h: 0.75, drv: 'a', lk: 1.2 },
   trophy:  { g: 1.45, cs: 16, fw: 0.5, h: 0.85, drv: 'r', lk: 1.15 },  tractor: { g: 1.0, cs: 11, fw: 0.42, h: 1.1, drv: 'a', lk: 1.1 },
   tele:    { g: 1.0, cs: 11, fw: 0.5, h: 1.2, drv: 'a', lk: 1.1 },     truck:   { g: 0.85, cs: 10, fw: 0.45, h: 1.3, drv: 'r', lk: 1.1 },
-  picker:  { g: 0.72, cs: 9, fw: 0.55, h: 1.9, drv: 'a', lk: 1 },       rx:      { g: 0.95, cs: 12, fw: 0.55, h: 1.3, drv: 'a', lk: 1 },
+  picker:  { g: 0.72, cs: 9, fw: 0.55, h: 1.9, drv: 'a', lk: 1 },       rx:      { g: 0.95, cs: 12, fw: 0.55, h: 1.3, drv: 'a', lk: 1 },       mack:    { g: 0.85, cs: 10, fw: 0.42, h: 1.3, drv: 'r', lk: 1.05 },
         def:     { g: 1.25, cs: 14, fw: 0.5, h: 0.8, drv: 'a', lk: 1.1 } };
 const tyreCurve = (x) => x / Math.sqrt(1 + x * x);          // rises straight, then leans over to the limit: no cliff to fall off
 function carMotion(dt, throttle, steerIn, braking, handbrake) {
@@ -4077,6 +4115,7 @@ function footCam(dt) {
   if (hit) desired.copy(pivot).addScaledVector(dir, Math.max(0.7, hit.distance - 0.35));
   const gg = groundAt(desired.x, desired.z, desired.y + 2, -1e9);
   if (desired.y < gg + 0.35) desired.y = gg + 0.35;
+  gsCamClamp(desired, pivot);
   if (!camInit) { camPos.copy(desired); camInit = true; } else camPos.lerp(desired, 1 - Math.exp(-(hit ? 18 : inSeq ? 4 : 10) * dt));
   lookTarget.set(F.pos.x, F.pos.y + 1.45, F.pos.z);
   lookAt.lerp(lookTarget, 1 - Math.exp(-14 * dt));
@@ -4753,6 +4792,7 @@ function shedParking() {
     HOME[name] = { x, z, yaw: Math.atan2(U[0] * row, U[1] * row) };
   }
   HOME.truck = { x: -56, z: 28, yaw: Math.PI };
+  HOME.mack = { x: 48, z: 50, yaw: -Math.PI / 2 };               // the Mack: waiting outside the grain shed, tail to the door
   HOME.rx = { x: -61, z: 13, yaw: Math.PI };                     // the 9RX: on the open ground south of the road train, nose to the south
   { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], v = -D.hv + 2 * D.hv / D.bays * 4.5, yaw = Math.atan2(-U[0], -U[1]);
     HOME.picker = { x: D.cx + V[0] * v - Math.sin(yaw) * 4.2, z: D.cz + V[1] * v - Math.cos(yaw) * 4.2, yaw }; }   // the cotton picker: the whole end bay of the machinery shed, header up, nose out
@@ -4847,11 +4887,11 @@ VEH.suv.model.door.userData.hole.visible = false;
 VEH.flyer.range = 3;
 
 /* ---------- the new machines join the yard ---------- */
-const GROUND = ['bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'dozer', 'dirtbike', 'trophy', 'truck', 'ute', 'picker', 'rx'], AIRS = ['drone', 'flyer', 'spray', 'duster', 'gyro', 'racer'];
+const GROUND = ['bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'dozer', 'dirtbike', 'trophy', 'truck', 'ute', 'picker', 'rx', 'mack'], AIRS = ['drone', 'flyer', 'spray', 'duster', 'gyro', 'racer'];
 VEH.tractor.pose = VEH.suv.pose = 'wheel'; VEH.flyer.pose = 'stick';
 Object.assign(VEH, {
   tele:    { name: 'tele', kind: 'ground', label: 'the telehandler', model: VEHICLES.tele, spec: SPECS.tele, state: null, pose: 'wheel', coast: false,
-             seat: { x: 0.62, hip: 1.5, z: 1.35, k: 0.85 }, exit: [[2.0, 1.5], [-2.0, 1.5], [0, -2.3]], range: 4, top: 2.7, icon: ['L', '#4f8a2b'] },
+             seat: { x: 0.675, hip: 1.58, z: 1.28, k: 0.85 }, exit: [[2.0, 1.5], [-2.0, 1.5], [0, -2.3]], range: 4, top: 2.7, icon: ['L', '#4f8a2b'] },
   scooter: { name: 'scooter', kind: 'ground', label: 'the e-scooter', model: VEHICLES.scooter, spec: SPECS.scooter, state: null, pose: 'stand', coast: false,
              seat: { x: 0, hip: 0.172 + 0.702, z: 0.36, k: 1 }, exit: [[0.8, 0.4], [-0.8, 0.4], [0, -0.9]], range: 2.6, top: 1.3, icon: ['S', '#e05a1a'] },
   bike:    { name: 'bike', kind: 'ground', label: 'the bike', model: VEHICLES.bike, spec: SPECS.bike, state: null, pose: 'pedal', coast: false,
@@ -4872,6 +4912,8 @@ Object.assign(VEH, {
              seat: { x: -0.14, hip: 2.82, z: 5.09, k: 0.85 }, exit: [[3.5, 5.0], [-3.6, 5.0], [0, -3.7]], range: 5.5, top: 5.9, icon: ['C', '#367c2b'] },
   rx:      { name: 'rx', kind: 'ground', label: 'the 9RX', model: VEHICLES.rx, spec: SPECS.rx, state: null, pose: 'wheel', coast: false,
              seat: { x: 0, hip: 2.66, z: 2.51, k: 0.85 }, exit: [[2.6, 2.45], [-2.6, 2.45], [0, -2.6]], range: 4.5, top: 4.4, icon: ['9', '#367c2b'] },
+  mack:    { name: 'mack', kind: 'ground', label: 'the Mack', model: VEHICLES.mack, spec: SPECS.mack, state: null, pose: 'wheel', coast: false,
+             seat: { x: -0.52, hip: 1.82, z: 4.55, k: 0.85 }, exit: [[2.2, 4.6], [-2.2, 4.6], [0, -4.8]], range: 4.5, top: 3.4, icon: ['K', '#a3201d'] },
   truck:   { name: 'truck', kind: 'ground', label: 'the truck', model: VEHICLES.truck, spec: SPECS.truck, state: null, pose: 'wheel', coast: false,
              seat: { x: -0.6, hip: 2.35, z: 3.0, k: 0.85 }, exit: [[-2.4, 3.0], [2.4, 3.0], [0, 8.0]], range: 4.5, top: 4.3, icon: ['R', '#9c1b1b'] },
   gyro: makeAircraft('gyro', buildGyro()),
@@ -4919,6 +4961,11 @@ Object.assign(DOORS, {
   ute: { side: -1, max: 0, bail: [-1.3, 0.75, UTE_RIG.door.z],
     inn: v => ({ end: 1.7, ev: [], keys: [K(0, -1.6, 0, UTE_RIG.door.z, HP), K(0.3, -1.6, 0, UTE_RIG.door.z, HP, { reach: 1 }), K(0.85, -1.2, 0.18, UTE_RIG.door.z, HP, { duck: 0.45, sit: 0.15, climb: 0.5 }), seatKey(v, 1.4)] }),
     out: v => ({ end: 1.25, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3, 0, { reach: 0.7 }), K(0.75, -1.2, 0.18, UTE_RIG.door.z, -HP, { duck: 0.45, sit: 0.15, climb: 0.5 }), K(1.25, -1.65, 0, UTE_RIG.door.z, -2.2)] }) },
+  // the Mack: up the steps on the right (right-hand drive)
+  mack: { side: -1, max: 0, bail: [-1.9, 1.9, 4.6],
+    inn: v => ({ end: 2.1, ev: [], keys: [K(0, -2.15, 0, 4.6, HP), K(0.35, -2.05, 0, 4.6, HP, { reach: 1 }), K(0.85, -1.75, 0.75, 4.6, HP, { climb: 1 }),
+      K(1.4, -1.2, 1.35, 4.55, 1.2, { climb: 0.5, duck: 0.3, sc: 0.85 }), seatKey(v, 2.1)] }),
+    out: v => ({ end: 1.9, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.8, -1.2, 1.35, 4.55, -1.2, { duck: 0.3, sc: 0.85 }), K(1.35, -1.75, 0.75, 4.6, -HP, { climb: 1 }), K(1.9, -2.15, 0, 4.6, -HP)] }) },
   // the 9RX: up the steps on the left of the cab
   rx: { side: 1, max: 0, bail: [1.9, 2.2, 2.45],
     inn: v => ({ end: 2.1, ev: [], keys: [K(0, 2.4, 0, 2.45, -HP), K(0.35, 2.3, 0, 2.45, -HP, { reach: 1 }), K(0.9, 1.85, 1.05, 2.45, -HP, { climb: 1 }),
@@ -5036,7 +5083,7 @@ function doorRestoreAll() { for (const v of Object.values(VEH)) if (v.kind === '
 
 /* ---------- easy to spot: a name pin over every vehicle you're not in, and a tall whip flag on the drone ---------- */
 const PINS = {};
-const PIN_NAMES = { ute: 'Madman\u2019s ute', picker: 'Cotton picker', rx: '9RX', bmw: 'BMW', buggy: 'Buggy', dirtbike: 'Dirt bike', trophy: 'Trophy truck', truck: 'Truck', gyro: 'Gyro', racer: 'Racing drone', dozer: 'Dozer', tractor: 'Tractor', suv: '4WD', tele: 'Telehandler', scooter: 'E-scooter', bike: 'Bike', drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster' };
+const PIN_NAMES = { ute: 'Madman\u2019s ute', picker: 'Cotton picker', rx: '9RX', mack: 'Mack', bmw: 'BMW', buggy: 'Buggy', dirtbike: 'Dirt bike', trophy: 'Trophy truck', truck: 'Truck', gyro: 'Gyro', racer: 'Racing drone', dozer: 'Dozer', tractor: 'Tractor', suv: '4WD', tele: 'Telehandler', scooter: 'E-scooter', bike: 'Bike', drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster' };
 function pinTex(letter, color, label) {
   const c = document.createElement('canvas'); c.width = 320; c.height = 88; const x = c.getContext('2d');
   x.font = '800 34px -apple-system, system-ui, "Segoe UI", Roboto, sans-serif'; const w = label ? Math.min(300, 92 + x.measureText(label).width) : 70;
@@ -5089,20 +5136,17 @@ function updatePins() {
 const TB = { a: -0.25, ext: 0, tilt: 0.2, fill: 0, extIn: 0, digAcc: 0, pourAcc: 0, markAcc: 0, hyd: 0, told: false };
 const BUCKET_M3 = 1.0;
 function teleApply() {
-  const B = VEH.tele.model.boom;
-  B.pivot.rotation.x = -TB.a; B.inner.position.z = 0.6 + TB.ext; B.bucket.rotation.x = -TB.tilt + TB.a;   // self-levelling: the tilt is relative to the ground
+  const B = VEH.tele.model.boom; if (!B.ready) return;
+  B.pivot.rotation.x = B.rot0 - TB.a; B.inner.position.z = B.ext0.z + TB.ext; B.head.rotation.x = -TB.tilt + TB.a;   // self-levelling: the tilt is relative to the ground
   B.dirt.visible = TB.fill > 0.02; B.dirt.scale.set(1.0, 0.05 + 0.6 * TB.fill, 0.43);
-  // lift ram from the chassis to a point under the boom
-  B.pivot.updateMatrix(); const tip = _v3.set(0, -0.28, 1.7).applyMatrix4(B.pivot.matrix);
-  const d = _v2.subVectors(tip, B.ramBase), L = d.length();
-  B.ram.position.copy(B.ramBase).addScaledVector(d, 0.5); B.ram.quaternion.setFromUnitVectors(UPV, d.normalize()); B.ram.scale.set(1, L, 1);
+  cpSolve({ glb: B.glb, mp: B.mp });                // lift and compensation rams follow the arm
 }
 function teleStep(dt) {
   const ry = THREE.MathUtils.clamp(input.ry + input.kUD, -1, 1), rx = THREE.MathUtils.clamp(input.rx + input.kLR, -1, 1);
   const ext = TB.extIn || ((keys.has('x') ? 1 : 0) - (keys.has('c') ? 1 : 0));
-  TB.ext = THREE.MathUtils.clamp(TB.ext + ext * 0.9 * dt, 0, 2.4);
-  const L = 4.25 + TB.ext, aMin = Math.asin(THREE.MathUtils.clamp(-1.18 / L, -1, 1));
-  TB.a = THREE.MathUtils.clamp(TB.a + ry * 0.55 * dt, aMin, 1.05);
+  TB.ext = THREE.MathUtils.clamp(TB.ext + ext * 0.9 * dt, 0, 3.6);
+  const L = 4.1 + TB.ext, aMin = Math.max(-0.14, Math.asin(THREE.MathUtils.clamp(-1.3 / L, -1, 1)));    // (the Merlo's arm: 8 deg down to 63 up)
+  TB.a = THREE.MathUtils.clamp(TB.a + ry * 0.5 * dt, aMin, 1.1);
   TB.tilt = THREE.MathUtils.clamp(TB.tilt - rx * 1.2 * dt, -1.05, 0.75);
   TB.hyd += ((Math.abs(ry) + Math.abs(rx) * 0.6 + Math.abs(ext)) * 0.7 - TB.hyd) * (1 - Math.exp(-8 * dt));
   teleApply();
@@ -5110,7 +5154,8 @@ function teleStep(dt) {
   const lip = M.boom.lip.getWorldPosition(new THREE.Vector3());
   const g = groundAt(lip.x, lip.z, lip.y + 1.5, -1e9);
   // scoop: bucket on the ground, not tipped forward, driving into it
-  if (TB.fill < 1 && TB.tilt > -0.35 && g > -1e8 && lip.y < g + 0.12 && S.v > 0.25) {
+  const shove = S.v > 0.05 || input.gas || input.y > 0.2, pushing = TB.tilt > -0.35 && shove && g > -1e8 && lip.y < g + 0.35 && ujPush(lip, dt);
+  if (!pushing && !ujShedFloor(lip) && TB.fill < 1 && TB.tilt > -0.35 && g > -1e8 && lip.y < g + 0.12 && S.v > 0.25) {
     const d = Math.min(1 - TB.fill, dt * Math.min(1, S.v / 1.5) * 0.5);
     TB.fill += d;
     const fromPile = takeFromPile(lip.x, lip.z, d * BUCKET_M3);
@@ -5163,7 +5208,7 @@ function addToPile(x, z, vol) {
   if (!best && PILES.length >= 36) for (const p of PILES) { const d = Math.hypot(x - p.x, z - p.z); if (d < bd) { bd = d; best = p; } }
   if (best) { const k = vol / (best.vol + vol) * 0.5; best.x += (x - best.x) * k; best.z += (z - best.z) * k; best.vol += vol; }
   else { best = { x, z, vol, base: rawGround(x, z, 30), mesh: new THREE.Mesh(pileGeo, pileMat) }; best.mesh.rotation.y = Math.random() * 6.28; scene.add(best.mesh); PILES.push(best); }
-  pileDims(best);
+  pileDims(best); return best;
 }
 function takeFromPile(x, z, vol) {
   for (let i = 0; i < PILES.length; i++) { const p = PILES[i]; if (Math.hypot(x - p.x, z - p.z) < p.r * 0.92) {
@@ -5730,7 +5775,7 @@ function setActive(name, opts = {}) {
   } else drift.on = false;
   if (name === 'foot' && F.mode === 'pilot') { F.mode = 'walk'; setFarmerProps('walk'); }
   S.air = false; S.vy = 0; S.pitchV = 0; MOTO.lean = MOTO.x = 0;
-  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
+  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'tele' || name === 'mack' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
   camYaw = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   if (name === 'foot') camYawF = camYaw;
   input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
@@ -5767,11 +5812,11 @@ function updateActions() {
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
-      cpFootItems(items);
+      cpFootItems(items); gsItems(items); ujItems(items); m8Items(items);
       const v = nearestVehicle();
       if (v) {
         const far = isRemote(v) ? F.pos.distanceTo(v.st.pos) : 0;
-        const LBL = { ute: 'Get in Madman\u2019s ute', picker: 'Drive the cotton picker', rx: 'Drive the 9RX', bmw: 'Drive the BMW', buggy: 'Drive the buggy', drone: 'Fly the drone', spray: 'Fly the spray drone', suv: 'Drive the 4WD', scooter: 'Ride the e-scooter', bike: 'Ride the bike', duster: 'Fly the crop duster', tele: 'Drive the telehandler', dozer: 'Drive the dozer', dirtbike: 'Ride the dirt bike', trophy: 'Drive the trophy truck', truck: 'Drive the truck', gyro: 'Fly the gyro', racer: 'Fly the racing drone' };
+        const LBL = { ute: 'Get in Madman\u2019s ute', picker: 'Drive the cotton picker', rx: 'Drive the 9RX', mack: 'Drive the Mack', bmw: 'Drive the BMW', buggy: 'Drive the buggy', drone: 'Fly the drone', spray: 'Fly the spray drone', suv: 'Drive the 4WD', scooter: 'Ride the e-scooter', bike: 'Ride the bike', duster: 'Fly the crop duster', tele: 'Drive the telehandler', dozer: 'Drive the dozer', dirtbike: 'Ride the dirt bike', trophy: 'Drive the trophy truck', truck: 'Drive the truck', gyro: 'Fly the gyro', racer: 'Fly the racing drone' };
         items.push({ id: 'in:' + v.name, label: LBL[v.name] || 'Get in ' + v.label, sub: far > 10 ? Math.round(far / 5) * 5 + ' m away' : '' });
       }
     }
@@ -5793,7 +5838,8 @@ function updateActions() {
         }
       }
       if (v.name === 'picker') cpItems(items);
-      if (v.name === 'truck') { items.push({ id: 'tip', label: TIP.tiltT > 0 ? 'Lower the bin' : TIP.load > 0.5 ? 'Tip it out' : 'Bin empty', cls: 'ghost', pressed: TIP.tiltT > 0 });
+      gsItems(items); ujItems(items); m8Items(items);
+      if (v.name === 'truck' && !TIP.free) { items.push({ id: 'tip', label: TIP.tiltT > 0 ? 'Lower the bin' : TIP.load > 0.5 ? 'Tip it out' : 'Bin empty', cls: 'ghost', pressed: TIP.tiltT > 0 });
         items.push({ id: 'jake', label: AU.eng.truck && AU.eng.truck.jakeOn === false ? 'Jake off' : 'Jake on', cls: 'ghost', pressed: !(AU.eng.truck && AU.eng.truck.jakeOn === false) }); }
       if (v.name === 'tele') { items.push({ id: 'extOut', label: 'Boom out', cls: 'ghost hold' }); items.push({ id: 'extIn', label: 'Boom in', cls: 'ghost hold' }); }
     }
@@ -5815,7 +5861,7 @@ function updateActions() {
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
-  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa|px):|^radio$|^cp:(on|hdr|drop|wrap)$/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
+  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa|px):|^radio$|^cp:(on|hdr|drop|wrap)$|^gs:|^uj:|^m8:|^tip:/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
   if (items.length > 3) { const keep = items.filter(pri), rest = items.filter(it => !pri(it));
     if (rest.length) items = ACT.more ? [...keep, { id: 'more', label: '\u2715', cls: 'more' }, ...rest] : [...keep, { id: 'more', label: '\u22ef', cls: 'more' }]; }
   const key = JSON.stringify(items); if (key === actKey) return; actKey = key;
@@ -5853,6 +5899,9 @@ function doAction(id) {
   else if (id === 'sport' && v && v.name === 'drone') v.st.sport = !v.st.sport;
   else if (id === 'flip' && v && v.name === 'racer' && !v.st.landed && !(v.st.flipT > 0)) { v.st.flipT = 0.5; }
   else if (id.startsWith('cp:')) cpAct(id);
+  else if (id === 'gs:door') gsToggle();
+  else if (id.startsWith('uj:')) ujAct(id);
+  else if (id.startsWith('m8:') || id.startsWith('tip:')) m8Act(id);
   else if (id === 'tip' && v && v.name === 'truck') { if (TIP.tiltT > 0) TIP.tiltT = 0; else if (TIP.load > 0.5) { TIP.tiltT = 0.85; if (!TIP.told) { TIP.told = true; toast('Tipping out the left side. Keep rolling slowly for a windrow, or sit still for one big heap', 3); } } else toast('Bin\u2019s empty. Load it with the telehandler bucket', 2.4); }
   else if (id === 'hook' && v && v.name === 'tractor') { const I = implNear(); if (I) implHook(I); }
   else if (id === 'unhook' && v && v.name === 'tractor') implUnhook();
@@ -5978,6 +6027,7 @@ function setStickLabels(name) {
 
 const HINTS = {
   ute: ['Madman\u2019s ute. <b>Hold GAS</b> to go; <b>Brake</b> reverses when stopped. Drive off in it and he\u2019ll come after you in whatever he can find.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
+  mack:    ['The Mack grain truck. Order a load at the grain shed for the <b>urea job</b>: open the shed door, <b>reverse into the marked bay</b> without touching anything, stay under 10 km/h in the shed, and tip. Five levels; three stars each.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   rx:      ['The 9RX: 690 hp on four tracks. It <b>bends in the middle</b> to steer, so it turns tighter than it looks. <b>Left thumb</b> drives.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   picker:  ['<b>Left thumb</b> drives; the <b>back wheels steer</b>, so the tail swings wide. <b>Start picking</b>, <b>Lower header</b> and drive up the cotton rows. The basket dumps into the chamber, a full chamber wraps a <b>module</b> and rolls it onto the handler: <b>Drop module</b> where you want it. <b>Configure</b> (stopped) picks the model and wrap colour.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out &middot; buttons for the picker'],
   dirtbike: ['<b>Left thumb</b> steers and shifts your weight. <b>GAS</b> and <b>Brake</b> on the right. Lean back + gas = <b>wheelie</b>. Jumps: lean back up the face, <b>flick forward at the lip</b>. Stopped? Hold <b>Brake</b> to back up.', '<b>W</b> gas &middot; <b>S</b> brake &middot; <b>A/D</b> steer &middot; <b>&uarr;/&darr;</b> lean &middot; <b>Q</b> camera &middot; <b>E</b> get off'],
@@ -6088,7 +6138,7 @@ function resetAll() {
   for (const n of GROUND) VEH[n].coast = false;
   for (const [, d] of allDoors()) { d.a = d.tgt = 0; d.slamT = 0; d.obj.rotation.y = 0; if (d.obj.userData.hole) d.obj.userData.hole.visible = false; }
   doorRestoreAll();
-  clearDirt(); resetStructs(); resetImplements(); faunaReset(); wxReset(); wpnReset(); resetHunt(); if (HS.ready) { hsReset(); hsFauna(); } MEL.cur = null; MEL.queued = false; F.sprintT = 0; F.sprinting = false; MX.lap = null; MX.prevRel = undefined; MOTO.crash = null; Object.assign(DZ, { lift: 0.25, load: 0, hyd: 0, told: false, fullTold: false }); dozerApply(); input.rudL = input.rudR = false;
+  clearDirt(); if (typeof tkReset === 'function' && GS.root) tkReset(); resetStructs(); resetImplements(); faunaReset(); wxReset(); wpnReset(); resetHunt(); if (HS.ready) { hsReset(); hsFauna(); } MEL.cur = null; MEL.queued = false; F.sprintT = 0; F.sprinting = false; MX.lap = null; MX.prevRel = undefined; MOTO.crash = null; Object.assign(DZ, { lift: 0.25, load: 0, hyd: 0, told: false, fullTold: false }); dozerApply(); input.rudL = input.rudR = false;
   const saveIn = { ...input }; for (const k of ['x', 'y', 'rx', 'ry']) input[k] = 0; input.gas = input.brake = input.hb = input.jump = false; keys.clear();
   if (activeName !== 'foot') { const pv = activeVeh(); if (pv && pv.kind === 'ground') pv.state = snapshotS(); }
   for (const name of GROUND) {             // park and settle each ground vehicle on its spot
@@ -6100,7 +6150,7 @@ function resetAll() {
     v.state = snapshotS(); engineOff(v);
   }
   if (!TIP.model) TIP.model = buildTipper();
-  tipperAttach(); TIP.side = 1;
+  TIP.free = false; tipperAttach(); TIP.side = 1; if (typeof m8Reset === 'function' && M8.model) m8Reset();
   for (const name of AIRS) {
     const ac = VEH[name], h = HOME[name], A = ac.st;
     if (A.crashed) rebuildAircraft(ac);
@@ -6175,7 +6225,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt); rideStep(dt);
+  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); ujStep(dt); m8Step(dt); gsStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt); rideStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) { drawMinimap(); if (CHAT.open && CHAT.map) drawMinimap(CHAT.map, CHAT.R); }
@@ -6431,10 +6481,10 @@ function spatial() {
       ramp(pan.pan, THREE.MathUtils.clamp((dx * rx + dz * rz) / Math.max(3, d), -0.7, 0.7), 0.05); }
   } };
 }
-const CRANK_REAL = { tractor: 'crankDiesel', truck: 'crankDiesel', dozer: 'crankDiesel', tele: 'crankDiesel', picker: 'crankDiesel', rx: 'crankDiesel', ute: 'crankDiesel',
+const CRANK_REAL = { tractor: 'crankDiesel', truck: 'crankDiesel', dozer: 'crankDiesel', tele: 'crankDiesel', picker: 'crankDiesel', rx: 'crankDiesel', mack: 'crankDiesel', ute: 'crankDiesel',
   suv: 'crankCar', trophy: 'crankCar', buggy: 'crankCar', dirtbike: 'crankCar', gyro: 'crankCar' };
 // real engine recordings (idling, so the recording's pitch is the engine's idle): which one each engine uses. The BMW has its own
-const REAL_ENG = { truck: 'e_trk', tractor: 'e_trac', picker: 'e_trac', rx: 'e_doz', dozer: 'e_doz', tele: 'e_tele', ute: 'e_ute', suv: 'e_car',
+const REAL_ENG = { truck: 'e_trk', tractor: 'e_trac', picker: 'e_trac', rx: 'e_doz', mack: 'e_trk', dozer: 'e_doz', tele: 'e_tele', ute: 'e_ute', suv: 'e_car',
   trophy: 'e_big8', dirtbike: 'e_mx', buggy: 'e_big8', gyro: 'e_gyro' };      // the buggy: the deep big-V8 recording
 const realEng = (name) => { const k = REAL_ENG[name], A = AU.real; return !!(k && A && A[k] && A[k + 'On']); };
 function realEngApply(V, name) {           // one real loop pair (off and on throttle) pitched by rpm, the way the BMW's recording runs
@@ -6629,7 +6679,7 @@ function hornStart(kind) {
   if (kind === 'bike' || kind === 'scooter') { sfx('bikeBell', activeVeh() ? S.pos : F.pos, 0.9); return; }
   AU.hornOn = true;
   // real horns: the truck's air horns, one electric horn on the farm machines (higher on the dirt bike), the usual car horn on the rest
-  const hk = kind === 'truck' ? 'horn_truck' : ['tractor', 'tele', 'dozer', 'picker', 'rx', 'dirtbike'].includes(kind) ? 'horn_one' : 'horn_car', hb = AU.real && AU.real[hk];
+  const hk = kind === 'truck' || kind === 'mack' ? 'horn_truck' : ['tractor', 'tele', 'dozer', 'picker', 'rx', 'dirtbike'].includes(kind) ? 'horn_one' : 'horn_car', hb = AU.real && AU.real[hk];
   if (hb) { const c = AU.ctx, out = gn(0), sp = spatial(); out.connect(sp.in); const v = activeVeh(); sp.place(v ? S.pos : F.pos, 8, 1);
     const s = src(hb, true); s.playbackRate.value = kind === 'dirtbike' ? 1.35 : 1; s.connect(out); s.start();
     out.gain.setValueAtTime(0, c.currentTime); out.gain.linearRampToValueAtTime(0.45, c.currentTime + 0.02); AU.horn = { out, oscs: [s], sp }; return; }
@@ -6676,7 +6726,7 @@ function audioInit() {
     () => { AU.buf.noise = AU.buf.noise || toBuf(noiseLoop(4.3, 1)); }, () => { AU.buf.gravel = AU.buf.gravel || toBuf(gravelLoop(5, 900, 1)); }, () => { AU.buf.scrab = AU.buf.scrab || toBuf(gravelLoop(6, 5200, 1.25)); },
     () => { AU.buf.lug = AU.buf.lug || toBuf((() => { const sr = AU.sr, n = Math.round(sr / 40) * 40, d = new Float32Array(n), lp = bq('lp', 160, 0.9, sr), r = rng(8); for (let k = 0; k < 2; k++) for (let i = 0; i < n; i++) { const t = (i % (n / 40)) / sr; const y = lp(Math.exp(-t / 0.004) * (1 + 0.2 * (r() - 0.5)) + (r() - 0.5) * 0.05); if (k) d[i] = y; } return normRms(d, 0.25); })()); }, () => shotBufs(0), () => shotBufs(1), () => shotBufs(4), () => shotBufs(2), () => shotBufs(3), () => shotBufs(5),
     () => { AU.tyre = makeTyreVoice(); AU.wind = makeWindVoice(); },
-    ...['suv', 'bmw', 'buggy', 'tractor', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'gyro', 'ute', 'picker', 'rx'].flatMap(name => {
+    ...['suv', 'bmw', 'buggy', 'tractor', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'gyro', 'ute', 'picker', 'rx', 'mack'].flatMap(name => {
       const L = ENG[name].rpms.map(r => ({ r, on: null, off: null }));
       return [...L.flatMap(l => [() => { if (!realEng(name)) l.on = toBuf(synthEngineLoop(ENG[name], l.r, true)); }, () => { if (!realEng(name)) l.off = toBuf(synthEngineLoop(ENG[name], l.r, false)); }]),   // (no made-up loops for an engine with a real recording)
               () => { AU.eng[name] = makeEngineVoice(name, L); }];
@@ -6750,7 +6800,7 @@ function dozerDrive(thr, v, active) {
 function audioUpdate(dt) {
   if (!AU.ctx || AU.busy || AU.ctx.state !== 'running') return;
   const v = activeVeh();
-  for (const name of ['tractor', 'suv', 'bmw', 'buggy', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'ute', 'picker', 'rx']) {
+  for (const name of ['tractor', 'suv', 'bmw', 'buggy', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'ute', 'picker', 'rx', 'mack']) {
     const veh = VEH[name], V = AU.eng[name]; if (!V) continue;
     const running = veh === v || veh.coast;
     if (running && !V.on) V.start(); if (!running && V.on) V.stop();
@@ -7240,7 +7290,7 @@ const BOX_DEFS = [
   { id: 'redbox', kind: 'container', cx: 49.8, cz: 3.7, ang: -18.4, L: 6.06, W: 2.44, H: 2.59, mass: 2300, color: 0x9e2a1f },
   { id: 'tank', kind: 'tank', cx: 46.1, cz: -1.6, ang: 84, L: 4.1, W: 2.3, H: 2.6, mass: 3000 },
 ];
-const VEH_MASS = { buggy: 750, ute: 2300, picker: 26000, rx: 24000, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
+const VEH_MASS = { buggy: 750, ute: 2300, picker: 26000, rx: 24000, mack: 14000, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
 const STRUCTS = { ready: false, parts: [], groups: [], debris: [], boxes: {}, fx: [], fires: [], blown: false, slowT: 0, scorch: null };
 
 // ---------- which scan triangles to drop (called while the scan is being set up) ----------
@@ -8349,6 +8399,7 @@ const VIEWS = {
   tractor: ['chase', 'rear', 'cine'],
   picker: ['chase', 'rear', 'cine'],
   rx: ['chase', 'rear', 'cine'],
+  mack: ['chase', 'rear', 'cine'],
   drone: ['chase', 'fpv', 'down', 'cine'],
   spray: ['chase', 'fpv', 'cine'],
   duster: ['chase', 'cockpit', 'wing', 'cine'],
@@ -8552,7 +8603,9 @@ function updateCamera(dt) {
   fmxCamRestore();
   let targetYaw = S.yaw;
   const spd = Math.hypot(S.vx, S.vz);
-  if (drift.on && spd > 3) {                                    // in a slide, look partly along the direction of travel
+  const rc = V.revCam && (S.v < -0.4 || (S.revCam && S.v < 0.4)); S.revCam = rc;      // reversing the Mack: swing round and look back over it
+  if (rc) targetYaw = S.yaw + Math.PI;
+  else if (drift.on && spd > 3 && S.v > 0) {                     // in a slide, look partly along the direction of travel
     const hv = Math.atan2(S.vx, S.vz); let dv = hv - S.yaw; dv = Math.atan2(Math.sin(dv), Math.cos(dv));
     targetYaw = S.yaw + dv * 0.65;
   }
@@ -8568,12 +8621,14 @@ function updateCamera(dt) {
   if (hit) desired.copy(pivot).addScaledVector(dir, Math.max(2.5, hit.distance - 0.8));
   const g = groundAt(desired.x, desired.z, desired.y + 3, -1e9);
   if (desired.y < g + 1.5) desired.y = g + 1.5;
+  gsCamClamp(desired, pivot);
   if (!camInit) { camPos.copy(desired); camInit = true; }
   else {
     const k = 1 - Math.exp(-(hit ? 14 : 5) * dt);
-    camPos.lerp(desired, k);
+    camPos.lerp(desired, k); gsCamClamp(camPos, pivot);
   }
-  lookTarget.set(S.pos.x + Math.sin(S.yaw + pc.vyaw) * V.look, S.pos.y + V.lookH, S.pos.z + Math.cos(S.yaw + pc.vyaw) * V.look);
+  const ly = (rc ? S.yaw + Math.PI : S.yaw) + pc.vyaw, lk = rc ? V.look + (V.rear || 0) : V.look;
+  lookTarget.set(S.pos.x + Math.sin(ly) * lk, S.pos.y + V.lookH, S.pos.z + Math.cos(ly) * lk);
   lookAt.lerp(lookTarget, 1 - Math.exp(-8 * dt));
   if (lookAt.lengthSq() === 0) lookAt.copy(lookTarget);
   camera.position.copy(camPos);
@@ -9104,6 +9159,7 @@ function faBlockers(force) {
   for (const n of AIRS) { const v = VEH[n]; if (!v || !v.st || !v.st.landed) continue; const r = v.P.obb ? Math.max(...v.P.obb) : v.P.r + 0.3; add(v.st.pos.x, v.st.pos.z, v.st.yaw || 0, r, r, r); }
   for (const I of IMPL.list) if (IMPL.hooked !== I) add(I.hitch.x, I.hitch.z, I.yaw, 0.4, I.D.L, I.D.width / 2);
   if (TIP.model) add(TIP.hitch.x, TIP.hitch.z, TIP.yaw, 0.5, TIP.L + 1, 1.3);
+  if (typeof M8 !== 'undefined' && M8.model) add(M8.kp.x, M8.kp.z, M8.yaw, 0.3, 17.2, 1.3);
 }
 function faThreats() {
   const T = FA.threats; T.length = 0; const v = activeVeh();
@@ -10552,7 +10608,7 @@ const WPN_ORDER = ['pistol', 'shotgun', 'rifle', 'sniper', 'minigun', 'grenade',
 const WPN = { owned: {}, ammo: {}, mag: {}, cur: null, fire: false, firePrev: false, cd: 0, reloadT: 0, spin: 0, scope: false, shots: 0, flameT: 0,
               proj: [], sticks: [], fires: [], booms: [], decals: [], splats: [], hops: [], VD: {}, hitT: 0, hitKind: '', netT: 0, told: {}, locker: null, ready: false };
 const LOCKER = { x: 41.6, z: -6.4, yaw: -Math.PI / 2 };
-const VEH_HP = { buggy: 180, ute: 300, picker: 560, rx: 690, bmw: 260, tractor: 420, suv: 230, tele: 360, scooter: 60, bike: 45, dozer: 650, dirtbike: 95, trophy: 280, truck: 520, drone: 12, flyer: 90, spray: 70, duster: 220, gyro: 100, racer: 8 };
+const VEH_HP = { buggy: 180, ute: 300, picker: 560, rx: 690, mack: 505, bmw: 260, tractor: 420, suv: 230, tele: 360, scooter: 60, bike: 45, dozer: 650, dirtbike: 95, trophy: 280, truck: 520, drone: 12, flyer: 90, spray: 70, duster: 220, gyro: 100, racer: 8 };
 const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _w3 = new THREE.Vector3(), _w4 = new THREE.Vector3(), _wq = new THREE.Quaternion();
 
 /* ---------- textures and shared materials ---------- */
@@ -13676,9 +13732,13 @@ function harvStep(dt) { if (!HV.ready && window.__game && __game.ready) harvBuil
 function harvReset() {}
 ENG.picker = Object.assign({}, ENG.tractor, { seed: 91 });
 ENG.rx = Object.assign({}, ENG.dozer, { seed: 97 });
+ENG.mack = Object.assign({}, ENG.truck, { seed: 101 });
 // two-handed controls like the X5 and the ute (left thumb steers, GAS and BRAKE on the right): a machine this big is
 // hard to hold on one stick. The numbers are its own, not a car's
 SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40 / 3.6, rev: 15 / 3.6, drive: 1.7, steer: 0.58, steerFast: 0.24, kick: 0.6, catch: 0.3 });
+// the telehandler too: steer on the left, GAS and BRAKE beside the boom stick on the right
+SPECS.tele.drift = Object.assign({}, DRIFT, { m: 7500, Iz: 9000, a: 1.4, top: 40 / 3.6, rev: 20 / 3.6, drive: 1.8, steer: 0.6, steerFast: 0.18, kick: 0.6, catch: 0.3 });
+SPECS.mack.drift = Object.assign({}, DRIFT, { m: 14000, Iz: 60000, a: 3.2, top: 100 / 3.6, rev: 12 / 3.6, drive: 1.5, steer: 0.6, steerFast: 0.14, kick: 0.5, catch: 0.3 });
 
 /* ================================================================
    COTTON PICKING, FIELD 6 (south of the wheat, at the yard end): the CP690 round-module picker at work
@@ -14100,6 +14160,597 @@ function makePickerVoice() {
     ramp(swG.gain, drum * 0.035, 0.2); ramp(sw.frequency, 300 + 640 * drum, 0.3);
     ramp(hyG.gain, hyd * 0.045, 0.06); ramp(hy.frequency, 600 + hyd * 120, 0.08);
     if (pos) sp.place(pos, 12, 1); } };
+}
+
+/* ================================================================
+   THE GRAIN SHED: the green barn from the FS25 "Grain Shed Pack" mod (grain-shed.glb, tools/fs-mod/build_vehicle.py),
+   on the levelled pad west of the drone strip, its roller door facing the yard. The door rolls up into its housing over
+   5 s like the mod's (the part that's gone up is cut away, as the mod's shader does), from a button when you're on foot
+   or driving near it. The walls are solid; the doorway lets you through once the door's up (vehicles need it all the way up).
+   ================================================================ */
+const GS = { x: -67.5, z: 71.5, yaw: Math.PI, ready: false, busy: false, door: 0, want: 0, root: null, dn: null, d0: 0, y0: 0, clip: null, told: false };
+const GS_BOX = [[7.65, 8.3, -12.1, 12.1], [-8.3, -7.65, -12.1, 12.1], [-8.3, 8.3, -12.1, -11.5], [-8.3, -2.45, 11.5, 12.1], [2.45, 8.3, 11.5, 12.1]], GS_DOOR = [-2.45, 2.45, 11.5, 12.1];
+function gsBuild() {
+  if (GS.busy) return; GS.busy = true;
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('grain-shed.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    GS.y0 = groundAt(GS.x, GS.z, 20, 0.25);
+    const root = new THREE.Group(); root.position.set(GS.x, GS.y0, GS.z); root.rotation.y = GS.yaw; scene.add(root); root.add(g.scene); GS.root = root;
+    const N = {}, cache = new Map();
+    g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); if (o.material.map) { m.map = o.material.map; m.alphaTest = o.material.alphaTest || (o.material.transparent ? 0.4 : 0); } cache.set(o.material, m); } o.material = m; } });
+    // the door: its own material, cut off above the opening so it disappears up into the housing
+    GS.dn = N.rollingDoor1; GS.d0 = GS.dn.position.y; renderer.localClippingEnabled = true;
+    GS.clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), GS.y0 + 5.66);
+    GS.dn.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.clippingPlanes = [GS.clip]; o.material.side = THREE.DoubleSide; } });
+    GS.ready = true;
+  }, e => console.warn('grain shed', e))).catch(e => console.warn('grain shed file', e));
+}
+function gsLocal(x, z) { const c = Math.cos(GS.yaw), s = Math.sin(GS.yaw), dx = x - GS.x, dz = z - GS.z; return [dx * c - dz * s, dx * s + dz * c]; }
+function gsWorldDir(lx, lz) { const c = Math.cos(GS.yaw), s = Math.sin(GS.yaw); return [lx * c + lz * s, -lx * s + lz * c]; }
+function gsDoorDist(p) { const [lx, lz] = gsLocal(p.x, p.z); return Math.hypot(lx, Math.max(0, Math.abs(lz - 11.8) - 0.5)); }
+function gsItems(items) {
+  if (!GS.ready) return; const p = activeName === 'foot' ? F.pos : S.pos;
+  let d = gsDoorDist(p); if (activeName !== 'foot' && activeVeh()) { const r = activeVeh().spec.rear || 1; d = Math.min(d, gsDoorDist({ x: p.x - Math.sin(S.yaw) * r, z: p.z - Math.cos(S.yaw) * r })); }
+  if (d > (activeName === 'foot' ? 7 : 12)) return;
+  const moving = GS.door > 0.001 && GS.door < 0.999;
+  items.push({ id: 'gs:door', label: moving ? (GS.want ? 'Door going up\u2026' : 'Door coming down\u2026') : GS.want ? 'Close the shed door' : 'Open the shed door', cls: 'ghost', pressed: !!GS.want });
+}
+function gsToggle() { if (!GS.ready) return; GS.want = GS.want ? 0 : 1; const p = GS.dn.getWorldPosition(new THREE.Vector3()); metalSound(p, 0.6, 0.7); }
+// circle (x, z, r) against the walls (and the door unless it's up): how far to push it back out, in world space
+function gsPushOut(x, z, r, doorUp) {
+  const [lx, lz] = gsLocal(x, z); if (Math.abs(lx) > 9.5 + r || Math.abs(lz) > 13.5 + r) return null;
+  let px = 0, pz = 0, hit = false;
+  for (const b of (doorUp ? GS_BOX : GS_BOX.concat([GS_DOOR])).concat(GS_EXTRA)) {
+    const cx = THREE.MathUtils.clamp(lx + px, b[0], b[1]), cz = THREE.MathUtils.clamp(lz + pz, b[2], b[3]), dx = lx + px - cx, dz = lz + pz - cz, d = Math.hypot(dx, dz);
+    if (d >= r) continue; hit = true;
+    if (d > 1e-4) { px += dx / d * (r - d); pz += dz / d * (r - d); }
+    else { const o = [[b[0] - r - (lx + px), 0], [b[1] + r - (lx + px), 0], [0, b[2] - r - (lz + pz)], [0, b[3] + r - (lz + pz)]].sort((a, c) => Math.hypot(...a) - Math.hypot(...c))[0]; px += o[0]; pz += o[1]; }
+  }
+  return hit ? gsWorldDir(px, pz) : null;
+}
+// keep the camera inside the shed while what it's following is inside (the walls aren't in the camera's ray cast)
+function gsCamClamp(c, piv) {
+  if (!GS.ready) return; const [px, pz] = gsLocal(piv.x, piv.z);
+  if (Math.abs(px) > 7.6 || pz < -11.4 || pz > 11.6) {           // following from outside: stop the camera at the walls
+    const inB = (x, z) => { const [a, b] = gsLocal(x, z); return Math.abs(a) < 8.8 && Math.abs(b) < 12.6; };
+    if (!inB(c.x, c.z)) return; const dx = c.x - piv.x, dy = c.y - piv.y, dz = c.z - piv.z; let t = 1;
+    while (t > 0.05 && inB(piv.x + dx * t, piv.z + dz * t)) t -= 0.04;
+    c.set(piv.x + dx * t, piv.y + dy * t, piv.z + dz * t); return;
+  }
+  let [lx, lz] = gsLocal(c.x, c.z); const out = Math.abs(lx) < 2.2 && lz > 11 && GS.door > 0.9;     // out through the open door is fine, under the header
+  if (out) { if (lz > 11.3) c.y = Math.min(c.y, GS.y0 + 4.35 * GS.door - 0.3); }
+  else { lx = THREE.MathUtils.clamp(lx, -7.2, 7.2); lz = THREE.MathUtils.clamp(lz, -11.1, 11.1); }
+  lx = THREE.MathUtils.clamp(lx, -7.2, 7.2); lz = Math.max(lz, -11.1);
+  c.y = Math.min(c.y, GS.y0 + 5.5 + 1.6 * Math.max(0, 1 - Math.abs(lx) / 7.7));
+  const [wx, wz] = gsWorldDir(lx, lz); c.x = GS.x + wx; c.z = GS.z + wz;
+}
+function gsStep(dt) {
+  if (!GS.ready) { if (window.__game && __game.ready) gsBuild(); return; }
+  if (GS.door !== GS.want) { const was = GS.door; GS.door = THREE.MathUtils.clamp(GS.door + Math.sign(GS.want - GS.door) * dt / 5, 0, 1);
+    GS.dn.position.y = GS.d0 + 4.35 * GS.door;
+    if ((GS.door === 0 || GS.door === 1) && was !== GS.door) { metalSound(GS.dn.getWorldPosition(new THREE.Vector3()), 0.8, 0.6); if (GS.door === 1 && !GS.told) { GS.told = true; toast('Shed door up. 4.3 m clear', 1.8); } } }
+  const v = activeVeh();
+  if (v && v.kind === 'ground' && !SIM.npc) {
+    const sp = v.spec, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), r = Math.min(1.5, (sp.halfW || 1) * 0.95), up = GS.door > 0.97 && (v.top || 3) < 4.3;
+    const L = (sp.front || 3) + (sp.rear || 1) - 2 * r, n = Math.max(1, Math.ceil(L / Math.max(0.6, r * 0.8)));
+    for (let k = 0; k <= n; k++) { const t = -(sp.rear || 1) + r + L * k / n;
+      const h = gsPushOut(S.pos.x + fx * t, S.pos.z + fz * t, r, up); if (!h) continue;
+      S.pos.x += h[0]; S.pos.z += h[1]; if (Math.abs(S.v) > 2.5) { sfx('thud', S.pos, Math.min(1, Math.abs(S.v) / 10), 0.7, 20); S.shake = Math.min(1, (S.shake || 0) + 0.3); }
+      S.v *= -0.1; if (S.vx !== undefined) { S.vx *= -0.1; S.vz *= -0.1; } break;
+    }
+  } else if (activeName === 'foot' && F && F.pos && F.pos.y < GS.y0 + 8) { const h = gsPushOut(F.pos.x, F.pos.z, 0.35, GS.door > 0.42); if (h) { F.pos.x += h[0]; F.pos.z += h[1]; } }
+}
+
+/* ---------- the urea job: back the Mack into the grain shed and tip a load of urea in the marked bay ----------
+   Five levels, unlocked one by one. Touch the shed with any part of the truck (walls, door, the bulka bags, or the
+   raised box under the roof or door header), go over the shed speed limit, tip outside the bay or run out of time
+   and it's a fail. Stars: one for finishing, one for beating par, one for parking dead straight in the middle of
+   the bay. The heap stays (the Merlo can scoop it). */
+const UJ_LV = [
+  { n: 'Straight in',   at: [-67.2, 46.5, Math.PI],      par: 45, via: [[-44, 56], [-57, 56.5], [-64.5, 53]] },
+  { n: 'Swing it round', at: [-55.5, 50.5, -Math.PI / 2], par: 60, via: [[-38, 50.5], [-46, 50.5]] },
+  { n: 'Turn around',   at: [-67.5, 43.5, 0],            par: 80, via: [[-46, 33], [-58, 33], [-65.5, 37.5]] },
+  { n: 'Bulka bags',    at: [-55.5, 50.5, -Math.PI / 2], par: 75, pen: true, via: [[-38, 50.5], [-46, 50.5]] },
+  { n: 'Against the clock', at: [-67.5, 43.5, 0],        par: 85, pen: true, limit: 110, via: [[-46, 33], [-58, 33], [-65.5, 37.5]] },
+];
+const UJ_KMH = 10, UJ_BAY = [-2.2, 2.2, -10.3, -2.4], GS_EXTRA = [];
+const UJ = { st: 'idle', t: 0, tip: 0, tipT: 0, load: 0, poured: 0, pend: false, why: '', chip: null, bay: null, bayMat: null, mat: null, fx: null, inBay: false, said: '',
+  lvl: 1, top: 1, best: {}, stars: {}, fast: 0, off: null, ang: null, res: null, showT: 0, pen: null };
+try { const d = JSON.parse(localStorage.getItem('wfy.urea2') || '{}'); UJ.top = Math.min(UJ_LV.length, d.top || 1); UJ.best = d.best || {}; UJ.stars = d.stars || {}; UJ.lvl = UJ.top; } catch (e) {}
+function ujSave() { try { localStorage.setItem('wfy.urea2', JSON.stringify({ top: UJ.top, best: UJ.best, stars: UJ.stars })); } catch (e) {} }
+function ujMat() {
+  if (UJ.mat) return UJ.mat;
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'), r = rng(77); x.fillStyle = '#eceeec'; x.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 900; i++) { const v = 200 + Math.floor(r() * 55); x.fillStyle = `rgb(${v},${v},${Math.min(255, v + 4)})`; x.beginPath(); x.arc(r() * 128, r() * 128, 0.8 + r() * 1.6, 0, 6.3); x.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(5, 2);
+  return UJ.mat = new THREE.MeshLambertMaterial({ map: t });
+}
+function ujBay() {
+  if (UJ.bay || !GS.root) return;
+  const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xffc928, polygonOffset: true, polygonOffsetFactor: -4, depthWrite: false, transparent: true, opacity: 0.9 });
+  UJ.bayMat = m;
+  const [x0, x1, z0, z1] = UJ_BAY, w = 0.14, L = (a, b, c, d) => { const q = new THREE.Mesh(new THREE.PlaneGeometry(Math.abs(b - a) || w, Math.abs(d - c) || w), m); q.rotation.x = -Math.PI / 2; q.position.set((a + b) / 2, 0.06, (c + d) / 2); g.add(q); };
+  L(x0 - w / 2, x0 + w / 2, z0, z1); L(x1 - w / 2, x1 + w / 2, z0, z1); L(x0, x1, z0 - w / 2, z0 + w / 2);
+  for (let k = 0; k < 3; k++) { const z = z1 - 1.4 - k * 1.8; for (const s of [-1, 1]) { const q = new THREE.Mesh(new THREE.PlaneGeometry(1.2, w), m); q.rotation.set(-Math.PI / 2, 0, s * 0.6); q.position.set(s * 0.48, 0.06, z - 0.33); g.add(q); } }
+  g.position.y = (homeY(GS.x, GS.z) - GS.y0); GS.root.add(g); UJ.bay = g;
+  // the bulka bags for levels 4 and 5: a row of one-tonne bags on pallets down each side of the bay
+  const pen = new THREE.Group(), bagM = new THREE.MeshStandardMaterial({ color: 0xf1f1ec, roughness: 0.95 }), palM = new THREE.MeshStandardMaterial({ color: 0x9c7a52, roughness: 0.9 }),
+    strap = new THREE.MeshStandardMaterial({ color: 0x2f6fb5, roughness: 0.8 }), bagG = new THREE.BoxGeometry(1.08, 1.05, 1.08, 2, 2, 2), palG = new THREE.BoxGeometry(1.2, 0.14, 1.2), stG = new THREE.BoxGeometry(1.1, 0.12, 1.1);
+  { const p = bagG.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i), k = 1 + 0.06 * (1 - Math.abs(y) / 0.525); p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); } bagG.computeVertexNormals(); }
+  UJ.penBoxes = [];
+  for (const sx of [-1, 1]) for (let k = 0; k < 5; k++) {
+    const x = sx * 3.35, z = -9.4 + k * 1.45, b = new THREE.Group(); b.position.set(x, 0, z); b.rotation.y = (Math.random() - 0.5) * 0.12;
+    const pl = new THREE.Mesh(palG, palM); pl.position.y = 0.07; const bg = new THREE.Mesh(bagG, bagM); bg.position.y = 0.665; const st = new THREE.Mesh(stG, strap); st.position.y = 0.95;
+    for (const o of [pl, bg, st]) { o.castShadow = o.receiveShadow = true; b.add(o); } pen.add(b); UJ.penBoxes.push([x - 0.62, x + 0.62, z - 0.62, z + 0.62]);
+  }
+  pen.position.y = g.position.y; pen.visible = false; GS.root.add(pen); UJ.pen = pen;
+}
+function ujSetPen(on) { if (!UJ.pen) return; UJ.pen.visible = on; ujExtra(); }
+function ujStarsTxt(n) { return '★'.repeat(n) + '☆'.repeat(3 - n); }
+function ujChip() {
+  if (!UJ.chip) {
+    const stl = document.createElement('style');
+    stl.textContent = '#ujchip{position:fixed;z-index:9;left:calc(120px + env(safe-area-inset-left,0px));top:calc(82px + env(safe-area-inset-top,0px));display:none;flex-direction:column;gap:3px;background:rgba(22,26,25,.84);color:#fff;border-radius:14px;padding:8px 14px;font:600 12px/1.25 system-ui,sans-serif;min-width:200px;max-width:250px;pointer-events:none}'
+      + '#ujchip.show{display:flex}#ujchip .h{display:flex;justify-content:space-between;gap:12px;font-size:13px}#ujchip .h b{color:#ffc928;font-variant-numeric:tabular-nums}#ujchip .h b.red{color:#ff6b5b}#ujchip .s{opacity:.55}#ujchip .s.now{opacity:1;color:#ffc928}#ujchip .s.ok{opacity:.8;color:#7ddc7a}#ujchip .s.ok:before{content:"✓ "}#ujchip .s.now:before{content:"▶ "}'
+      + '#ujchip .bar{height:5px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:2px}#ujchip .bar i{display:block;height:100%;background:#fff;width:0}#ujchip .lim{font-size:11px;opacity:.75}#ujchip .lim.warn{opacity:1;color:#ff6b5b}'
+      + '#ujchip .res{display:none;flex-direction:column;gap:2px}#ujchip.r .res{display:flex}#ujchip.r .run{display:none}#ujchip .stars{font-size:22px;color:#ffc928;letter-spacing:2px}#ujchip .res .why{color:#ff8a7a}#ujchip .res .nx{color:#7ddc7a}';
+    document.head.appendChild(stl);
+    const c = document.createElement('div'); c.id = 'ujchip'; c.className = 'ui';
+    c.innerHTML = '<div class="h"><span class="ti">Urea job</span><b></b></div><div class="run"><div class="s" data-k="0">Open the shed door</div><div class="s" data-k="1">Reverse into the marked bay</div><div class="s" data-k="2">Tip the urea</div><div class="bar"><i></i></div><div class="s" data-k="3">Lower the box</div><div class="lim"></div></div>'
+      + '<div class="res"><div class="stars"></div><div class="l1"></div><div class="l2"></div><div class="why"></div><div class="nx"></div></div>';
+    document.body.appendChild(c); UJ.chip = c;
+  }
+  const c = UJ.chip, L = UJ_LV[UJ.lvl - 1], res = (UJ.st === 'done' || UJ.st === 'fail') && UJ.showT > 0;
+  const on = activeName === 'mack' && (UJ.st === 'on' || res); c.classList.toggle('show', on); if (!on) return;
+  c.classList.toggle('r', res);
+  c.querySelector('.ti').textContent = 'Urea job · L' + UJ.lvl + ' ' + L.n;
+  const hb = c.querySelector('.h b');
+  if (L.limit && UJ.st === 'on') { const left = Math.max(0, L.limit - UJ.t); hb.textContent = ujTime(left); hb.classList.toggle('red', left < 20); }
+  else { hb.textContent = ujTime(UJ.t); hb.classList.toggle('red', UJ.t > L.par && UJ.st === 'on'); }
+  if (res) {
+    const R = UJ.res || {};
+    c.querySelector('.stars').textContent = UJ.st === 'done' ? ujStarsTxt(R.stars) : '✖';
+    c.querySelector('.l1').textContent = UJ.st === 'done' ? 'Time ' + ujTime(UJ.t) + (R.par ? ' ✓ par ' : ' · par ') + ujTime(L.par) : 'Failed';
+    c.querySelector('.l2').textContent = UJ.st === 'done' ? 'Off centre ' + R.off.toFixed(2) + ' m · ' + R.ang.toFixed(1) + '° out' + (R.prec ? ' ✓' : '') : '';
+    c.querySelector('.why').textContent = UJ.st === 'fail' ? UJ.why : '';
+    c.querySelector('.nx').textContent = R.unlock ? 'Level ' + (UJ.lvl + 1) + ' unlocked!' : UJ.st === 'done' && R.stars < 3 ? 'Go again for ' + ujStarsTxt(3) : '';
+    return;
+  }
+  const done = [GS.door > 0.97 || UJ.inBay || UJ.poured > 0, UJ.inBay || UJ.poured > 0, UJ.poured >= 0.999, false];
+  const now = done.indexOf(false);
+  c.querySelectorAll('.s').forEach(el => { const k = +el.dataset.k; el.classList.toggle('ok', done[k]); el.classList.toggle('now', k === now); });
+  c.querySelector('.bar i').style.width = Math.round(UJ.poured * 100) + '%';
+  const lim = c.querySelector('.lim'); lim.textContent = UJ.fast > 0 ? 'SLOW DOWN! Shed limit ' + UJ_KMH + ' km/h' : 'Shed limit ' + UJ_KMH + ' km/h' + (L.pen ? ' · mind the bags' : '');
+  lim.classList.toggle('warn', UJ.fast > 0);
+  const loads = (ujShedLoose() + (UJ.stackV || 0)) / UJ_LOADV; lim.textContent += ' · shed ' + Math.round(loads * 10) / 10 + '/6 loads';
+}
+function ujTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
+function ujNearMack() { const v = VEH.mack; if (!v || !v.state) return false; const p = v.state.pos; return activeName === 'foot' && F.pos.distanceTo(p) < 9; }
+function ujStartLabel() { const L = UJ_LV[UJ.lvl - 1], b = UJ.stars[UJ.lvl] || 0; return (UJ.st === 'fail' ? 'Try again: ' : 'Urea job: ') + 'L' + UJ.lvl + ' ' + L.n + (b ? ' ' + ujStarsTxt(b) : ''); }
+function ujItems(items) {
+  if (!VEHICLES.mack.ready || !GS.ready) return;
+  const me = activeName === 'foot' ? F.pos : S.pos, nearShed = gsDoorDist(me) < 28 || (() => { const [lx, lz] = gsLocal(me.x, me.z); return Math.abs(lx) < 9 && Math.abs(lz) < 13; })();
+  const lv = () => { if (UJ.top > 1) items.push({ id: 'uj:lvl', label: 'Level ' + UJ.lvl + '/' + UJ.top + ' ▸', cls: 'ghost' }); };
+  if (TK.st === 'away') {
+    if (!nearShed || activeName === 'mack') return;
+    const loose = ujShedLoose(), full = loose > UJ_LOADV * 1.4;
+    if (full && (UJ.stackV || 0) >= UJ_STACK_MAX - 1) items.push({ id: 'uj:empty', label: 'Shed’s full: spread the urea', cls: 'warn' });
+    else if (full) items.push({ id: 'uj:full', label: 'No room: push the urea up first', cls: 'ghost' });
+    else { items.push({ id: 'uj:order', label: 'Order a load of urea · L' + UJ.lvl, cls: 'warn' }); lv(); }
+    return;
+  }
+  if (TK.st === 'coming' || TK.st === 'parking' || TK.st === 'out') { if (nearShed) items.push({ id: 'uj:wait', label: 'Urea truck coming…', cls: 'ghost' }); return; }
+  if (activeName === 'foot') {
+    if ((TK.st === 'wait' || TK.st === 'watch') && UJ.st !== 'on' && !(UJ.st === 'done' && TK.st === 'watch') && !seqBusy() && (F.pos.distanceTo(TK.n.pos) < 12 || F.pos.distanceTo(VEH.mack.state.pos) < 12)) {
+      items.push({ id: 'uj:start', label: UJ.st === 'fail' ? 'Try again: L' + TK.lv + ' ' + UJ_LV[TK.lv - 1].n : 'Accept the mission', cls: 'warn' });
+      items.push({ id: 'uj:dismiss', label: 'Send him away', cls: 'ghost' }); }
+    return;
+  }
+  if (activeName !== 'mack') return;
+  if (UJ.st === 'fail') items.push({ id: 'uj:start', label: 'Try again: L' + TK.lv + ' ' + UJ_LV[TK.lv - 1].n, cls: 'warn' });
+  if (UJ.st !== 'on' && UJ.tip === 0 && !UJ.tipT) return;
+  const moving = UJ.tip > 0.001 && UJ.tip < 0.999;
+  items.push({ id: 'uj:tip', label: UJ.tipT ? (moving ? 'Box going up…' : 'Lower the box') : moving ? 'Box coming down…' : UJ.load > 0 ? 'Tip the urea' : 'Raise the box', cls: UJ.st === 'on' && UJ.inBay && !UJ.tipT ? 'warn' : 'ghost', pressed: !!UJ.tipT });
+}
+function ujAct(id) {
+  if (id === 'uj:tip') { UJ.tipT = UJ.tipT ? 0 : 1; if (AU.buf && AU.buf.hiss) sfx('hiss', S.pos, 0.5, 0.8, 25); return; }
+  if (id === 'uj:lvl') { if (TK.st !== 'away') return; UJ.lvl = UJ.lvl % UJ.top + 1; if (UJ.st !== 'on') UJ.st = 'idle'; UJ.showT = 0; toast('Urea job level ' + UJ.lvl + ': ' + UJ_LV[UJ.lvl - 1].n, 1.8); actKey = ''; return; }
+  if (id === 'uj:order') { tkOrder(); return; }
+  if (id === 'uj:full') { toast('Push the loose urea up into the stack with the Merlo: bucket flat on the floor, drive into the heap.', 4); return; }
+  if (id === 'uj:empty') { for (let i = PILES.length - 1; i >= 0; i--) { const p = PILES[i], [lx, lz] = gsLocal(p.x, p.z); if (p.urea && Math.abs(lx) < 8 && Math.abs(lz) < 12) { scene.remove(p.mesh); PILES.splice(i, 1); } } UJ.stackV = 0; ujStackBuild(true); TK.stackTold = false; toast('The urea’s gone out on the paddocks. Shed’s empty.', 3); actKey = ''; return; }
+  if (id === 'uj:wait') return;
+  if (id === 'uj:dismiss') { tkDismiss(); actKey = ''; return; }
+  if (id === 'uj:start') { if (activeName === 'foot') tkStartJob(); else ujBegin(); }
+}
+function ujBegin() {
+  UJ.pend = false; UJ.lvl = TK.lv || UJ.lvl; const L = UJ_LV[UJ.lvl - 1], [x, z, yaw] = L.at;
+  if (Math.hypot(S.pos.x - x, S.pos.z - z) > 1 || Math.abs(faAng(S.yaw - yaw)) > 0.1) { S.pos.set(x, homeY(x, z), z); S.yaw = yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; if (S.vy !== undefined) S.vy = 0; camInit = false; }
+  ujApplyShift(ujBayShift());
+  ujSetPen(!!L.pen);
+  UJ.tip = 0; UJ.tipT = 0; mackTip(0); UJ.load = 1; UJ.poured = 0; UJ.t = 0; UJ.st = 'on'; UJ.why = ''; UJ.said = ''; UJ.fast = 0; UJ.off = UJ.ang = null; UJ.res = null; UJ.showT = 0;
+  GS.want = 0;
+  toast('Level ' + UJ.lvl + ': ' + L.n + '. Open the door and back into the bay. Don’t touch anything, keep under ' + UJ_KMH + ' km/h in the shed' + (L.limit ? ', and beat the clock!' : '.'), 4.5);
+  actKey = '';
+}
+function ujFail(why) {
+  if (UJ.st !== 'on') return; UJ.st = 'fail'; UJ.why = why;
+  tkSay(tkPick(/bag/.test(why) ? TK_L.bags : /fast/.test(why) ? TK_L.fast : /bay/.test(why) ? TK_L.bay : /time/.test(why) ? TK_L.time : /roof|header/.test(why) ? TK_L.roof : /stack|pile/.test(why) ? TK_L.stack : TK_L.wall)); UJ.tipT = 0; UJ.showT = 8; UJ.res = null;
+  sfx('thud', S.pos, 0.9, 0.6, 30); S.shake = Math.min(1, (S.shake || 0) + 0.5);
+  actKey = '';
+}
+function ujWin() {
+  const L = UJ_LV[UJ.lvl - 1], t = UJ.t, par = t <= L.par, off = UJ.off || 0, ang = UJ.ang || 0, prec = off < 0.3 && ang < 3;
+  const stars = 1 + (par ? 1 : 0) + (prec ? 1 : 0), unlock = UJ.lvl === UJ.top && UJ.top < UJ_LV.length;
+  UJ.st = 'done'; UJ.showT = 10; UJ.res = { stars, par, prec, off, ang, unlock }; tkSay(tkPick(TK_L.win), 4);
+  if (!UJ.best[UJ.lvl] || t < UJ.best[UJ.lvl]) UJ.best[UJ.lvl] = +t.toFixed(2);
+  UJ.stars[UJ.lvl] = Math.max(UJ.stars[UJ.lvl] || 0, stars);
+  if (unlock) { UJ.top++; UJ.lvl = UJ.top; }
+  ujSave();
+  actKey = ''; if (AU.buf && AU.buf.ding) sfx('ding', S.pos, 0.7, 1, 30);
+  if (unlock) UJ.res.lvlDone = UJ.lvl - 1;
+}
+function ujLocal() {   // the truck in shed terms: tandem centre, tail, and heading error from straight at the door
+  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), [ox, oz] = gsLocal(S.pos.x, S.pos.z), [hx, hz] = gsLocal(S.pos.x + fx, S.pos.z + fz), [tx, tz] = gsLocal(S.pos.x - fx * 4.0, S.pos.z - fz * 4.0);
+  return { ox, oz, tx, tz, hd: Math.atan2(hx - ox, hz - oz) };
+}
+function ujInBay() {
+  const sh = UJ.shift || 0, q = (a, b) => a > UJ_BAY[0] && a < UJ_BAY[1] && b > UJ_BAY[2] + sh && b < UJ_BAY[3] + sh, l = ujLocal();
+  return q(l.ox, l.oz) && q(l.tx, l.tz) && Math.abs(l.hd) < 0.3;
+}
+function ujHitList(lx, lz, r, list) { for (const b of list) { const cx = THREE.MathUtils.clamp(lx, b[0], b[1]), cz = THREE.MathUtils.clamp(lz, b[2], b[3]); if (Math.hypot(lx - cx, lz - cz) < r) return true; } return false; }
+function ujFx(on, p, dt) {
+  if (!UJ.fx) {
+    const n = 140, g = new THREE.BufferGeometry(), pos = new Float32Array(n * 3).fill(-1e4); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    UJ.fx = { pts: new THREE.Points(g, new THREE.PointsMaterial({ color: 0xf4f4f0, size: 0.07 })), v: new Float32Array(n * 3), life: new Float32Array(n), i: 0, n };
+    UJ.fx.pts.frustumCulled = false; scene.add(UJ.fx.pts);
+  }
+  const F2 = UJ.fx, P = F2.pts.geometry.attributes.position.array;
+  if (on) for (let k = 0; k < 6; k++) { const i = F2.i = (F2.i + 1) % F2.n, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw);
+    P[i * 3] = p.x + (Math.random() - 0.5) * 1.6 * Math.cos(S.yaw); P[i * 3 + 1] = p.y; P[i * 3 + 2] = p.z - (Math.random() - 0.5) * 1.6 * Math.sin(S.yaw);
+    F2.v[i * 3] = -fx * (0.6 + Math.random()); F2.v[i * 3 + 1] = -0.3; F2.v[i * 3 + 2] = -fz * (0.6 + Math.random()); F2.life[i] = 0.9; }
+  for (let i = 0; i < F2.n; i++) { if (F2.life[i] <= 0) continue; F2.life[i] -= dt; F2.v[i * 3 + 1] -= 9.8 * dt;
+    P[i * 3] += F2.v[i * 3] * dt; P[i * 3 + 1] += F2.v[i * 3 + 1] * dt; P[i * 3 + 2] += F2.v[i * 3 + 2] * dt; if (F2.life[i] <= 0 || P[i * 3 + 1] < GS.y0) { F2.life[i] = 0; P[i * 3 + 1] = -1e4; } }
+  F2.pts.geometry.attributes.position.needsUpdate = true;
+}
+function ujStep(dt) {
+  const C = VEHICLES.mack; if (!C || !C.ready) return;
+  if (GS.ready) { ujBay(); if (UJ.st !== 'on') { const sh = ujBayShift(); if (Math.abs(sh - (UJ.shift || 0)) > 0.02) ujApplyShift(sh); } }
+  tkStep(dt);
+  const inMack = activeName === 'mack';
+  if (inMack && !seqBusy() && TK.st === 'wait' && UJ.st !== 'on' && !UJ.pend) { tkSay(TK_L.accept, 3); TK.st = 'watch'; tkGo(...tkWatchSpot()); ujBegin(); }
+  if (UJ.pend && inMack && !seqBusy()) ujBegin();
+  if (UJ.showT > 0) UJ.showT -= dt;
+  if (UJ.tip !== UJ.tipT) { UJ.tip = THREE.MathUtils.clamp(UJ.tip + Math.sign(UJ.tipT - UJ.tip) * dt / (UJ.tipT ? 5 : 4), 0, 1); mackTip(UJ.tip); }
+  let flow = false;
+  if (inMack && GS.ready) {
+    UJ.inBay = ujInBay();
+    if (UJ.bayMat) UJ.bayMat.color.setHex(UJ.st === 'on' && UJ.inBay ? 0x58d35a : 0xffc928);
+    if (UJ.st === 'on') {
+      const L = UJ_LV[UJ.lvl - 1]; UJ.t += dt;
+      if (L.limit && UJ.t > L.limit) ujFail('out of time.');
+      const sp = SPECS.mack, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), r = sp.halfW + 0.05, up = GS.door > 0.97;
+      const n = Math.ceil((sp.front + sp.rear - 2 * r) / 0.8); let inside = false;
+      for (let k = 0; k <= n && UJ.st === 'on'; k++) { const t = -sp.rear + r + (sp.front + sp.rear - 2 * r) * k / n, wx = S.pos.x + fx * t, wz = S.pos.z + fz * t;
+        const [lx, lz] = gsLocal(wx, wz);
+        if (Math.abs(lx) < 8 && Math.abs(lz) < 12) inside = true;
+        if (Math.abs(lx) > 9.5 + r || Math.abs(lz) > 13.5 + r) continue;
+        if (UJ.stackBox && ujHitList(lx, lz, r, [UJ.stackBox])) { ujFail('you backed into the urea stack.'); break; }
+        if (GS_EXTRA.length && ujHitList(lx, lz, r, GS_EXTRA)) { ujFail('you hit the bulka bags.'); break; }
+        if (gsPushOut(wx, wz, r, up)) { const dl = !up && Math.abs(lx) < 2.6 && lz > 11 && lz < 14.6; ujFail(dl ? 'you hit the shed door. Wait till it’s right up.' : 'you hit the shed wall.'); break; }
+      }
+      // the shed speed limit: a second over it and you're out
+      const kmh = Math.abs(S.v) * 3.6;
+      if (inside && kmh > UJ_KMH) { UJ.fast += dt; if (UJ.fast > 1) ujFail('too fast in the shed (limit ' + UJ_KMH + ' km/h).'); } else UJ.fast = Math.max(0, UJ.fast - dt * 2);
+      if (UJ.st === 'on' && UJ.tip > 0.02) {
+        C.root.updateMatrixWorld(true);
+        for (const o of C.tops) { const w = o.getWorldPosition(new THREE.Vector3()), [lx, lz] = gsLocal(w.x, w.z);
+          if (Math.abs(lx) > 8.3 || lz < -12.1 || lz > 12.7) continue;
+          const lim = lz > 11.2 ? GS.y0 + 4.35 * GS.door : GS.y0 + 5.7 + 1.8 * Math.max(0, 1 - Math.abs(lx) / 7.7);
+          if (w.y > lim - 0.05) { ujFail(lz > 11.2 ? 'the raised box hit the door header.' : 'the raised box hit the roof.'); break; } }
+      }
+      if (UJ.st === 'on' && UJ.tip > 0.35 && UJ.load > 0) {
+        if (!UJ.inBay) ujFail('you tipped outside the marked bay. That one doesn’t count.');
+        else { flow = true; if (UJ.off === null) { const l = ujLocal(); UJ.off = Math.abs(l.ox); UJ.ang = Math.abs(l.hd) * 180 / Math.PI; } }
+      }
+      if (UJ.st === 'on' && UJ.poured >= 0.999 && UJ.tip === 0 && UJ.tipT === 0) ujWin();
+      if (UJ.st === 'on' && UJ.poured >= 0.999 && UJ.tipT && UJ.said !== 'empty') { UJ.said = 'empty'; toast('Empty. Lower the box to finish.', 2.5); actKey = ''; }
+    }
+  }
+  if (flow) {
+    const sp = C.spout.getWorldPosition(new THREE.Vector3()), q = Math.min(UJ.load, dt * (0.12 + 0.2 * (UJ.tip - 0.35) / 0.65));
+    UJ.load -= q; UJ.poured = Math.min(1, UJ.poured + q); if (UJ.load < 1e-3) { UJ.load = 0; UJ.poured = 1; }
+    const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), px = sp.x - fx * 0.9, pz = sp.z - fz * 0.9;
+    const P = addToPile(px, pz, q * UJ_LOADV); if (P) { P.mesh.material = ujMat(); P.urea = true; }
+  }
+  ujFx(flow, flow ? C.spout.getWorldPosition(new THREE.Vector3()) : null, dt);
+  ujChip();
+}
+
+/* ---------- the urea truckie: order a load at the grain shed and the Mack turns up with a bogan at the wheel. He parks,
+   reckons the shed's no good and won't back in himself, so you do. Two loads tipped loose fill the floor: push them up
+   into the stack against the back wall with the Merlo's bucket (bucket flat on the floor, drive into the heap) to make
+   room for two more. Six loads fills the shed. ---------- */
+const TK_SPAWN = [48, 50, -Math.PI / 2], TK_LOOK = { h: 0.62, w: 0.95, m: 0.35, skin: 2, hair: 'mullet', hc: 3, hat: 'capback', hatc: 3, shirt: 'singlet', sc: 7, legs: 'stubbies', lc: 5, shoes: 'thongs', shc: 1, gl: 'sunnies', fh: 2 };
+const UJ_LOADV = 15, UJ_STACK_MAX = 4 * 15, UJ_STACK_W = 5.3;
+const TK_L = {
+  hello: 'This is a shit fert shed, I ain’t backin’ my truck in, you do it!',
+  accept: 'Good on ya. Don’t bloody hit anything.',
+  wall: ['Strewth! Ya drongo, ya hit the shed!', 'Oi! That’s my truck, ya galah!', 'Crikey. My boss is gonna kill me.'],
+  bags: ['Ya hit the bags, ya muppet!'], fast: ['Slow down, ya hoon! It’s a shed, not Bathurst!'], bay: ['Not there, ya mug! In the bay!'], time: ['Too slow, mate. I’ve got other drops.'], roof: ['Ya put the bin through the roof, ya flamin’ idiot!'],
+  stack: ['Ya backed into the pile, ya numpty!'],
+  win: ['Not bad for a cocky. Same time next week.', 'Bloody oath, that’s how ya do it.', 'Fair dinkum, you’re better at this than me.'],
+  bye: 'Righto, I’m off. Hooroo!',
+};
+const TK = { st: 'away', n: null, path: null, bi: 0, t: 0, lv: 1, settle: null, sayT: 0, told: false, veh: null, pushTold: false, stackTold: false };
+function tkPick(a) { return Array.isArray(a) ? a[Math.floor(Math.random() * a.length)] : a; }
+function tkBuild() {
+  if (TK.n) return TK.n; const L = lookFix(TK_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root); P.root.scale.setScalar(s); P.root.visible = false;
+  const el = document.createElement('div'); el.className = 'nbub'; el.innerHTML = '<div class="bx"></div><div class="tl"></div>'; bubLayer().appendChild(el);
+  TK.n = { P, root: P.root, s, pos: new THREE.Vector3(), yaw: 0, sp: 0, ph: 0, tgt: null, el, bx: el.firstChild, bubT: 0, face: null, cross: 0 };
+  return TK.n;
+}
+function tkSay(line, dur) { const n = TK.n; if (!n || !n.root.visible || !line) return; n.bx.textContent = line; n.bubT = dur || Math.max(2.8, Math.min(6, line.length * 0.07)); }
+function tkVehW(lx, lz) { const st = VEH.mack.state, fx = Math.sin(st.yaw), fz = Math.cos(st.yaw); return [st.pos.x + fz * lx + fx * lz, st.pos.z - fx * lx + fz * lz]; }
+function tkHide() {
+  const v = VEH.mack; if (!v || !v.state || activeName === 'mack') return; v.npc = TK; TK.veh = v;
+  v.state.pos.set(-1500, 0, -1500); v.state.v = v.state.vx = v.state.vz = 0; v.model.root.visible = false; v.model.root.position.set(-1500, 0, -1500);
+  if (TK.n) TK.n.root.visible = false; TK.st = 'away';
+}
+function tkReset() { UJ.stackV = 0; ujStackBuild(true); UJ.st = 'idle'; UJ.showT = 0; tkHide(); }
+function tkOrder() {
+  const v = VEH.mack; v.npc = TK; TK.veh = v; TK.lv = UJ.lvl; const L = UJ_LV[TK.lv - 1], [sx, sz, sy] = TK_SPAWN;
+  const st = v.state; st.pos.set(sx, groundAt(sx, sz, 30, 0) + 0.2, sz); st.yaw = sy; st.v = st.vx = st.vz = 0; if (st.r !== undefined) st.r = 0; v.model.root.visible = true;
+  const via = (L.via || []).map(p => p.slice()), first = via[0] || L.at;
+  const P = drvPath(sx, sz, first[0], first[1]); TK.path = (P && P.length > 1 ? P.slice(1) : []).concat(via).concat([[L.at[0], L.at[1]]]); TK.bi = 0; TK.st = 'coming'; TK.t = 0; TK.settle = null;
+  toast('Urea’s on its way. The truck’s coming in from the road.', 3); actKey = '';
+}
+// follow the waypoints; the last one is the parking spot, which it eases into exactly
+function tkDrive(dt, cap, onEnd) {
+  const v = VEH.mack, st = v.state, P = TK.path; if (!P || !P.length) { onEnd(); return; }
+  const last = TK.bi >= P.length - 1; while (TK.bi < P.length - 1 && Math.hypot(P[TK.bi][0] - st.pos.x, P[TK.bi][1] - st.pos.z) < (TK.bi < P.length - 3 ? 7 : 4.5)) TK.bi++;
+  const [tx, tz] = P[TK.bi], d = Math.hypot(tx - st.pos.x, tz - st.pos.z), e = faAng(Math.atan2(tx - st.pos.x, tz - st.pos.z) - st.yaw);
+  const want = last ? Math.min(cap, 0.8 + d * 0.5) : cap * (1 - Math.min(0.6, Math.abs(e) / 1.6));
+  let thr = Math.abs(st.v) < want ? 0.75 : 0, str = THREE.MathUtils.clamp(-e * 1.8, -1, 1);
+  if (last && (d < 2.2 || (d < 6 && Math.abs(e) > 1.6))) { onEnd(); return; }
+  TK.t += dt; if (TK.t > 90) { onEnd(); return; }                    // (stuck somewhere: give up and carry on from here)
+  npcDrive(v, dt, thr, str);
+}
+function tkParked() {   // ease the last bit into the exact spot, then out he gets
+  const v = VEH.mack, st = v.state, L = UJ_LV[TK.lv - 1];
+  if (!TK.settle) TK.settle = { t: 0, x: st.pos.x, z: st.pos.z, yaw: st.yaw };
+  const S0 = TK.settle; S0.t = Math.min(1, S0.t + 0.016 / 1.6); const k = S0.t * S0.t * (3 - 2 * S0.t);
+  st.pos.x = S0.x + (L.at[0] - S0.x) * k; st.pos.z = S0.z + (L.at[1] - S0.z) * k; st.yaw = S0.yaw + faAng(L.at[2] - S0.yaw) * k; st.v = st.vx = st.vz = 0;
+  npcDrive(v, 1 / 120, 0, 0); st.pos.x = S0.x + (L.at[0] - S0.x) * k; st.pos.z = S0.z + (L.at[1] - S0.z) * k; st.yaw = S0.yaw + faAng(L.at[2] - S0.yaw) * k; st.v = st.vx = st.vz = 0;
+  return S0.t >= 1;
+}
+function tkPlaceDriverAtDoor() { const n = tkBuild(), [x, z] = tkVehW(-2.15, 4.6); n.pos.set(x, groundAt(x, z, 30, 0), z); n.yaw = VEH.mack.state.yaw - Math.PI / 2; n.root.visible = true; if (AU.buf && AU.buf.thud) sfx('thud', n.pos, 0.3, 1.2, 10); }
+function tkWatchSpot() { const [wx, wz] = gsWorldDir(-5.8, 14.8); return [GS.x + wx, GS.z + wz]; }
+// walk to a spot, in or out of the shed by the door (he can't walk through its walls)
+function tkGo(x, z) {
+  const n = TK.n, ins = (px, pz) => { const [a, b] = gsLocal(px, pz); return Math.abs(a) < 8.4 && Math.abs(b) < 12.2; }, w = (a, b) => { const [dx, dz] = gsWorldDir(a, b); return [GS.x + dx, GS.z + dz]; };
+  const r = []; if (GS.ready && ins(n.pos.x, n.pos.z) !== ins(x, z)) { const [ax] = gsLocal(n.pos.x, n.pos.z); if (ins(n.pos.x, n.pos.z)) r.push(w(THREE.MathUtils.clamp(ax, -1.5, 1.5), 10), w(0, 13.5)); else r.push(w(0, 13.5), w(0, 10)); }
+  r.push([x, z]); n.route = r; n.tgt = r.shift();
+}
+function tkWalk(dt) {   // towards n.tgt; true when there
+  const n = TK.n; if (!n.tgt && n.route && n.route.length) n.tgt = n.route.shift(); if (!n.tgt) { n.sp = 0; return true; } const dx = n.tgt[0] - n.pos.x, dz = n.tgt[1] - n.pos.z, d = Math.hypot(dx, dz);
+  if (d < 0.25) { n.tgt = n.route && n.route.length ? n.route.shift() : null; if (!n.tgt) { n.sp = 0; return true; } return false; }
+  n.sp = Math.min(1.35, d * 2); n.yaw += faAng(Math.atan2(dx, dz) - n.yaw) * (1 - Math.exp(-8 * dt));
+  n.pos.x += dx / d * n.sp * dt; n.pos.z += dz / d * n.sp * dt; n.pos.y = groundAt(n.pos.x, n.pos.z, n.pos.y + 1.5, 0); return false;
+}
+function tkPose(dt) {
+  const n = TK.n; if (!n || !n.root.visible) return; const P = n.P;
+  let hipL = 0, hipR = 0, kneeL = 0, kneeR = 0, shLx = 0.05, shRx = 0.05, shLz = 0.25, shRz = -0.25, elL = -0.3, elR = -0.3, torsoX = -0.04, torsoY = 0, headX = 0, headY = 0, bodyY = 0.78;
+  if (n.sp > 0.1) { n.ph += dt * (2.6 + n.sp * 1.25); const s = Math.sin(n.ph), c = Math.cos(n.ph);
+    hipL = -s * 0.45; hipR = s * 0.45; kneeL = Math.max(0, Math.sin(n.ph - 1.3)) * 0.7; kneeR = Math.max(0, Math.sin(n.ph + Math.PI - 1.3)) * 0.7; shLx = s * 0.4; shRx = -s * 0.4; bodyY += Math.abs(c) * 0.035; torsoY = -s * 0.12; }
+  else if (n.bubT > 0) { const w = Math.sin(performance.now() / 160); shRx = -1.2 + w * 0.35; elR = -1.3; shRz = -0.5; headY = Math.sin(performance.now() / 420) * 0.15; }   // waving his arm about while he has a go
+  else { shLx = shRx = -0.55; shLz = 0.55; shRz = -0.55; elL = elR = -1.75; headY = Math.sin(performance.now() / 1300) * 0.35; }            // arms folded, watching
+  if (n.face && n.sp <= 0.1) n.yaw += faAng(Math.atan2(n.face.x - n.pos.x, n.face.z - n.pos.z) - n.yaw) * (1 - Math.exp(-4 * dt));
+  const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { if (o) o.rotation[ax] += (v - o.rotation[ax]) * L; };
+  lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
+  lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
+  P.body.position.y += (bodyY - P.body.position.y) * L;
+  n.root.position.copy(n.pos); n.root.rotation.set(0, n.yaw, 0);
+  // his speech bubble, over his head
+  if (n.bubT > 0) n.bubT -= dt;
+  let show = n.bubT > 0; if (show) { _bubV.set(n.pos.x, n.pos.y + 2.05, n.pos.z); _bubC.copy(_bubV).applyMatrix4(camera.matrixWorldInverse); const depth = -_bubC.z;
+    if (depth < 0.2 || depth > 45) show = false; else { _bubV.project(camera); const x = (_bubV.x + 1) / 2 * innerWidth, y = (1 - _bubV.y) / 2 * innerHeight, k = THREE.MathUtils.clamp(9 / depth, 0.55, 1);
+      n.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%) scale(${k.toFixed(3)})`; n.el.style.opacity = Math.min(1, n.bubT * 2); } }
+  n.el.style.display = show ? 'block' : 'none';
+}
+function tkMe() { return activeName === 'foot' ? F.pos : S.pos; }
+function tkStep(dt) {
+  const v = VEH.mack; if (!v || !v.state || !VEHICLES.mack.ready) return;
+  if (!TK.veh) { tkBuild(); tkHide(); }
+  const n = TK.n;
+  if (TK.st === 'coming') tkDrive(dt, 7, () => { TK.st = 'parking'; });
+  else if (TK.st === 'parking') { if (tkParked()) { TK.st = 'out'; TK.t = 0; tkPlaceDriverAtDoor(); const [x, z] = tkVehW(-3.6, 3.2); n.route = null; n.tgt = [x, z]; } }
+  else if (TK.st === 'out') { TK.t += dt; n.face = tkMe(); if (tkWalk(dt) && TK.t > 1) { TK.st = 'wait'; v.npc = null; tkSay(TK_L.hello, 5.5); toast(tkMe().distanceTo(n.pos) > 40 ? 'The urea truck’s here at the grain shed.' : 'Truckie: “' + TK_L.hello + '”', 5.5); actKey = ''; } }
+  else if (TK.st === 'wait') { n.face = tkMe(); tkWalk(dt); }
+  else if (TK.st === 'watch') { n.face = activeName === 'mack' ? S.pos : tkMe(); tkWalk(dt);
+    if (UJ.st === 'done' && activeName !== 'mack' && !seqBusy()) { TK.st = 'board'; tkGo(...tkVehW(-2.15, 4.6)); tkSay(TK_L.bye, 3); } }
+  else if (TK.st === 'board') { n.face = null; if (tkWalk(dt)) { n.root.visible = false; n.el.style.display = 'none'; v.npc = TK; if (AU.buf && AU.buf.thud) sfx('thud', n.pos, 0.3, 1.2, 10);
+      const st = v.state, [ox, oz] = tkVehW(0, 14), P = drvPath(ox, oz, TK_SPAWN[0], TK_SPAWN[1]); TK.path = [[ox, oz]].concat(P && P.length > 1 ? P.slice(1) : [[TK_SPAWN[0], TK_SPAWN[1]]]); TK.bi = 0; TK.t = 0; TK.st = 'leaving'; } }
+  else if (TK.st === 'leaving') tkDrive(dt, 7, () => tkHide());
+  tkPose(dt);
+}
+function tkStartJob() {   // you've said yes: he wanders off to watch from beside the door
+  if (TK.st === 'wait') { tkSay(TK_L.accept, 3); TK.st = 'watch'; tkGo(...tkWatchSpot()); }
+  UJ.pend = true; enterVehicle('mack');
+}
+function tkDismiss() { if (TK.st !== 'wait' && TK.st !== 'watch') return; UJ.st = 'done'; UJ.showT = 0; TK.st = 'watch'; tkSay('Suit yaself.', 2); }
+/* ---------- the stack: pushed-up urea against the back wall ---------- */
+function ujShedLoose() { let v = 0; for (const p of PILES) if (p.urea) { const [lx, lz] = gsLocal(p.x, p.z); if (Math.abs(lx) < 8 && Math.abs(lz) < 12) v += p.vol; } return v; }
+function ujStackDims() { const V = UJ.stackV || 0; if (V < 0.05) return null; const h = Math.min(3.5, 1.0 + V / 14), A = V / UJ_STACK_W, s = h * 0.75, top = Math.max(0.15, (A - 0.5 * h * s) / h); return { h, s, top, depth: top + s }; }
+function ujStackBuild(force) {
+  if (!GS.root) return; if (!force && Math.abs((UJ.stackV || 0) - (UJ.stackB || 0)) < 0.25) return; UJ.stackB = UJ.stackV || 0;
+  const D = ujStackDims();
+  if (UJ.stackM) { UJ.stackM.geometry.dispose(); GS.root.remove(UJ.stackM); UJ.stackM = null; }
+  UJ.stackBox = null; ujExtra();
+  if (!D) return;
+  const W = UJ_STACK_W / 2, z0 = -11.45, e = Math.min(0.9, D.h * 0.3), sh = new THREE.Shape();      // a profile across the shed (x, y), extruded towards the door
+  const g = new THREE.BufferGeometry(), V = [], q = (a, b, c) => V.push(...a, ...b, ...c);
+  const zf = z0 + D.depth, zt = z0 + D.top, B = [[-W, 0, z0], [W, 0, z0], [W, 0, zf], [-W, 0, zf]], Tp = [[-W + e, D.h, z0], [W - e, D.h, z0], [W - e, D.h, zt], [-W + e, D.h, zt]];
+  q(Tp[0], Tp[3], Tp[2]); q(Tp[0], Tp[2], Tp[1]);                         // top
+  q(B[3], B[2], Tp[2]); q(B[3], Tp[2], Tp[3]);                            // front slope
+  q(B[0], B[3], Tp[3]); q(B[0], Tp[3], Tp[0]);                            // left end
+  q(B[2], B[1], Tp[1]); q(B[2], Tp[1], Tp[2]);                            // right end
+  g.setAttribute('position', new THREE.Float32BufferAttribute(V, 3));
+  const uv = []; for (let i = 0; i < V.length; i += 3) uv.push(V[i] * 0.35 + V[i + 2] * 0.2, V[i + 1] * 0.35 + V[i + 2] * 0.25); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, ujMat()); m.position.y = UJ.bay ? UJ.bay.position.y : 0; m.castShadow = m.receiveShadow = true; GS.root.add(m); UJ.stackM = m;
+  UJ.stackBox = [-W, W, -12.1, z0 + D.top + D.s * 0.55]; ujExtra();
+}
+function ujExtra() { GS_EXTRA.length = 0; if (UJ.pen && UJ.pen.visible && UJ.penBoxes) GS_EXTRA.push(...UJ.penBoxes.map(b => [b[0], b[1], b[2] + UJ.shift, b[3] + UJ.shift])); if (UJ.stackBox) GS_EXTRA.push(UJ.stackBox); }
+// where the bay sits: just in front of the stack, and a bit further out with a load already tipped loose
+function ujBayShift() {
+  const D = ujStackDims(), front = -11.45 + (D ? D.depth : 0), lv = ujShedLoose(); return Math.max(0, front + 0.9 + Math.min(1.8, lv / UJ_LOADV * 1.5) - (-10.3));
+}
+function ujApplyShift(sh) { UJ.shift = sh; if (UJ.bay) UJ.bay.position.z = sh; if (UJ.pen) UJ.pen.position.z = sh; ujExtra(); }
+function ujShedFloor(p) { if (!GS.ready) return false; const [lx, lz] = gsLocal(p.x, p.z); return Math.abs(lx) < 8 && Math.abs(lz) < 12 && !PILES.some(q => !q.urea && Math.hypot(q.x - p.x, q.z - p.z) < q.r * 0.92); }   // (the shed's floor is concrete: nothing to dig)
+function ujPush(lip, dt) {   // the Merlo's bucket into loose urea in the shed: the heap slides ahead of it, and once it's jammed against the stack it goes up the stack
+  if (!GS.ready) return false; const [lx0, lz0] = gsLocal(lip.x, lip.z); if (Math.abs(lx0) > 7.6 || lz0 < -11.5 || lz0 > 11.5) return false;
+  const p = PILES.find(q => q.urea && Math.hypot(q.x - lip.x, q.z - lip.z) < q.r * 0.8); if (!p) return false;
+  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), D = ujStackDims(), face = -11.45 + (D ? D.depth : 0);
+  let [plx, plz] = gsLocal(lip.x + fx * p.r * 0.8, lip.z + fz * p.r * 0.8), pinned = false;
+  if (plz < face + p.r * 0.55) { plz = face + p.r * 0.55; pinned = true; }
+  plx = THREE.MathUtils.clamp(plx, -7.4 + p.r * 0.5, 7.4 - p.r * 0.5);
+  const [wx, wz] = gsWorldDir(plx, plz), nx = GS.x + wx, nz = GS.z + wz;
+  if ((nx - p.x) * fx + (nz - p.z) * fz > 0) { p.x = nx; p.z = nz; pileDims(p); }
+  S.v = Math.min(S.v, 1.6);                                            // (heavy going)
+  if (pinned) {
+    const room = UJ_STACK_MAX - (UJ.stackV || 0);
+    if (room <= 0.01) { S.v = Math.min(S.v, 0); if (!TK.stackTold) { TK.stackTold = true; toast('The stack’s as high as it goes. The shed’s full.', 3); } return true; }
+    const amt = Math.min(p.vol, dt * 2.2, room); p.vol -= amt; UJ.stackV = (UJ.stackV || 0) + amt;
+    if (p.vol < 0.05) { scene.remove(p.mesh); PILES.splice(PILES.indexOf(p), 1); } else pileDims(p);
+    ujStackBuild();
+    if (!TK.pushTold) { TK.pushTold = true; toast('That’s it, shove it up the stack. Keep going till the floor’s clear.', 3); }
+  }
+  TB.digAcc += dt; if (TB.digAcc > 0.16) { TB.digAcc = 0; if (AU.buf.steps) playAt(sndPick('steps'), lip, 0.6, 0.55 + Math.random() * 0.2, 9); }
+  return true;
+}
+
+/* ---------- the Module 8 Express cotton trailer, from the FS25 mod "Module 8 Express Cotton Trailer" by Jolly Farms
+   Modding (module8-trailer.glb, tools/fs-mod/build_vehicle.py): a drop-deck semi that carries round cotton modules
+   lying on the bed. Any truck can take it: the prime mover on its turntable (unhook the tipper first), the Mack
+   through a converter dolly (it's a rigid truck: a dog trailer, Aussie style). Self-loading, as the mod's store option:
+   stop beside modules on the ground and load them; unload drops them in a row beside it. Six fit at full size. ---------- */
+const M8_KP = 8.43, M8_L = 12.99, M8_LD = 3.0, M8_PINTLE = -4.36, M8_HOME = { x: -100, z: 44, yaw: Math.PI / 2 };
+const M8_SLOTS = [[2.69, 7.35], [2.21, 4.76], [2.21, 2.36], [2.21, -0.04], [2.21, -2.44], [2.21, -4.84]];
+const M8 = { model: null, ready: false, hitch: null, kp: new THREE.Vector3(), yaw: 0, dYaw: 0, legs: 1, slots: [null, null, null, null, null, null], anim: null, queue: 0, dolly: null, jk: false, roll: 0 };
+function m8Build() {
+  if (M8.model) return; const root = new THREE.Group(), frame = new THREE.Group(); frame.position.y = 0.04; root.add(frame); scene.add(root);
+  const tm = { rubber: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.9 }), rim: new THREE.MeshStandardMaterial({ color: 0xe9e9e6, roughness: 0.35, metalness: 0.4 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1 }), dark: new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.8 }) };
+  const wheels = [];
+  for (const z of [-3.78, -5.34]) { const ax = new THREE.Group(); ax.position.set(0, 0.48, z); root.add(ax);
+    for (const s of [-1, 1]) for (const dx of [0.65, 0.95]) { const t = cpTyre(0.48, 0.29, 0.27, 20, tm); t.position.x = s * dx; if (s < 0) t.scale.x = -1; ax.add(t); } wheels.push(ax); }
+  // the converter dolly, for the Mack
+  const D = new THREE.Group(), dm = new THREE.MeshStandardMaterial({ color: 0x1b1b1b, roughness: 0.6, metalness: 0.3 });
+  for (const s of [-1, 1]) { const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 3.1), dm); bar.position.set(s * 0.32, 0.72, 1.45); bar.rotation.y = -s * 0.1; D.add(bar); }
+  const fr = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.25, 2.2), dm); fr.position.set(0, 0.95, 0); D.add(fr);
+  const fw = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.12, 24), dm); fw.position.set(0, 1.12, 0.2); D.add(fw);
+  const dw = []; for (const z of [0.65, -0.65]) { const ax = new THREE.Group(); ax.position.set(0, 0.48, z); D.add(ax); for (const s of [-1, 1]) for (const dx of [0.65, 0.95]) { const t = cpTyre(0.48, 0.29, 0.27, 20, tm); t.position.x = s * dx; if (s < 0) t.scale.x = -1; ax.add(t); } dw.push(ax); }
+  D.visible = false; scene.add(D); M8.dolly = { root: D, wheels: dw };
+  M8.model = { root, frame, wheels, nodes: {} };
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('module8-trailer.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    const N = M8.model.nodes, cache = new Map(), wood = new THREE.MeshStandardMaterial({ color: 0x7d5f42, roughness: 0.85 });
+    g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { const wd = /wood/i.test(o.name) || /wood/i.test((o.parent && o.parent.name) || '');
+        let m = wd ? wood : cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); if (o.material.map) { m.map = o.material.map; m.alphaTest = o.material.alphaTest || (o.material.transparent ? 0.4 : 0); } cache.set(o.material, m); }
+        o.material = m; o.castShadow = true; } });
+    frame.add(g.scene); M8.legsNode = N.supportArm; M8.legs0 = N.supportArm ? N.supportArm.position.y : 0; M8.ready = true; m8Place();
+  }, e => console.warn('module trailer', e))).catch(e => console.warn('module trailer file', e));
+  m8Reset();
+}
+function m8Reset() {
+  for (let i = 0; i < M8.slots.length; i++) { const m = M8.slots[i]; if (m && m.parent) m.parent.remove(m); M8.slots[i] = null; }
+  M8.hitch = null; M8.anim = null; M8.queue = 0; M8.legs = 1; M8.yaw = M8_HOME.yaw; M8.kp.set(M8_HOME.x + Math.sin(M8_HOME.yaw) * M8_KP, 0, M8_HOME.z + Math.cos(M8_HOME.yaw) * M8_KP);
+  if (M8.dolly) M8.dolly.root.visible = false; m8Place();
+}
+function m8Dir(y) { return [Math.sin(y), Math.cos(y)]; }
+function m8Place() {
+  const M = M8.model; if (!M) return; const [fx, fz] = m8Dir(M8.yaw), ox = M8.kp.x - fx * M8_KP, oz = M8.kp.z - fz * M8_KP;
+  const ga = rawGround(ox - fx * 4.5, oz - fz * 4.5, 40), gk = rawGround(M8.kp.x, M8.kp.z, 40), pitch = Math.atan2(gk - ga, M8_KP + 4.5) * 0.6;
+  M.root.position.set(ox, ga + (gk - ga) * (4.5 / (M8_KP + 4.5)), oz); M.root.rotation.set(-pitch, M8.yaw, 0, 'YXZ');
+  if (M8.legsNode) M8.legsNode.position.y = M8.legs0 - (M8.legs0 - 0.32) * M8.legs;
+  for (const w of M.wheels) w.rotation.x = M8.roll / 0.48;
+  if (M8.hitch === 'mack' && M8.dolly) { const D = M8.dolly, [dx, dz] = m8Dir(M8.dYaw); D.root.visible = true; D.root.position.set(M8.kp.x + dx * 0.2 * -1, rawGround(M8.kp.x, M8.kp.z, 40), M8.kp.z - dz * 0.2); D.root.rotation.set(0, M8.dYaw, 0); for (const w of D.wheels) w.rotation.x = M8.roll / 0.48; }
+}
+function m8St(name) { return name === activeName ? S : VEH[name] && VEH[name].state; }
+// where a truck takes the trailer: the prime mover's turntable, or the end of the dolly's drawbar off the Mack's tow hitch
+function m8TruckHitch(name) { const st = m8St(name); if (!st || !st.pos) return null; const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw), k = name === 'truck' ? TIP.kz : M8_PINTLE; return [st.pos.x + fx * k, st.pos.z + fz * k, st.yaw, st]; }
+function m8Step(dt) {
+  if (!M8.model) { if (VEHICLES.mack && VEHICLES.mack.ready) m8Build(); return; }
+  M8.legs = THREE.MathUtils.clamp(M8.legs + (M8.hitch ? -1 : 1) * dt / 2.5, 0, 1);
+  if (M8.hitch) {
+    const h = m8TruckHitch(M8.hitch); if (!h) return; const [hx, hz, ty] = h, old = M8.kp.clone();
+    let px = hx, pz = hz, pullYaw = ty;
+    if (M8.hitch === 'mack') {   // drawbar eye on the hitch; the dolly trails it; its turntable is the kingpin's pivot
+      const [dx, dz] = m8Dir(M8.dYaw), ax = (M8.dEye ? M8.dEye[0] : hx) - dx * M8_LD, az = (M8.dEye ? M8.dEye[1] : hz) - dz * M8_LD;
+      let ny = Math.atan2(hx - ax, hz - az), rel = faAng(ny - ty); if (Math.abs(rel) > 1.25) ny = ty + Math.sign(rel) * 1.25;
+      M8.dYaw = ny; M8.dEye = [hx, hz]; const [ex, ez] = m8Dir(ny); px = hx - ex * (M8_LD - 0.2); pz = hz - ez * (M8_LD - 0.2); pullYaw = ny;
+    }
+    const [fx, fz] = m8Dir(M8.yaw), ax = M8.kp.x - fx * M8_L, az = M8.kp.z - fz * M8_L;
+    let ny = Math.atan2(px - ax, pz - az), rel = faAng(ny - pullYaw);
+    if (Math.abs(rel) > 1.3) { ny = pullYaw + Math.sign(rel) * 1.3; if (!M8.jk) { M8.jk = true; toast('Jackknifed! Pull forward to straighten up', 2); } } else M8.jk = false;
+    M8.yaw = ny; M8.kp.set(px, 0, pz);
+    const mv = Math.hypot(px - old.x, pz - old.z); M8.roll += mv * Math.sign((px - old.x) * Math.sin(ny) + (pz - old.z) * Math.cos(ny) || 1);
+  }
+  // loading: a module lifts off the ground and swings onto its spot on the bed
+  if (M8.anim) { const A = M8.anim; A.t = Math.min(1, A.t + dt / 1.3); const k = A.t * A.t * (3 - 2 * A.t);
+    const R = M8.model.root; R.updateMatrixWorld(true); const to = R.localToWorld(new THREE.Vector3(0, A.slot[0], A.slot[1])), toQ = R.getWorldQuaternion(new THREE.Quaternion());
+    A.m.position.lerpVectors(A.from, to, k); A.m.position.y += Math.sin(k * Math.PI) * 2.2; A.m.quaternion.slerpQuaternions(A.q, toQ, k);
+    if (A.t >= 1) { R.attach(A.m); A.m.position.set(0, A.slot[0], A.slot[1]); A.m.quaternion.identity(); M8.slots[A.i] = A.m; sfx('thud', to, 0.5, 0.6, 25); M8.anim = null; if (M8.queue > 0) { M8.queue--; if (!m8LoadOne()) M8.queue = 0; } } }
+  m8Place();
+}
+function m8Centre() { const [fx, fz] = m8Dir(M8.yaw); return [M8.kp.x - fx * 6.5, M8.kp.z - fz * 6.5]; }
+function m8NearMods() { const [cx, cz] = m8Centre(); return CP.mods.filter(M => M.settled && Math.hypot(M.pos.x - cx, M.pos.z - cz) < 14); }
+function m8LoadOne() {
+  const i = M8.slots.indexOf(null); if (i < 0) { toast('Trailer’s full: ' + M8.slots.length + ' modules on', 2); return false; }
+  const [cx, cz] = m8Centre(), L = m8NearMods().sort((a, b) => Math.hypot(a.pos.x - cx, a.pos.z - cz) - Math.hypot(b.pos.x - cx, b.pos.z - cz)); if (!L.length) return false;
+  const M = L[0]; CP.mods.splice(CP.mods.indexOf(M), 1); scene.attach(M.m);
+  M8.anim = { m: M.m, from: M.m.position.clone(), q: M.m.quaternion.clone(), slot: M8_SLOTS[i], i, t: 0 }; return true;
+}
+function m8Unload() {
+  const R = M8.model.root; R.updateMatrixWorld(true); const q = R.getWorldQuaternion(new THREE.Quaternion()), axis = new THREE.Vector3(1, 0, 0).applyQuaternion(q); axis.y = 0; axis.normalize(); let n = 0;
+  for (let i = M8.slots.length - 1; i >= 0; i--) { const m = M8.slots[i]; if (!m) continue; M8.slots[i] = null; const p = R.localToWorld(new THREE.Vector3(-3.6, 0, M8_SLOTS[i][1]));
+    p.y = groundAt(p.x, p.z, p.y + 4, 0) + CP_R + 0.4; scene.attach(m); m.position.copy(p); m.quaternion.copy(q);
+    CP.mods.push({ m, pos: p.clone(), v: new THREE.Vector3(), axis: axis.clone(), q: q.clone(), settled: false, t: 0 }); n++; }
+  if (n) { toast(n + (n === 1 ? ' module' : ' modules') + ' off', 2); sfx('thud', M8.kp, 0.6, 0.55, 30); }
+}
+function m8Items(items) {
+  if (!M8.ready) return; const cnt = M8.slots.filter(Boolean).length, [cx, cz] = m8Centre();
+  const v = activeVeh(), truck = v && (v.name === 'truck' || v.name === 'mack') ? v.name : null, slow = Math.abs(S.v) < 0.6;
+  let near = false;
+  if (activeName === 'foot') near = Math.hypot(F.pos.x - cx, F.pos.z - cz) < 11;
+  else if (truck && M8.hitch === truck) near = slow;
+  if (truck && slow) {
+    if (M8.hitch === truck) items.push({ id: 'm8:unhitch', label: 'Unhook the module trailer', cls: 'ghost' });
+    else if (!M8.hitch) { const h = m8TruckHitch(truck), [fx, fz] = m8Dir(M8.yaw), ex = truck === 'mack' ? M8.kp.x + fx * (M8_LD - 0.2) : M8.kp.x, ez = truck === 'mack' ? M8.kp.z + fz * (M8_LD - 0.2) : M8.kp.z;
+      if (Math.hypot(h[0] - ex, h[1] - ez) < (truck === 'mack' ? 2.2 : 1.8) && Math.abs(faAng(h[2] - M8.yaw)) < 0.6) {
+        if (truck === 'truck' && !TIP.free) items.push({ id: 'tip:unhook', label: 'Unhook the tipper first', cls: 'warn' });
+        else items.push({ id: 'm8:hitch', label: 'Hook up the module trailer', cls: 'warn' }); } }
+    if (truck === 'truck' && M8.hitch !== 'truck') {
+      if (!TIP.free && TIP.tilt < 0.02) items.push({ id: 'tip:unhook', label: 'Unhook the tipper', cls: 'ghost' });
+      else if (TIP.free && !M8.hitch) { const h = m8TruckHitch('truck'); if (Math.hypot(h[0] - TIP.hitch.x, h[1] - TIP.hitch.z) < 1.8 && Math.abs(faAng(h[2] - TIP.yaw)) < 0.6) items.push({ id: 'tip:hook', label: 'Hook up the tipper', cls: 'warn' }); }
+    }
+  }
+  if (near && !M8.anim) {
+    if (cnt < M8.slots.length && m8NearMods().length) items.push({ id: 'm8:load', label: 'Load modules (' + cnt + '/' + M8.slots.length + ')', cls: 'warn' });
+    if (cnt) items.push({ id: 'm8:unload', label: 'Unload ' + cnt + (cnt === 1 ? ' module' : ' modules'), cls: 'ghost' });
+  }
+}
+function m8Act(id) {
+  if (id === 'm8:hitch') { const v = activeVeh(); M8.hitch = v.name; if (v.name === 'mack') { M8.dYaw = M8.yaw; const [fx, fz] = m8Dir(M8.yaw); M8.dEye = [M8.kp.x + fx * (M8_LD - 0.2), M8.kp.z + fz * (M8_LD - 0.2)]; }
+    sfx('thud', M8.kp, 0.6, 0.8, 20); toast(v.name === 'mack' ? 'Module trailer on, on the dolly' : 'Module trailer on', 1.8); }
+  else if (id === 'm8:unhitch') { M8.hitch = null; if (M8.dolly) M8.dolly.root.visible = false; sfx('thud', M8.kp, 0.5, 0.9, 20); toast('Module trailer off: legs going down', 1.8); }
+  else if (id === 'm8:load') { if (m8LoadOne()) M8.queue = 8; }
+  else if (id === 'm8:unload') m8Unload();
+  else if (id === 'tip:unhook') { TIP.free = true; sfx('thud', TIP.hitch, 0.5, 0.9, 20); toast('Tipper off', 1.5); }
+  else if (id === 'tip:hook') { TIP.free = false; sfx('thud', TIP.hitch, 0.6, 0.8, 20); toast('Tipper back on', 1.5); }
+  actKey = '';
 }
 
 /* ================================================================
@@ -19181,7 +19832,7 @@ window.__game = { PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, R
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
 Object.assign(window.__game, { lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
-Object.assign(window.__game, { CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
+Object.assign(window.__game, { GS, gsToggle, UJ, ujAct, mackTip, TK, drvPath, PILES, addToPile, ujMat, M8, m8Act, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
 load().catch(e => console.error(e));
 </script>
 </body>
