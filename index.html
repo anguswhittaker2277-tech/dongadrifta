@@ -2591,8 +2591,13 @@ const exAxis = (v) => (Math.abs(v) < 0.08 ? 0 : v);
 function excStep(dt) {
   const C = VEHICLES.exc; if (!C.ready) return;
   const prev = { boom: EX.boom, arm: EX.arm, bkt: EX.bkt }, tip0 = C.tip.getWorldPosition(new THREE.Vector3()).y;
-  const rx = exAxis(THREE.MathUtils.clamp(input.rx + input.kLR, -1, 1)), ry = exAxis(THREE.MathUtils.clamp(input.ry + input.kUD, -1, 1));
-  const lx = EX.dig ? exAxis(THREE.MathUtils.clamp(input.x + input.kx, -1, 1)) : 0, ly = EX.dig ? exAxis(THREE.MathUtils.clamp(input.y + input.ky, -1, 1)) : 0;
+  // the sticks: a curve for fine work near the middle (full speed only at the edge), and the hydraulics take a moment to
+  // come up to speed and to stop, like the mod's rotAcceleration, so a twitch of the thumb doesn't jerk the arm about
+  const cv = (v) => { v = exAxis(THREE.MathUtils.clamp(v, -1, 1)); return Math.sign(v) * Math.pow(Math.abs(v), 1.7); };
+  const want = { ry: cv(input.ry + input.kUD), rx: cv(input.rx + input.kLR), lx: EX.dig ? cv(input.x + input.kx) : 0, ly: EX.dig ? cv(input.y + input.ky) : 0 };
+  const SV = EX.sv || (EX.sv = { ry: 0, rx: 0, lx: 0, ly: 0 }), kk = 1 - Math.exp(-dt / 0.14);
+  for (const q in want) SV[q] += (want[q] - SV[q]) * kk;
+  const rx = SV.rx, ry = SV.ry, lx = SV.lx, ly = SV.ly;
   EX.boom = THREE.MathUtils.clamp(EX.boom - ry * 20 * dt, ...EX_LIM.boom);                 // stick up: boom up
   EX.bkt = THREE.MathUtils.clamp(EX.bkt - rx * 20 * dt * 1.4, ...EX_LIM.bkt);              // stick left: curl in, right: dump
   EX.arm = THREE.MathUtils.clamp(EX.arm - ly * 20 * dt, ...EX_LIM.arm);                    // stick up: reach out, back: pull in
@@ -2625,6 +2630,7 @@ function excStep(dt) {
     EX.pourAcc += dt; if (EX.pourAcc > 0.1) { EX.pourAcc = 0; const gy = groundAt(tip.x, tip.z, tip.y - 0.05, tip.y - 3); dirtPuff(_v2.set(tip.x, gy + 0.3, tip.z), 0.5); if (AU.buf.steps) playAt(sndPick('steps'), tip, 0.7, 0.5 + Math.random() * 0.2, 9); }
     if (EX.fill <= 0) { EX.fill = 0; EX.told.full = false; }
   }
+  exChip();
   EX.hyd += ((Math.abs(rx) + Math.abs(ry) + Math.abs(lx) + Math.abs(ly) + (h ? 0.6 : 0)) * 0.6 - EX.hyd) * (1 - Math.exp(-8 * dt)); TB.hyd = Math.max(TB.hyd, EX.hyd);
   // the driver turns with the upper
   const R = DAZZA.root;
@@ -2634,8 +2640,32 @@ function excStep(dt) {
 function exItems(items) {
   const v = activeVeh(); if (!v || v.name !== 'exc') return;
   items.push({ id: 'ex:dig', label: EX.dig ? 'Drive mode' : 'Dig mode', cls: EX.dig ? 'warn' : 'ghost', pressed: EX.dig });
-  items.push({ id: 'ex:bladeU', label: 'Blade ▲', cls: 'ghost hold' }); items.push({ id: 'ex:bladeD', label: 'Blade ▼', cls: 'ghost hold' });
   if (EX.dig) { items.push({ id: 'ex:swL', label: 'Swing ◀', cls: 'ghost hold' }); items.push({ id: 'ex:swR', label: 'Swing ▶', cls: 'ghost hold' }); }
+  else { items.push({ id: 'ex:bladeU', label: 'Blade ▲', cls: 'ghost hold' }); items.push({ id: 'ex:bladeD', label: 'Blade ▼', cls: 'ghost hold' }); }
+}
+// the operator's views: from the seat (turning with the upper, drag to look round), or up over the cab watching the bucket
+function excView(view, dt) {
+  const C = VEHICLES.exc; if (!C.ready) return; C.root.updateMatrixWorld(true);
+  const h = S.yaw + THREE.MathUtils.degToRad(EX.slew), pc = typeof PCL !== 'undefined' ? PCL : { vyaw: 0, vpitch: 0 };
+  if (view === 'cab') {
+    const eye = (C.nodes.indoorCamera || C.nodes.seat).getWorldPosition(_vC);
+    const yw = h + THREE.MathUtils.clamp(pc.vyaw, -1.9, 1.9), pt = THREE.MathUtils.clamp(-0.4 - pc.vpitch * 0.8, -1.1, 0.4);
+    camera.position.copy(eye); camera.lookAt(_vA.set(eye.x + Math.sin(yw) * Math.cos(pt), eye.y + Math.sin(pt), eye.z + Math.cos(yw) * Math.cos(pt)));
+    setFov(78, dt); setNear(0.05); return;
+  }
+  const tip = C.tip.getWorldPosition(_vA), fx = Math.sin(h), fz = Math.cos(h), lx = Math.cos(h), lz = -Math.sin(h);
+  const tgt = _vB.set(tip.x * 0.7 + (S.pos.x + fx * 2) * 0.3, Math.max(tip.y, S.pos.y) * 0.7 + (S.pos.y + 1) * 0.3, tip.z * 0.7 + (S.pos.z + fz * 2) * 0.3);
+  if (!viewSm) viewSm = tgt.clone(); viewSm.lerp(tgt, 1 - Math.exp(-6 * dt));
+  const want = _vC.set(S.pos.x - fx * 3.4 - lx * 2.4, S.pos.y + 5.4, S.pos.z - fz * 3.4 - lz * 2.4);     // up behind on the boom side, clear of the cab, looking down at the bucket
+  if (!VIEW.xPos) VIEW.xPos = want.clone(); VIEW.xPos.lerp(want, 1 - Math.exp(-8 * dt));
+  camera.position.copy(VIEW.xPos); camera.lookAt(viewSm); setFov(60, dt); setNear(0.15);
+}
+// a little pill under the speedo: the mode and what's in the bucket
+function exChip() {
+  let c = EX.chip; const on = activeName === 'exc';
+  if (!c) { if (!on) return; c = EX.chip = document.createElement('div'); c.className = 'ui'; c.style.cssText = 'position:fixed;z-index:9;left:calc(120px + env(safe-area-inset-left,0px));top:calc(80px + env(safe-area-inset-top,0px));background:rgba(22,26,25,.78);color:#fff;border-radius:10px;padding:4px 10px;font:600 12px/1.25 system-ui,sans-serif;pointer-events:none;display:none'; document.body.appendChild(c); }
+  c.style.display = on ? 'block' : 'none'; if (!on) return;
+  const t = (EX.dig ? 'DIG' : 'DRIVE') + ' \u00b7 Bucket ' + Math.round(EX.fill * 100) + '%'; if (c.textContent !== t) c.textContent = t;
 }
 function exTicks() {
   const t = (s, v) => { const e = document.querySelector(s); if (e) e.textContent = v; };
@@ -2645,7 +2675,11 @@ function exTicks() {
   document.body.classList.toggle('exdig', EX.dig);
 }
 function exAct(id) {
-  if (id === 'ex:dig') { EX.dig = !EX.dig; exTicks(); toast(EX.dig ? 'Dig mode: tracks locked. Left stick slews and reaches, right stick boom and bucket' : 'Drive mode: left stick drives', 2.6); actKey = ''; }
+  if (id === 'ex:dig') { EX.dig = !EX.dig; exTicks();
+    // dig mode goes to the cab (or whichever dig view you last had); drive mode back to yours
+    if (EX.dig) { EX.driveView = VIEW.cur; VIEW.cur = EX.digView || 'cab'; } else { EX.digView = VIEW.cur; VIEW.cur = EX.driveView && viewList('exc').includes(EX.driveView) ? EX.driveView : 'chase'; }
+    VIEW.cine = null; viewChanged(); if (typeof PCL !== 'undefined') { PCL.vyaw = 0; PCL.vpitch = 0; }
+    toast(EX.dig ? 'Dig mode: tracks locked. Left stick swings the cab and reaches; right stick boom and bucket. Camera button for other views' : 'Drive mode: left stick drives', 3); actKey = ''; }
 }
 
 SPECS.exc = Object.assign({}, SPECS.dozer, { top: 9 / 3.6, rev: 9 / 3.6, accel: 1.2, brake: 5, wb: 1.82, front: 1.7, rear: 1.3, halfW: 1.0, rayH: [0.35, 0.9, 1.8], lanes: [-0.8, 0, 0.8], noseLane: 0.7,
@@ -8568,9 +8602,9 @@ const VIEWS = {
   racer: ['fpv', 'chase', 'cine'],
   foot: ['chase'],
 };
-const VIEW_NAMES = { rear: 'Looking back', chase: 'Chase camera', operator: 'Over the bucket', bucket: 'Bucket view', cine: 'Cinematic', fpv: 'Camera view', down: "Bird's-eye", cockpit: 'Cockpit', wing: 'Wingtip camera' };
+const VIEW_NAMES = { cab: 'In the cab', dig: 'Over the bucket', rear: 'Looking back', chase: 'Chase camera', operator: 'Over the bucket', bucket: 'Bucket view', cine: 'Cinematic', fpv: 'Camera view', down: "Bird's-eye", cockpit: 'Cockpit', wing: 'Wingtip camera' };
 const VIEW = { sel: STORE.get('wfy.views', {}), cur: 'chase', for: '', cine: null, fpvT: 0, battery: 100, baseFov: 58 };
-function viewList(name) { return VIEWS[name] || ['chase', 'cine']; }
+function viewList(name) { if (name === 'exc') return EX.dig ? ['cab', 'dig', 'chase'] : ['chase', 'cab', 'rear', 'cine']; return VIEWS[name] || ['chase', 'cine']; }
 function currentView() {
   const name = activeName;
   if (VIEW.for !== name) { VIEW.for = name; VIEW.cine = null; const l = viewList(name); VIEW.cur = l.includes(VIEW.sel[name]) ? VIEW.sel[name] : l[0]; viewChanged(); }
@@ -8601,7 +8635,7 @@ function keepClear(from, to, minD) {     // pull a camera in front of any wall b
 }
 function applyView(dt) {
   const view = currentView(), v = activeVeh();
-  DAZZA.root.visible = !(view === 'cockpit' || (view === 'fpv' && v && !isRemote(v))) && !(typeof WPN !== 'undefined' && WPN.hidFarmer) && !(activeName === 'foot' && F.fp && !lookSheetOn());
+  DAZZA.root.visible = !(view === 'cockpit' || view === 'cab' || (view === 'fpv' && v && !isRemote(v))) && !(typeof WPN !== 'undefined' && WPN.hidFarmer) && !(activeName === 'foot' && F.fp && !lookSheetOn());
   if (v && v.name === 'racer') v.model.root.visible = view !== 'fpv';
   if (view !== 'operator') VIEW.oPos = null;
   if (view === 'chase' || !v) { const fp = activeName === 'foot' && F.fp; setFov(fp ? 76 : VIEW.baseFov, dt); setNear(fp ? 0.07 : 0.3); return; }
@@ -8616,6 +8650,7 @@ function applyView(dt) {
     camera.position.copy(VIEW.rPos); camera.lookAt(viewSm); setFov(62, dt); setNear(0.2);
     return;
   }
+  if (v.name === 'exc' && (view === 'cab' || view === 'dig')) { excView(view, dt); return; }
   if (v.name === 'tele') {
     const M = v.model; M.root.updateMatrixWorld(true);
     const lip = M.boom.lip.getWorldPosition(VIEW.lip || (VIEW.lip = new THREE.Vector3())), mid = M.boom.bucket.getWorldPosition(_vB).lerp(lip, 0.5);
@@ -14453,39 +14488,28 @@ function ujStarsTxt(n) { return '★'.repeat(n) + '☆'.repeat(3 - n); }
 function ujChip() {
   if (!UJ.chip) {
     const stl = document.createElement('style');
-    stl.textContent = '#ujchip{position:fixed;z-index:9;left:calc(120px + env(safe-area-inset-left,0px));top:calc(82px + env(safe-area-inset-top,0px));display:none;flex-direction:column;gap:3px;background:rgba(22,26,25,.84);color:#fff;border-radius:14px;padding:8px 14px;font:600 12px/1.25 system-ui,sans-serif;min-width:200px;max-width:250px;pointer-events:none}'
-      + '#ujchip.show{display:flex}#ujchip .h{display:flex;justify-content:space-between;gap:12px;font-size:13px}#ujchip .h b{color:#ffc928;font-variant-numeric:tabular-nums}#ujchip .h b.red{color:#ff6b5b}#ujchip .s{opacity:.55}#ujchip .s.now{opacity:1;color:#ffc928}#ujchip .s.ok{opacity:.8;color:#7ddc7a}#ujchip .s.ok:before{content:"✓ "}#ujchip .s.now:before{content:"▶ "}'
-      + '#ujchip .bar{height:5px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:2px}#ujchip .bar i{display:block;height:100%;background:#fff;width:0}#ujchip .lim{font-size:11px;opacity:.75}#ujchip .lim.warn{opacity:1;color:#ff6b5b}'
-      + '#ujchip .res{display:none;flex-direction:column;gap:2px}#ujchip.r .res{display:flex}#ujchip.r .run{display:none}#ujchip .stars{font-size:22px;color:#ffc928;letter-spacing:2px}#ujchip .res .why{color:#ff8a7a}#ujchip .res .nx{color:#7ddc7a}';
+    stl.textContent = '#ujchip{position:fixed;z-index:9;left:calc(120px + env(safe-area-inset-left,0px));top:calc(80px + env(safe-area-inset-top,0px));display:none;flex-direction:column;gap:2px;background:rgba(22,26,25,.78);color:#fff;border-radius:10px;padding:4px 10px;font:600 12px/1.25 system-ui,sans-serif;max-width:min(320px,calc(100vw - 420px));pointer-events:none;white-space:nowrap}'
+      + '#ujchip.show{display:flex}#ujchip .l{overflow:hidden;text-overflow:ellipsis}#ujchip b{color:#ffc928;font-variant-numeric:tabular-nums;margin:0 5px}#ujchip b.red,#ujchip .warn{color:#ff6b5b}#ujchip .st{color:#ffc928}#ujchip .ok{color:#7ddc7a}'
+      + '#ujchip .bar{height:3px;border-radius:2px;background:rgba(255,255,255,.18);overflow:hidden;display:none}#ujchip .bar.on{display:block}#ujchip .bar i{display:block;height:100%;background:#fff;width:0}#ujchip .stars{color:#ffc928;letter-spacing:1px}';
     document.head.appendChild(stl);
-    const c = document.createElement('div'); c.id = 'ujchip'; c.className = 'ui';
-    c.innerHTML = '<div class="h"><span class="ti">Urea job</span><b></b></div><div class="run"><div class="s" data-k="0">Open the shed door</div><div class="s" data-k="1">Reverse into the marked bay</div><div class="s" data-k="2">Tip the urea</div><div class="bar"><i></i></div><div class="s" data-k="3">Lower the box</div><div class="lim"></div></div>'
-      + '<div class="res"><div class="stars"></div><div class="l1"></div><div class="l2"></div><div class="why"></div><div class="nx"></div></div>';
+    const c = document.createElement('div'); c.id = 'ujchip'; c.className = 'ui'; c.innerHTML = '<div class="l"></div><div class="bar"><i></i></div><div class="l l2"></div>';
     document.body.appendChild(c); UJ.chip = c;
   }
   const c = UJ.chip, L = UJ_LV[UJ.lvl - 1], res = (UJ.st === 'done' || UJ.st === 'fail') && UJ.showT > 0;
   const on = activeName === 'mack' && (UJ.st === 'on' || res); c.classList.toggle('show', on); if (!on) return;
-  c.classList.toggle('r', res);
-  c.querySelector('.ti').textContent = 'Urea job · L' + UJ.lvl + ' ' + L.n;
-  const hb = c.querySelector('.h b');
-  if (L.limit && UJ.st === 'on') { const left = Math.max(0, L.limit - UJ.t); hb.textContent = ujTime(left); hb.classList.toggle('red', left < 20); }
-  else { hb.textContent = ujTime(UJ.t); hb.classList.toggle('red', UJ.t > L.par && UJ.st === 'on'); }
+  const [l1, bar, l2] = c.children, esc = t => String(t).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
   if (res) {
     const R = UJ.res || {};
-    c.querySelector('.stars').textContent = UJ.st === 'done' ? ujStarsTxt(R.stars) : '✖';
-    c.querySelector('.l1').textContent = UJ.st === 'done' ? 'Time ' + ujTime(UJ.t) + (R.par ? ' ✓ par ' : ' · par ') + ujTime(L.par) : 'Failed';
-    c.querySelector('.l2').textContent = UJ.st === 'done' ? 'Off centre ' + R.off.toFixed(2) + ' m · ' + R.ang.toFixed(1) + '° out' + (R.prec ? ' ✓' : '') : '';
-    c.querySelector('.why').textContent = UJ.st === 'fail' ? UJ.why : '';
-    c.querySelector('.nx').textContent = R.unlock ? 'Level ' + (UJ.lvl + 1) + ' unlocked!' : UJ.st === 'done' && R.stars < 3 ? 'Go again for ' + ujStarsTxt(3) : '';
-    return;
+    l1.innerHTML = UJ.st === 'done' ? '<span class="stars">' + ujStarsTxt(R.stars) + '</span><b>' + ujTime(UJ.t) + '</b>' + (R.par ? '<span class="ok">par ✓</span>' : 'par ' + ujTime(L.par)) + ' · ' + R.off.toFixed(2) + ' m off' + (R.prec ? ' <span class="ok">✓</span>' : '')
+      : '<span class="warn">✖ ' + esc(UJ.why) + '</span>';
+    l2.textContent = R.unlock ? 'Level ' + (UJ.lvl + 1) + ' unlocked!' : ''; l2.className = 'l l2 ok'; l2.style.display = l2.textContent ? '' : 'none'; bar.classList.remove('on'); return;
   }
-  const done = [GS.door > 0.97 || UJ.inBay || UJ.poured > 0, UJ.inBay || UJ.poured > 0, UJ.poured >= 0.999, false];
-  const now = done.indexOf(false);
-  c.querySelectorAll('.s').forEach(el => { const k = +el.dataset.k; el.classList.toggle('ok', done[k]); el.classList.toggle('now', k === now); });
-  c.querySelector('.bar i').style.width = Math.round(UJ.poured * 100) + '%';
-  const lim = c.querySelector('.lim'); lim.textContent = UJ.fast > 0 ? 'SLOW DOWN! Shed limit ' + UJ_KMH + ' km/h' : 'Shed limit ' + UJ_KMH + ' km/h' + (L.pen ? ' · mind the bags' : '');
-  lim.classList.toggle('warn', UJ.fast > 0);
-  const loads = (ujShedLoose() + (UJ.stackV || 0)) / UJ_LOADV; lim.textContent += ' · shed ' + Math.round(loads * 10) / 10 + '/6 loads';
+  const done = [GS.door > 0.97 || UJ.inBay || UJ.poured > 0, UJ.inBay || UJ.poured > 0, UJ.poured >= 0.999];
+  const step = !done[0] ? 'Open the shed door' : !done[1] ? 'Reverse into the bay' : !done[2] ? 'Tip the urea' : 'Lower the box';
+  const left = L.limit ? Math.max(0, L.limit - UJ.t) : null;
+  l1.innerHTML = 'L' + UJ.lvl + '<b class="' + ((left !== null ? left < 20 : UJ.t > L.par) ? 'red' : '') + '">' + ujTime(left !== null ? left : UJ.t) + '</b>' + (UJ.fast > 0 ? '<span class="warn">SLOW DOWN · ' + UJ_KMH + ' km/h</span>' : '<span class="st">▶ ' + step + '</span>');
+  bar.classList.toggle('on', UJ.poured > 0 && UJ.poured < 0.999); bar.firstChild.style.width = Math.round(UJ.poured * 100) + '%';
+  l2.style.display = 'none';
 }
 function ujTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
 function ujNearMack() { const v = VEH.mack; if (!v || !v.state) return false; const p = v.state.pos; return activeName === 'foot' && F.pos.distanceTo(p) < 9; }
@@ -14532,7 +14556,7 @@ function ujBegin() {
   ujSetPen(!!L.pen);
   UJ.tip = 0; UJ.tipT = 0; mackTip(0); UJ.load = 1; UJ.poured = 0; UJ.t = 0; UJ.st = 'on'; UJ.why = ''; UJ.said = ''; UJ.fast = 0; UJ.off = UJ.ang = null; UJ.res = null; UJ.showT = 0;
   GS.want = 0;
-  toast('Level ' + UJ.lvl + ': ' + L.n + '. Open the door and back into the bay. Don’t touch anything, keep under ' + UJ_KMH + ' km/h in the shed' + (L.limit ? ', and beat the clock!' : '.'), 4.5);
+  toast('L' + UJ.lvl + ' ' + L.n + ': back into the bay. Under ' + UJ_KMH + ' km/h, touch nothing' + (L.limit ? ', beat the clock' : ''), 3);
   actKey = '';
 }
 function ujFail(why) {
@@ -14845,6 +14869,7 @@ function m8St(name) { return name === activeName ? S : VEH[name] && VEH[name].st
 // where a truck takes the trailer: the prime mover's turntable, or the end of the dolly's drawbar off the Mack's tow hitch
 function m8TruckHitch(name) { const st = m8St(name); if (!st || !st.pos) return null; const fx = Math.sin(st.yaw), fz = Math.cos(st.yaw), k = name === 'truck' ? TIP.kz : M8_PINTLE; return [st.pos.x + fx * k, st.pos.z + fz * k, st.yaw, st]; }
 function m8Step(dt) {
+  if (EX.chip && activeName !== 'exc' && EX.chip.style.display !== 'none') EX.chip.style.display = 'none';
   if (!M8.model) { if (VEHICLES.mack && VEHICLES.mack.ready) m8Build(); return; }
   M8.legs = THREE.MathUtils.clamp(M8.legs + (M8.hitch ? -1 : 1) * dt / 2.5, 0, 1);
   if (M8.hitch) {
