@@ -4775,7 +4775,7 @@ function shedParking() {
     HOME[name] = { x, z, yaw: Math.atan2(U[0] * row, U[1] * row) };
   }
   HOME.truck = { x: -56, z: 28, yaw: Math.PI };
-  HOME.mack = { x: -67.2, z: 46.5, yaw: Math.PI };               // the Mack: waiting outside the grain shed, tail to the door
+  HOME.mack = { x: 48, z: 50, yaw: -Math.PI / 2 };               // the Mack: waiting outside the grain shed, tail to the door
   HOME.rx = { x: -61, z: 13, yaw: Math.PI };                     // the 9RX: on the open ground south of the road train, nose to the south
   { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], v = -D.hv + 2 * D.hv / D.bays * 4.5, yaw = Math.atan2(-U[0], -U[1]);
     HOME.picker = { x: D.cx + V[0] * v - Math.sin(yaw) * 4.2, z: D.cz + V[1] * v - Math.cos(yaw) * 4.2, yaw }; }   // the cotton picker: the whole end bay of the machinery shed, header up, nose out
@@ -5137,7 +5137,8 @@ function teleStep(dt) {
   const lip = M.boom.lip.getWorldPosition(new THREE.Vector3());
   const g = groundAt(lip.x, lip.z, lip.y + 1.5, -1e9);
   // scoop: bucket on the ground, not tipped forward, driving into it
-  if (TB.fill < 1 && TB.tilt > -0.35 && g > -1e8 && lip.y < g + 0.12 && S.v > 0.25) {
+  const shove = S.v > 0.05 || input.gas || input.y > 0.2, pushing = TB.tilt > -0.35 && shove && g > -1e8 && lip.y < g + 0.35 && ujPush(lip, dt);
+  if (!pushing && !ujShedFloor(lip) && TB.fill < 1 && TB.tilt > -0.35 && g > -1e8 && lip.y < g + 0.12 && S.v > 0.25) {
     const d = Math.min(1 - TB.fill, dt * Math.min(1, S.v / 1.5) * 0.5);
     TB.fill += d;
     const fromPile = takeFromPile(lip.x, lip.z, d * BUCKET_M3);
@@ -6008,7 +6009,7 @@ function setStickLabels(name) {
 
 const HINTS = {
   ute: ['Madman\u2019s ute. <b>Hold GAS</b> to go; <b>Brake</b> reverses when stopped. Drive off in it and he\u2019ll come after you in whatever he can find.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
-  mack:    ['The Mack grain truck. Walk up to it outside the grain shed for the <b>urea job</b>: open the shed door, <b>reverse into the marked bay</b> without touching anything, stay under 10 km/h in the shed, and tip. Five levels; three stars each.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
+  mack:    ['The Mack grain truck. Order a load at the grain shed for the <b>urea job</b>: open the shed door, <b>reverse into the marked bay</b> without touching anything, stay under 10 km/h in the shed, and tip. Five levels; three stars each.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   rx:      ['The 9RX: 690 hp on four tracks. It <b>bends in the middle</b> to steer, so it turns tighter than it looks. <b>Left thumb</b> drives.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   picker:  ['<b>Left thumb</b> drives; the <b>back wheels steer</b>, so the tail swings wide. <b>Start picking</b>, <b>Lower header</b> and drive up the cotton rows. The basket dumps into the chamber, a full chamber wraps a <b>module</b> and rolls it onto the handler: <b>Drop module</b> where you want it. <b>Configure</b> (stopped) picks the model and wrap colour.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out &middot; buttons for the picker'],
   dirtbike: ['<b>Left thumb</b> steers and shifts your weight. <b>GAS</b> and <b>Brake</b> on the right. Lean back + gas = <b>wheelie</b>. Jumps: lean back up the face, <b>flick forward at the lip</b>. Stopped? Hold <b>Brake</b> to back up.', '<b>W</b> gas &middot; <b>S</b> brake &middot; <b>A/D</b> steer &middot; <b>&uarr;/&darr;</b> lean &middot; <b>Q</b> camera &middot; <b>E</b> get off'],
@@ -6119,7 +6120,7 @@ function resetAll() {
   for (const n of GROUND) VEH[n].coast = false;
   for (const [, d] of allDoors()) { d.a = d.tgt = 0; d.slamT = 0; d.obj.rotation.y = 0; if (d.obj.userData.hole) d.obj.userData.hole.visible = false; }
   doorRestoreAll();
-  clearDirt(); resetStructs(); resetImplements(); faunaReset(); wxReset(); wpnReset(); resetHunt(); if (HS.ready) { hsReset(); hsFauna(); } MEL.cur = null; MEL.queued = false; F.sprintT = 0; F.sprinting = false; MX.lap = null; MX.prevRel = undefined; MOTO.crash = null; Object.assign(DZ, { lift: 0.25, load: 0, hyd: 0, told: false, fullTold: false }); dozerApply(); input.rudL = input.rudR = false;
+  clearDirt(); if (typeof tkReset === 'function' && GS.root) tkReset(); resetStructs(); resetImplements(); faunaReset(); wxReset(); wpnReset(); resetHunt(); if (HS.ready) { hsReset(); hsFauna(); } MEL.cur = null; MEL.queued = false; F.sprintT = 0; F.sprinting = false; MX.lap = null; MX.prevRel = undefined; MOTO.crash = null; Object.assign(DZ, { lift: 0.25, load: 0, hyd: 0, told: false, fullTold: false }); dozerApply(); input.rudL = input.rudR = false;
   const saveIn = { ...input }; for (const k of ['x', 'y', 'rx', 'ry']) input[k] = 0; input.gas = input.brake = input.hb = input.jump = false; keys.clear();
   if (activeName !== 'foot') { const pv = activeVeh(); if (pv && pv.kind === 'ground') pv.state = snapshotS(); }
   for (const name of GROUND) {             // park and settle each ground vehicle on its spot
@@ -14228,11 +14229,11 @@ function gsStep(dt) {
    and it's a fail. Stars: one for finishing, one for beating par, one for parking dead straight in the middle of
    the bay. The heap stays (the Merlo can scoop it). */
 const UJ_LV = [
-  { n: 'Straight in',   at: [-67.2, 46.5, Math.PI],      par: 45 },
-  { n: 'Swing it round', at: [-55.5, 50.5, -Math.PI / 2], par: 60 },
-  { n: 'Turn around',   at: [-67.5, 43.5, 0],            par: 80 },
-  { n: 'Bulka bags',    at: [-55.5, 50.5, -Math.PI / 2], par: 75, pen: true },
-  { n: 'Against the clock', at: [-67.5, 43.5, 0],        par: 85, pen: true, limit: 110 },
+  { n: 'Straight in',   at: [-67.2, 46.5, Math.PI],      par: 45, via: [[-44, 56], [-57, 56.5], [-64.5, 53]] },
+  { n: 'Swing it round', at: [-55.5, 50.5, -Math.PI / 2], par: 60, via: [[-38, 50.5], [-46, 50.5]] },
+  { n: 'Turn around',   at: [-67.5, 43.5, 0],            par: 80, via: [[-46, 33], [-58, 33], [-65.5, 37.5]] },
+  { n: 'Bulka bags',    at: [-55.5, 50.5, -Math.PI / 2], par: 75, pen: true, via: [[-38, 50.5], [-46, 50.5]] },
+  { n: 'Against the clock', at: [-67.5, 43.5, 0],        par: 85, pen: true, limit: 110, via: [[-46, 33], [-58, 33], [-65.5, 37.5]] },
 ];
 const UJ_KMH = 10, UJ_BAY = [-2.2, 2.2, -10.3, -2.4], GS_EXTRA = [];
 const UJ = { st: 'idle', t: 0, tip: 0, tipT: 0, load: 0, poured: 0, pend: false, why: '', chip: null, bay: null, bayMat: null, mat: null, fx: null, inBay: false, said: '',
@@ -14266,7 +14267,7 @@ function ujBay() {
   }
   pen.position.y = g.position.y; pen.visible = false; GS.root.add(pen); UJ.pen = pen;
 }
-function ujSetPen(on) { if (!UJ.pen) return; UJ.pen.visible = on; GS_EXTRA.length = 0; if (on) GS_EXTRA.push(...UJ.penBoxes); }
+function ujSetPen(on) { if (!UJ.pen) return; UJ.pen.visible = on; ujExtra(); }
 function ujStarsTxt(n) { return '★'.repeat(n) + '☆'.repeat(3 - n); }
 function ujChip() {
   if (!UJ.chip) {
@@ -14303,28 +14304,50 @@ function ujChip() {
   c.querySelector('.bar i').style.width = Math.round(UJ.poured * 100) + '%';
   const lim = c.querySelector('.lim'); lim.textContent = UJ.fast > 0 ? 'SLOW DOWN! Shed limit ' + UJ_KMH + ' km/h' : 'Shed limit ' + UJ_KMH + ' km/h' + (L.pen ? ' · mind the bags' : '');
   lim.classList.toggle('warn', UJ.fast > 0);
+  const loads = (ujShedLoose() + (UJ.stackV || 0)) / UJ_LOADV; lim.textContent += ' · shed ' + Math.round(loads * 10) / 10 + '/6 loads';
 }
 function ujTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
 function ujNearMack() { const v = VEH.mack; if (!v || !v.state) return false; const p = v.state.pos; return activeName === 'foot' && F.pos.distanceTo(p) < 9; }
 function ujStartLabel() { const L = UJ_LV[UJ.lvl - 1], b = UJ.stars[UJ.lvl] || 0; return (UJ.st === 'fail' ? 'Try again: ' : 'Urea job: ') + 'L' + UJ.lvl + ' ' + L.n + (b ? ' ' + ujStarsTxt(b) : ''); }
 function ujItems(items) {
-  if (!VEHICLES.mack.ready) return;
+  if (!VEHICLES.mack.ready || !GS.ready) return;
+  const me = activeName === 'foot' ? F.pos : S.pos, nearShed = gsDoorDist(me) < 28 || (() => { const [lx, lz] = gsLocal(me.x, me.z); return Math.abs(lx) < 9 && Math.abs(lz) < 13; })();
   const lv = () => { if (UJ.top > 1) items.push({ id: 'uj:lvl', label: 'Level ' + UJ.lvl + '/' + UJ.top + ' ▸', cls: 'ghost' }); };
-  if (activeName === 'foot') { if (ujNearMack() && !seqBusy()) { items.push({ id: 'uj:start', label: ujStartLabel(), cls: 'warn' }); lv(); } return; }
+  if (TK.st === 'away') {
+    if (!nearShed || activeName === 'mack') return;
+    const loose = ujShedLoose(), full = loose > UJ_LOADV * 1.4;
+    if (full && (UJ.stackV || 0) >= UJ_STACK_MAX - 1) items.push({ id: 'uj:empty', label: 'Shed’s full: spread the urea', cls: 'warn' });
+    else if (full) items.push({ id: 'uj:full', label: 'No room: push the urea up first', cls: 'ghost' });
+    else { items.push({ id: 'uj:order', label: 'Order a load of urea · L' + UJ.lvl, cls: 'warn' }); lv(); }
+    return;
+  }
+  if (TK.st === 'coming' || TK.st === 'parking' || TK.st === 'out') { if (nearShed) items.push({ id: 'uj:wait', label: 'Urea truck coming…', cls: 'ghost' }); return; }
+  if (activeName === 'foot') {
+    if ((TK.st === 'wait' || TK.st === 'watch') && UJ.st !== 'on' && !(UJ.st === 'done' && TK.st === 'watch') && !seqBusy() && (F.pos.distanceTo(TK.n.pos) < 12 || F.pos.distanceTo(VEH.mack.state.pos) < 12)) {
+      items.push({ id: 'uj:start', label: UJ.st === 'fail' ? 'Try again: L' + TK.lv + ' ' + UJ_LV[TK.lv - 1].n : 'Accept the mission', cls: 'warn' });
+      items.push({ id: 'uj:dismiss', label: 'Send him away', cls: 'ghost' }); }
+    return;
+  }
   if (activeName !== 'mack') return;
-  if (UJ.st !== 'on') { items.push({ id: 'uj:start', label: ujStartLabel(), cls: 'warn' }); lv(); }
+  if (UJ.st === 'fail') items.push({ id: 'uj:start', label: 'Try again: L' + TK.lv + ' ' + UJ_LV[TK.lv - 1].n, cls: 'warn' });
   if (UJ.st !== 'on' && UJ.tip === 0 && !UJ.tipT) return;
   const moving = UJ.tip > 0.001 && UJ.tip < 0.999;
   items.push({ id: 'uj:tip', label: UJ.tipT ? (moving ? 'Box going up…' : 'Lower the box') : moving ? 'Box coming down…' : UJ.load > 0 ? 'Tip the urea' : 'Raise the box', cls: UJ.st === 'on' && UJ.inBay && !UJ.tipT ? 'warn' : 'ghost', pressed: !!UJ.tipT });
 }
 function ujAct(id) {
   if (id === 'uj:tip') { UJ.tipT = UJ.tipT ? 0 : 1; if (AU.buf && AU.buf.hiss) sfx('hiss', S.pos, 0.5, 0.8, 25); return; }
-  if (id === 'uj:lvl') { UJ.lvl = UJ.lvl % UJ.top + 1; if (UJ.st !== 'on') UJ.st = 'idle'; UJ.showT = 0; toast('Urea job level ' + UJ.lvl + ': ' + UJ_LV[UJ.lvl - 1].n, 1.8); actKey = ''; return; }
-  if (id === 'uj:start') { if (activeName === 'foot') { UJ.pend = true; enterVehicle('mack'); } else ujBegin(); }
+  if (id === 'uj:lvl') { if (TK.st !== 'away') return; UJ.lvl = UJ.lvl % UJ.top + 1; if (UJ.st !== 'on') UJ.st = 'idle'; UJ.showT = 0; toast('Urea job level ' + UJ.lvl + ': ' + UJ_LV[UJ.lvl - 1].n, 1.8); actKey = ''; return; }
+  if (id === 'uj:order') { tkOrder(); return; }
+  if (id === 'uj:full') { toast('Push the loose urea up into the stack with the Merlo: bucket flat on the floor, drive into the heap.', 4); return; }
+  if (id === 'uj:empty') { for (let i = PILES.length - 1; i >= 0; i--) { const p = PILES[i], [lx, lz] = gsLocal(p.x, p.z); if (p.urea && Math.abs(lx) < 8 && Math.abs(lz) < 12) { scene.remove(p.mesh); PILES.splice(i, 1); } } UJ.stackV = 0; ujStackBuild(true); TK.stackTold = false; toast('The urea’s gone out on the paddocks. Shed’s empty.', 3); actKey = ''; return; }
+  if (id === 'uj:wait') return;
+  if (id === 'uj:dismiss') { tkDismiss(); actKey = ''; return; }
+  if (id === 'uj:start') { if (activeName === 'foot') tkStartJob(); else ujBegin(); }
 }
 function ujBegin() {
-  UJ.pend = false; const L = UJ_LV[UJ.lvl - 1], [x, z, yaw] = L.at;
-  S.pos.set(x, homeY(x, z), z); S.yaw = yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; if (S.vy !== undefined) S.vy = 0; camInit = false;
+  UJ.pend = false; UJ.lvl = TK.lv || UJ.lvl; const L = UJ_LV[UJ.lvl - 1], [x, z, yaw] = L.at;
+  if (Math.hypot(S.pos.x - x, S.pos.z - z) > 1 || Math.abs(faAng(S.yaw - yaw)) > 0.1) { S.pos.set(x, homeY(x, z), z); S.yaw = yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; if (S.vy !== undefined) S.vy = 0; camInit = false; }
+  ujApplyShift(ujBayShift());
   ujSetPen(!!L.pen);
   UJ.tip = 0; UJ.tipT = 0; mackTip(0); UJ.load = 1; UJ.poured = 0; UJ.t = 0; UJ.st = 'on'; UJ.why = ''; UJ.said = ''; UJ.fast = 0; UJ.off = UJ.ang = null; UJ.res = null; UJ.showT = 0;
   GS.want = 0;
@@ -14332,14 +14355,15 @@ function ujBegin() {
   actKey = '';
 }
 function ujFail(why) {
-  if (UJ.st !== 'on') return; UJ.st = 'fail'; UJ.why = why; UJ.tipT = 0; UJ.showT = 8; UJ.res = null;
+  if (UJ.st !== 'on') return; UJ.st = 'fail'; UJ.why = why;
+  tkSay(tkPick(/bag/.test(why) ? TK_L.bags : /fast/.test(why) ? TK_L.fast : /bay/.test(why) ? TK_L.bay : /time/.test(why) ? TK_L.time : /roof|header/.test(why) ? TK_L.roof : /stack|pile/.test(why) ? TK_L.stack : TK_L.wall)); UJ.tipT = 0; UJ.showT = 8; UJ.res = null;
   sfx('thud', S.pos, 0.9, 0.6, 30); S.shake = Math.min(1, (S.shake || 0) + 0.5);
   actKey = '';
 }
 function ujWin() {
   const L = UJ_LV[UJ.lvl - 1], t = UJ.t, par = t <= L.par, off = UJ.off || 0, ang = UJ.ang || 0, prec = off < 0.3 && ang < 3;
   const stars = 1 + (par ? 1 : 0) + (prec ? 1 : 0), unlock = UJ.lvl === UJ.top && UJ.top < UJ_LV.length;
-  UJ.st = 'done'; UJ.showT = 10; UJ.res = { stars, par, prec, off, ang, unlock };
+  UJ.st = 'done'; UJ.showT = 10; UJ.res = { stars, par, prec, off, ang, unlock }; tkSay(tkPick(TK_L.win), 4);
   if (!UJ.best[UJ.lvl] || t < UJ.best[UJ.lvl]) UJ.best[UJ.lvl] = +t.toFixed(2);
   UJ.stars[UJ.lvl] = Math.max(UJ.stars[UJ.lvl] || 0, stars);
   if (unlock) { UJ.top++; UJ.lvl = UJ.top; }
@@ -14352,7 +14376,7 @@ function ujLocal() {   // the truck in shed terms: tandem centre, tail, and head
   return { ox, oz, tx, tz, hd: Math.atan2(hx - ox, hz - oz) };
 }
 function ujInBay() {
-  const q = (a, b) => a > UJ_BAY[0] && a < UJ_BAY[1] && b > UJ_BAY[2] && b < UJ_BAY[3], l = ujLocal();
+  const sh = UJ.shift || 0, q = (a, b) => a > UJ_BAY[0] && a < UJ_BAY[1] && b > UJ_BAY[2] + sh && b < UJ_BAY[3] + sh, l = ujLocal();
   return q(l.ox, l.oz) && q(l.tx, l.tz) && Math.abs(l.hd) < 0.3;
 }
 function ujHitList(lx, lz, r, list) { for (const b of list) { const cx = THREE.MathUtils.clamp(lx, b[0], b[1]), cz = THREE.MathUtils.clamp(lz, b[2], b[3]); if (Math.hypot(lx - cx, lz - cz) < r) return true; } return false; }
@@ -14372,7 +14396,8 @@ function ujFx(on, p, dt) {
 }
 function ujStep(dt) {
   const C = VEHICLES.mack; if (!C || !C.ready) return;
-  if (GS.ready) ujBay();
+  if (GS.ready) { ujBay(); if (UJ.st !== 'on') { const sh = ujBayShift(); if (Math.abs(sh - (UJ.shift || 0)) > 0.02) ujApplyShift(sh); } }
+  tkStep(dt);
   const inMack = activeName === 'mack';
   if (UJ.pend && inMack && !seqBusy()) ujBegin();
   if (UJ.showT > 0) UJ.showT -= dt;
@@ -14390,6 +14415,7 @@ function ujStep(dt) {
         const [lx, lz] = gsLocal(wx, wz);
         if (Math.abs(lx) < 8 && Math.abs(lz) < 12) inside = true;
         if (Math.abs(lx) > 9.5 + r || Math.abs(lz) > 13.5 + r) continue;
+        if (UJ.stackBox && ujHitList(lx, lz, r, [UJ.stackBox])) { ujFail('you backed into the urea stack.'); break; }
         if (GS_EXTRA.length && ujHitList(lx, lz, r, GS_EXTRA)) { ujFail('you hit the bulka bags.'); break; }
         if (gsPushOut(wx, wz, r, up)) { const dl = !up && Math.abs(lx) < 2.6 && lz > 11 && lz < 14.6; ujFail(dl ? 'you hit the shed door. Wait till it’s right up.' : 'you hit the shed wall.'); break; }
       }
@@ -14415,10 +14441,173 @@ function ujStep(dt) {
     const sp = C.spout.getWorldPosition(new THREE.Vector3()), q = Math.min(UJ.load, dt * (0.12 + 0.2 * (UJ.tip - 0.35) / 0.65));
     UJ.load -= q; UJ.poured = Math.min(1, UJ.poured + q); if (UJ.load < 1e-3) { UJ.load = 0; UJ.poured = 1; }
     const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), px = sp.x - fx * 0.9, pz = sp.z - fz * 0.9;
-    const P = addToPile(px, pz, q * 9); if (P) { P.mesh.material = ujMat(); P.urea = true; }
+    const P = addToPile(px, pz, q * UJ_LOADV); if (P) { P.mesh.material = ujMat(); P.urea = true; }
   }
   ujFx(flow, flow ? C.spout.getWorldPosition(new THREE.Vector3()) : null, dt);
   ujChip();
+}
+
+/* ---------- the urea truckie: order a load at the grain shed and the Mack turns up with a bogan at the wheel. He parks,
+   reckons the shed's no good and won't back in himself, so you do. Two loads tipped loose fill the floor: push them up
+   into the stack against the back wall with the Merlo's bucket (bucket flat on the floor, drive into the heap) to make
+   room for two more. Six loads fills the shed. ---------- */
+const TK_SPAWN = [48, 50, -Math.PI / 2], TK_LOOK = { h: 0.62, w: 0.95, m: 0.35, skin: 2, hair: 'mullet', hc: 3, hat: 'capback', hatc: 3, shirt: 'singlet', sc: 7, legs: 'stubbies', lc: 5, shoes: 'thongs', shc: 1, gl: 'sunnies', fh: 2 };
+const UJ_LOADV = 15, UJ_STACK_MAX = 4 * 15, UJ_STACK_W = 5.3;
+const TK_L = {
+  hello: 'This is a shit fert shed, I ain’t backin’ my truck in, you do it!',
+  accept: 'Good on ya. Don’t bloody hit anything.',
+  wall: ['Strewth! Ya drongo, ya hit the shed!', 'Oi! That’s my truck, ya galah!', 'Crikey. My boss is gonna kill me.'],
+  bags: ['Ya hit the bags, ya muppet!'], fast: ['Slow down, ya hoon! It’s a shed, not Bathurst!'], bay: ['Not there, ya mug! In the bay!'], time: ['Too slow, mate. I’ve got other drops.'], roof: ['Ya put the bin through the roof, ya flamin’ idiot!'],
+  stack: ['Ya backed into the pile, ya numpty!'],
+  win: ['Not bad for a cocky. Same time next week.', 'Bloody oath, that’s how ya do it.', 'Fair dinkum, you’re better at this than me.'],
+  bye: 'Righto, I’m off. Hooroo!',
+};
+const TK = { st: 'away', n: null, path: null, bi: 0, t: 0, lv: 1, settle: null, sayT: 0, told: false, veh: null, pushTold: false, stackTold: false };
+function tkPick(a) { return Array.isArray(a) ? a[Math.floor(Math.random() * a.length)] : a; }
+function tkBuild() {
+  if (TK.n) return TK.n; const L = lookFix(TK_LOOK), P = buildFarmer(L), s = 0.9 * lookH(L); scene.add(P.root); P.root.scale.setScalar(s); P.root.visible = false;
+  const el = document.createElement('div'); el.className = 'nbub'; el.innerHTML = '<div class="bx"></div><div class="tl"></div>'; bubLayer().appendChild(el);
+  TK.n = { P, root: P.root, s, pos: new THREE.Vector3(), yaw: 0, sp: 0, ph: 0, tgt: null, el, bx: el.firstChild, bubT: 0, face: null, cross: 0 };
+  return TK.n;
+}
+function tkSay(line, dur) { const n = TK.n; if (!n || !n.root.visible || !line) return; n.bx.textContent = line; n.bubT = dur || Math.max(2.8, Math.min(6, line.length * 0.07)); }
+function tkVehW(lx, lz) { const st = VEH.mack.state, fx = Math.sin(st.yaw), fz = Math.cos(st.yaw); return [st.pos.x + fz * lx + fx * lz, st.pos.z - fx * lx + fz * lz]; }
+function tkHide() {
+  const v = VEH.mack; if (!v || !v.state || activeName === 'mack') return; v.npc = TK; TK.veh = v;
+  v.state.pos.set(-1500, 0, -1500); v.state.v = v.state.vx = v.state.vz = 0; v.model.root.visible = false; v.model.root.position.set(-1500, 0, -1500);
+  if (TK.n) TK.n.root.visible = false; TK.st = 'away';
+}
+function tkReset() { UJ.stackV = 0; ujStackBuild(true); UJ.st = 'idle'; UJ.showT = 0; tkHide(); }
+function tkOrder() {
+  const v = VEH.mack; v.npc = TK; TK.veh = v; TK.lv = UJ.lvl; const L = UJ_LV[TK.lv - 1], [sx, sz, sy] = TK_SPAWN;
+  const st = v.state; st.pos.set(sx, groundAt(sx, sz, 30, 0) + 0.2, sz); st.yaw = sy; st.v = st.vx = st.vz = 0; if (st.r !== undefined) st.r = 0; v.model.root.visible = true;
+  const via = (L.via || []).map(p => p.slice()), first = via[0] || L.at;
+  const P = drvPath(sx, sz, first[0], first[1]); TK.path = (P && P.length > 1 ? P.slice(1) : []).concat(via).concat([[L.at[0], L.at[1]]]); TK.bi = 0; TK.st = 'coming'; TK.t = 0; TK.settle = null;
+  toast('Urea’s on its way. The truck’s coming in from the road.', 3); actKey = '';
+}
+// follow the waypoints; the last one is the parking spot, which it eases into exactly
+function tkDrive(dt, cap, onEnd) {
+  const v = VEH.mack, st = v.state, P = TK.path; if (!P || !P.length) { onEnd(); return; }
+  const last = TK.bi >= P.length - 1; while (TK.bi < P.length - 1 && Math.hypot(P[TK.bi][0] - st.pos.x, P[TK.bi][1] - st.pos.z) < (TK.bi < P.length - 3 ? 7 : 4.5)) TK.bi++;
+  const [tx, tz] = P[TK.bi], d = Math.hypot(tx - st.pos.x, tz - st.pos.z), e = faAng(Math.atan2(tx - st.pos.x, tz - st.pos.z) - st.yaw);
+  const want = last ? Math.min(cap, 0.8 + d * 0.5) : cap * (1 - Math.min(0.6, Math.abs(e) / 1.6));
+  let thr = Math.abs(st.v) < want ? 0.75 : 0, str = THREE.MathUtils.clamp(-e * 1.8, -1, 1);
+  if (last && (d < 2.2 || (d < 6 && Math.abs(e) > 1.6))) { onEnd(); return; }
+  TK.t += dt; if (TK.t > 90) { onEnd(); return; }                    // (stuck somewhere: give up and carry on from here)
+  npcDrive(v, dt, thr, str);
+}
+function tkParked() {   // ease the last bit into the exact spot, then out he gets
+  const v = VEH.mack, st = v.state, L = UJ_LV[TK.lv - 1];
+  if (!TK.settle) TK.settle = { t: 0, x: st.pos.x, z: st.pos.z, yaw: st.yaw };
+  const S0 = TK.settle; S0.t = Math.min(1, S0.t + 0.016 / 1.6); const k = S0.t * S0.t * (3 - 2 * S0.t);
+  st.pos.x = S0.x + (L.at[0] - S0.x) * k; st.pos.z = S0.z + (L.at[1] - S0.z) * k; st.yaw = S0.yaw + faAng(L.at[2] - S0.yaw) * k; st.v = st.vx = st.vz = 0;
+  npcDrive(v, 1 / 120, 0, 0); st.pos.x = S0.x + (L.at[0] - S0.x) * k; st.pos.z = S0.z + (L.at[1] - S0.z) * k; st.yaw = S0.yaw + faAng(L.at[2] - S0.yaw) * k; st.v = st.vx = st.vz = 0;
+  return S0.t >= 1;
+}
+function tkPlaceDriverAtDoor() { const n = tkBuild(), [x, z] = tkVehW(2.15, 4.6); n.pos.set(x, groundAt(x, z, 30, 0), z); n.yaw = VEH.mack.state.yaw + Math.PI / 2; n.root.visible = true; if (AU.buf && AU.buf.thud) sfx('thud', n.pos, 0.3, 1.2, 10); }
+function tkWatchSpot() { const [wx, wz] = gsWorldDir(5.8, 14.8); return [GS.x + wx, GS.z + wz]; }
+// walk to a spot, in or out of the shed by the door (he can't walk through its walls)
+function tkGo(x, z) {
+  const n = TK.n, ins = (px, pz) => { const [a, b] = gsLocal(px, pz); return Math.abs(a) < 8.4 && Math.abs(b) < 12.2; }, w = (a, b) => { const [dx, dz] = gsWorldDir(a, b); return [GS.x + dx, GS.z + dz]; };
+  const r = []; if (GS.ready && ins(n.pos.x, n.pos.z) !== ins(x, z)) { const [ax] = gsLocal(n.pos.x, n.pos.z); if (ins(n.pos.x, n.pos.z)) r.push(w(THREE.MathUtils.clamp(ax, -1.5, 1.5), 10), w(0, 13.5)); else r.push(w(0, 13.5), w(0, 10)); }
+  r.push([x, z]); n.route = r; n.tgt = r.shift();
+}
+function tkWalk(dt) {   // towards n.tgt; true when there
+  const n = TK.n; if (!n.tgt && n.route && n.route.length) n.tgt = n.route.shift(); if (!n.tgt) { n.sp = 0; return true; } const dx = n.tgt[0] - n.pos.x, dz = n.tgt[1] - n.pos.z, d = Math.hypot(dx, dz);
+  if (d < 0.25) { n.tgt = n.route && n.route.length ? n.route.shift() : null; if (!n.tgt) { n.sp = 0; return true; } return false; }
+  n.sp = Math.min(1.35, d * 2); n.yaw += faAng(Math.atan2(dx, dz) - n.yaw) * (1 - Math.exp(-8 * dt));
+  n.pos.x += dx / d * n.sp * dt; n.pos.z += dz / d * n.sp * dt; n.pos.y = groundAt(n.pos.x, n.pos.z, n.pos.y + 1.5, 0); return false;
+}
+function tkPose(dt) {
+  const n = TK.n; if (!n || !n.root.visible) return; const P = n.P;
+  let hipL = 0, hipR = 0, kneeL = 0, kneeR = 0, shLx = 0.05, shRx = 0.05, shLz = 0.25, shRz = -0.25, elL = -0.3, elR = -0.3, torsoX = -0.04, torsoY = 0, headX = 0, headY = 0, bodyY = 0.78;
+  if (n.sp > 0.1) { n.ph += dt * (2.6 + n.sp * 1.25); const s = Math.sin(n.ph), c = Math.cos(n.ph);
+    hipL = -s * 0.45; hipR = s * 0.45; kneeL = Math.max(0, Math.sin(n.ph - 1.3)) * 0.7; kneeR = Math.max(0, Math.sin(n.ph + Math.PI - 1.3)) * 0.7; shLx = s * 0.4; shRx = -s * 0.4; bodyY += Math.abs(c) * 0.035; torsoY = -s * 0.12; }
+  else if (n.bubT > 0) { const w = Math.sin(performance.now() / 160); shRx = -1.2 + w * 0.35; elR = -1.3; shRz = -0.5; headY = Math.sin(performance.now() / 420) * 0.15; }   // waving his arm about while he has a go
+  else { shLx = shRx = -0.55; shLz = 0.55; shRz = -0.55; elL = elR = -1.75; headY = Math.sin(performance.now() / 1300) * 0.35; }            // arms folded, watching
+  if (n.face && n.sp <= 0.1) n.yaw += faAng(Math.atan2(n.face.x - n.pos.x, n.face.z - n.pos.z) - n.yaw) * (1 - Math.exp(-4 * dt));
+  const L = 1 - Math.exp(-14 * dt), lr = (o, ax, v) => { if (o) o.rotation[ax] += (v - o.rotation[ax]) * L; };
+  lr(P.hipL, 'x', hipL); lr(P.hipR, 'x', hipR); lr(P.kneeL, 'x', kneeL); lr(P.kneeR, 'x', kneeR); lr(P.shL, 'x', shLx); lr(P.shR, 'x', shRx); lr(P.shL, 'z', shLz); lr(P.shR, 'z', shRz);
+  lr(P.elL, 'x', elL); lr(P.elR, 'x', elR); lr(P.torso, 'x', torsoX); lr(P.torso, 'y', torsoY); lr(P.head, 'x', headX); lr(P.head, 'y', headY);
+  P.body.position.y += (bodyY - P.body.position.y) * L;
+  n.root.position.copy(n.pos); n.root.rotation.set(0, n.yaw, 0);
+  // his speech bubble, over his head
+  if (n.bubT > 0) n.bubT -= dt;
+  let show = n.bubT > 0; if (show) { _bubV.set(n.pos.x, n.pos.y + 2.05, n.pos.z); _bubC.copy(_bubV).applyMatrix4(camera.matrixWorldInverse); const depth = -_bubC.z;
+    if (depth < 0.2 || depth > 45) show = false; else { _bubV.project(camera); const x = (_bubV.x + 1) / 2 * innerWidth, y = (1 - _bubV.y) / 2 * innerHeight, k = THREE.MathUtils.clamp(9 / depth, 0.55, 1);
+      n.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%) scale(${k.toFixed(3)})`; n.el.style.opacity = Math.min(1, n.bubT * 2); } }
+  n.el.style.display = show ? 'block' : 'none';
+}
+function tkMe() { return activeName === 'foot' ? F.pos : S.pos; }
+function tkStep(dt) {
+  const v = VEH.mack; if (!v || !v.state || !VEHICLES.mack.ready) return;
+  if (!TK.veh) { tkBuild(); tkHide(); }
+  const n = TK.n;
+  if (TK.st === 'coming') tkDrive(dt, 7, () => { TK.st = 'parking'; });
+  else if (TK.st === 'parking') { if (tkParked()) { TK.st = 'out'; TK.t = 0; tkPlaceDriverAtDoor(); const [x, z] = tkVehW(3.6, 3.2); n.route = null; n.tgt = [x, z]; } }
+  else if (TK.st === 'out') { TK.t += dt; n.face = tkMe(); if (tkWalk(dt) && TK.t > 1) { TK.st = 'wait'; v.npc = null; tkSay(TK_L.hello, 5.5); toast(tkMe().distanceTo(n.pos) > 40 ? 'The urea truck’s here at the grain shed.' : 'Truckie: “' + TK_L.hello + '”', 5.5); actKey = ''; } }
+  else if (TK.st === 'wait') { n.face = tkMe(); tkWalk(dt); }
+  else if (TK.st === 'watch') { n.face = activeName === 'mack' ? S.pos : tkMe(); tkWalk(dt);
+    if (UJ.st === 'done' && activeName !== 'mack' && !seqBusy()) { TK.st = 'board'; tkGo(...tkVehW(2.15, 4.6)); tkSay(TK_L.bye, 3); } }
+  else if (TK.st === 'board') { n.face = null; if (tkWalk(dt)) { n.root.visible = false; n.el.style.display = 'none'; v.npc = TK; if (AU.buf && AU.buf.thud) sfx('thud', n.pos, 0.3, 1.2, 10);
+      const st = v.state, [ox, oz] = tkVehW(0, 14), P = drvPath(ox, oz, TK_SPAWN[0], TK_SPAWN[1]); TK.path = [[ox, oz]].concat(P && P.length > 1 ? P.slice(1) : [[TK_SPAWN[0], TK_SPAWN[1]]]); TK.bi = 0; TK.t = 0; TK.st = 'leaving'; } }
+  else if (TK.st === 'leaving') tkDrive(dt, 7, () => tkHide());
+  tkPose(dt);
+}
+function tkStartJob() {   // you've said yes: he wanders off to watch from beside the door
+  if (TK.st === 'wait') { tkSay(TK_L.accept, 3); TK.st = 'watch'; tkGo(...tkWatchSpot()); }
+  UJ.pend = true; enterVehicle('mack');
+}
+function tkDismiss() { if (TK.st !== 'wait' && TK.st !== 'watch') return; UJ.st = 'done'; UJ.showT = 0; TK.st = 'watch'; tkSay('Suit yaself.', 2); }
+/* ---------- the stack: pushed-up urea against the back wall ---------- */
+function ujShedLoose() { let v = 0; for (const p of PILES) if (p.urea) { const [lx, lz] = gsLocal(p.x, p.z); if (Math.abs(lx) < 8 && Math.abs(lz) < 12) v += p.vol; } return v; }
+function ujStackDims() { const V = UJ.stackV || 0; if (V < 0.05) return null; const h = Math.min(3.5, 1.0 + V / 14), A = V / UJ_STACK_W, s = h * 0.75, top = Math.max(0.15, (A - 0.5 * h * s) / h); return { h, s, top, depth: top + s }; }
+function ujStackBuild(force) {
+  if (!GS.root) return; if (!force && Math.abs((UJ.stackV || 0) - (UJ.stackB || 0)) < 0.25) return; UJ.stackB = UJ.stackV || 0;
+  const D = ujStackDims();
+  if (UJ.stackM) { UJ.stackM.geometry.dispose(); GS.root.remove(UJ.stackM); UJ.stackM = null; }
+  UJ.stackBox = null; ujExtra();
+  if (!D) return;
+  const W = UJ_STACK_W / 2, z0 = -11.45, e = Math.min(0.9, D.h * 0.3), sh = new THREE.Shape();      // a profile across the shed (x, y), extruded towards the door
+  const g = new THREE.BufferGeometry(), V = [], q = (a, b, c) => V.push(...a, ...b, ...c);
+  const zf = z0 + D.depth, zt = z0 + D.top, B = [[-W, 0, z0], [W, 0, z0], [W, 0, zf], [-W, 0, zf]], Tp = [[-W + e, D.h, z0], [W - e, D.h, z0], [W - e, D.h, zt], [-W + e, D.h, zt]];
+  q(Tp[0], Tp[3], Tp[2]); q(Tp[0], Tp[2], Tp[1]);                         // top
+  q(B[3], B[2], Tp[2]); q(B[3], Tp[2], Tp[3]);                            // front slope
+  q(B[0], B[3], Tp[3]); q(B[0], Tp[3], Tp[0]);                            // left end
+  q(B[2], B[1], Tp[1]); q(B[2], Tp[1], Tp[2]);                            // right end
+  g.setAttribute('position', new THREE.Float32BufferAttribute(V, 3));
+  const uv = []; for (let i = 0; i < V.length; i += 3) uv.push(V[i] * 0.35 + V[i + 2] * 0.2, V[i + 1] * 0.35 + V[i + 2] * 0.25); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, ujMat()); m.position.y = UJ.bay ? UJ.bay.position.y : 0; m.castShadow = m.receiveShadow = true; GS.root.add(m); UJ.stackM = m;
+  UJ.stackBox = [-W, W, -12.1, z0 + D.top + D.s * 0.55]; ujExtra();
+}
+function ujExtra() { GS_EXTRA.length = 0; if (UJ.pen && UJ.pen.visible && UJ.penBoxes) GS_EXTRA.push(...UJ.penBoxes.map(b => [b[0], b[1], b[2] + UJ.shift, b[3] + UJ.shift])); if (UJ.stackBox) GS_EXTRA.push(UJ.stackBox); }
+// where the bay sits: just in front of the stack, and a bit further out with a load already tipped loose
+function ujBayShift() {
+  const D = ujStackDims(), front = -11.45 + (D ? D.depth : 0), lv = ujShedLoose(); return Math.max(0, front + 0.9 + Math.min(1.8, lv / UJ_LOADV * 1.5) - (-10.3));
+}
+function ujApplyShift(sh) { UJ.shift = sh; if (UJ.bay) UJ.bay.position.z = sh; if (UJ.pen) UJ.pen.position.z = sh; ujExtra(); }
+function ujShedFloor(p) { if (!GS.ready) return false; const [lx, lz] = gsLocal(p.x, p.z); return Math.abs(lx) < 8 && Math.abs(lz) < 12 && !PILES.some(q => !q.urea && Math.hypot(q.x - p.x, q.z - p.z) < q.r * 0.92); }   // (the shed's floor is concrete: nothing to dig)
+function ujPush(lip, dt) {   // the Merlo's bucket into loose urea in the shed: the heap slides ahead of it, and once it's jammed against the stack it goes up the stack
+  if (!GS.ready) return false; const [lx0, lz0] = gsLocal(lip.x, lip.z); if (Math.abs(lx0) > 7.6 || lz0 < -11.5 || lz0 > 11.5) return false;
+  const p = PILES.find(q => q.urea && Math.hypot(q.x - lip.x, q.z - lip.z) < q.r * 0.8); if (!p) return false;
+  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), D = ujStackDims(), face = -11.45 + (D ? D.depth : 0);
+  let [plx, plz] = gsLocal(lip.x + fx * p.r * 0.8, lip.z + fz * p.r * 0.8), pinned = false;
+  if (plz < face + p.r * 0.55) { plz = face + p.r * 0.55; pinned = true; }
+  plx = THREE.MathUtils.clamp(plx, -7.4 + p.r * 0.5, 7.4 - p.r * 0.5);
+  const [wx, wz] = gsWorldDir(plx, plz), nx = GS.x + wx, nz = GS.z + wz;
+  if ((nx - p.x) * fx + (nz - p.z) * fz > 0) { p.x = nx; p.z = nz; pileDims(p); }
+  S.v = Math.min(S.v, 1.6);                                            // (heavy going)
+  if (pinned) {
+    const room = UJ_STACK_MAX - (UJ.stackV || 0);
+    if (room <= 0.01) { S.v = Math.min(S.v, 0); if (!TK.stackTold) { TK.stackTold = true; toast('The stack’s as high as it goes. The shed’s full.', 3); } return true; }
+    const amt = Math.min(p.vol, dt * 2.2, room); p.vol -= amt; UJ.stackV = (UJ.stackV || 0) + amt;
+    if (p.vol < 0.05) { scene.remove(p.mesh); PILES.splice(PILES.indexOf(p), 1); } else pileDims(p);
+    ujStackBuild();
+    if (!TK.pushTold) { TK.pushTold = true; toast('That’s it, shove it up the stack. Keep going till the floor’s clear.', 3); }
+  }
+  TB.digAcc += dt; if (TB.digAcc > 0.16) { TB.digAcc = 0; if (AU.buf.steps) playAt(sndPick('steps'), lip, 0.6, 0.55 + Math.random() * 0.2, 9); }
+  return true;
 }
 
 /* ================================================================
@@ -19500,7 +19689,7 @@ window.__game = { PCL_get: () => PCL, RIDE, RIDE_SEATS, rideIn, rideOut, rideabl
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
 Object.assign(window.__game, { lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
-Object.assign(window.__game, { GS, gsToggle, UJ, ujAct, mackTip, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
+Object.assign(window.__game, { GS, gsToggle, UJ, ujAct, mackTip, TK, drvPath, PILES, addToPile, ujMat, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
 load().catch(e => console.error(e));
 </script>
 </body>
