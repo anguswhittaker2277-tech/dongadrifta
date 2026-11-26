@@ -6008,7 +6008,7 @@ function setStickLabels(name) {
 
 const HINTS = {
   ute: ['Madman\u2019s ute. <b>Hold GAS</b> to go; <b>Brake</b> reverses when stopped. Drive off in it and he\u2019ll come after you in whatever he can find.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
-  mack:    ['The Mack grain truck. Walk up to it outside the grain shed for the <b>urea job</b>: open the shed door, <b>reverse into the marked bay</b> without touching the shed, and tip.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
+  mack:    ['The Mack grain truck. Walk up to it outside the grain shed for the <b>urea job</b>: open the shed door, <b>reverse into the marked bay</b> without touching anything, stay under 10 km/h in the shed, and tip. Five levels; three stars each.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   rx:      ['The 9RX: 690 hp on four tracks. It <b>bends in the middle</b> to steer, so it turns tighter than it looks. <b>Left thumb</b> drives.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   picker:  ['<b>Left thumb</b> drives; the <b>back wheels steer</b>, so the tail swings wide. <b>Start picking</b>, <b>Lower header</b> and drive up the cotton rows. The basket dumps into the chamber, a full chamber wraps a <b>module</b> and rolls it onto the handler: <b>Drop module</b> where you want it. <b>Configure</b> (stopped) picks the model and wrap colour.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out &middot; buttons for the picker'],
   dirtbike: ['<b>Left thumb</b> steers and shifts your weight. <b>GAS</b> and <b>Brake</b> on the right. Lean back + gas = <b>wheelie</b>. Jumps: lean back up the face, <b>flick forward at the lip</b>. Stopped? Hold <b>Brake</b> to back up.', '<b>W</b> gas &middot; <b>S</b> brake &middot; <b>A/D</b> steer &middot; <b>&uarr;/&darr;</b> lean &middot; <b>Q</b> camera &middot; <b>E</b> get off'],
@@ -14181,7 +14181,7 @@ function gsToggle() { if (!GS.ready) return; GS.want = GS.want ? 0 : 1; const p 
 function gsPushOut(x, z, r, doorUp) {
   const [lx, lz] = gsLocal(x, z); if (Math.abs(lx) > 9.5 + r || Math.abs(lz) > 13.5 + r) return null;
   let px = 0, pz = 0, hit = false;
-  for (const b of doorUp ? GS_BOX : GS_BOX.concat([GS_DOOR])) {
+  for (const b of (doorUp ? GS_BOX : GS_BOX.concat([GS_DOOR])).concat(GS_EXTRA)) {
     const cx = THREE.MathUtils.clamp(lx + px, b[0], b[1]), cz = THREE.MathUtils.clamp(lz + pz, b[2], b[3]), dx = lx + px - cx, dz = lz + pz - cz, d = Math.hypot(dx, dz);
     if (d >= r) continue; hit = true;
     if (d > 1e-4) { px += dx / d * (r - d); pz += dz / d * (r - d); }
@@ -14223,11 +14223,22 @@ function gsStep(dt) {
 }
 
 /* ---------- the urea job: back the Mack into the grain shed and tip a load of urea in the marked bay ----------
-   Touch the shed with any part of the truck (walls, door, or the raised box under the roof or door header) and it's
-   a fail. Tipping outside the bay doesn't count. The heap stays (the Merlo can scoop it) and the job can be redone. */
-const UJ = { st: 'idle', t: 0, tip: 0, tipT: 0, load: 0, poured: 0, pend: false, why: '', best: 0, chip: null, bay: null, bayMat: null, mat: null, fx: null, inBay: false, pile: null, said: '' };
-try { UJ.best = +localStorage.getItem('wfy.urea') || 0; } catch (e) {}
-const UJ_BAY = [-2.2, 2.2, -10.3, -2.4];
+   Five levels, unlocked one by one. Touch the shed with any part of the truck (walls, door, the bulka bags, or the
+   raised box under the roof or door header), go over the shed speed limit, tip outside the bay or run out of time
+   and it's a fail. Stars: one for finishing, one for beating par, one for parking dead straight in the middle of
+   the bay. The heap stays (the Merlo can scoop it). */
+const UJ_LV = [
+  { n: 'Straight in',   at: [-67.2, 46.5, Math.PI],      par: 45 },
+  { n: 'Swing it round', at: [-55.5, 50.5, -Math.PI / 2], par: 60 },
+  { n: 'Turn around',   at: [-67.5, 43.5, 0],            par: 80 },
+  { n: 'Bulka bags',    at: [-55.5, 50.5, -Math.PI / 2], par: 75, pen: true },
+  { n: 'Against the clock', at: [-67.5, 43.5, 0],        par: 85, pen: true, limit: 110 },
+];
+const UJ_KMH = 10, UJ_BAY = [-2.2, 2.2, -10.3, -2.4], GS_EXTRA = [];
+const UJ = { st: 'idle', t: 0, tip: 0, tipT: 0, load: 0, poured: 0, pend: false, why: '', chip: null, bay: null, bayMat: null, mat: null, fx: null, inBay: false, said: '',
+  lvl: 1, top: 1, best: {}, stars: {}, fast: 0, off: null, ang: null, res: null, showT: 0, pen: null };
+try { const d = JSON.parse(localStorage.getItem('wfy.urea2') || '{}'); UJ.top = Math.min(UJ_LV.length, d.top || 1); UJ.best = d.best || {}; UJ.stars = d.stars || {}; UJ.lvl = UJ.top; } catch (e) {}
+function ujSave() { try { localStorage.setItem('wfy.urea2', JSON.stringify({ top: UJ.top, best: UJ.best, stars: UJ.stars })); } catch (e) {} }
 function ujMat() {
   if (UJ.mat) return UJ.mat;
   const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'), r = rng(77); x.fillStyle = '#eceeec'; x.fillRect(0, 0, 128, 128);
@@ -14241,66 +14252,110 @@ function ujBay() {
   UJ.bayMat = m;
   const [x0, x1, z0, z1] = UJ_BAY, w = 0.14, L = (a, b, c, d) => { const q = new THREE.Mesh(new THREE.PlaneGeometry(Math.abs(b - a) || w, Math.abs(d - c) || w), m); q.rotation.x = -Math.PI / 2; q.position.set((a + b) / 2, 0.06, (c + d) / 2); g.add(q); };
   L(x0 - w / 2, x0 + w / 2, z0, z1); L(x1 - w / 2, x1 + w / 2, z0, z1); L(x0, x1, z0 - w / 2, z0 + w / 2);
-  // chevrons pointing to the back wall
   for (let k = 0; k < 3; k++) { const z = z1 - 1.4 - k * 1.8; for (const s of [-1, 1]) { const q = new THREE.Mesh(new THREE.PlaneGeometry(1.2, w), m); q.rotation.set(-Math.PI / 2, 0, s * 0.6); q.position.set(s * 0.48, 0.06, z - 0.33); g.add(q); } }
   g.position.y = (homeY(GS.x, GS.z) - GS.y0); GS.root.add(g); UJ.bay = g;
+  // the bulka bags for levels 4 and 5: a row of one-tonne bags on pallets down each side of the bay
+  const pen = new THREE.Group(), bagM = new THREE.MeshStandardMaterial({ color: 0xf1f1ec, roughness: 0.95 }), palM = new THREE.MeshStandardMaterial({ color: 0x9c7a52, roughness: 0.9 }),
+    strap = new THREE.MeshStandardMaterial({ color: 0x2f6fb5, roughness: 0.8 }), bagG = new THREE.BoxGeometry(1.08, 1.05, 1.08, 2, 2, 2), palG = new THREE.BoxGeometry(1.2, 0.14, 1.2), stG = new THREE.BoxGeometry(1.1, 0.12, 1.1);
+  { const p = bagG.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i), k = 1 + 0.06 * (1 - Math.abs(y) / 0.525); p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); } bagG.computeVertexNormals(); }
+  UJ.penBoxes = [];
+  for (const sx of [-1, 1]) for (let k = 0; k < 5; k++) {
+    const x = sx * 3.35, z = -9.4 + k * 1.45, b = new THREE.Group(); b.position.set(x, 0, z); b.rotation.y = (Math.random() - 0.5) * 0.12;
+    const pl = new THREE.Mesh(palG, palM); pl.position.y = 0.07; const bg = new THREE.Mesh(bagG, bagM); bg.position.y = 0.665; const st = new THREE.Mesh(stG, strap); st.position.y = 0.95;
+    for (const o of [pl, bg, st]) { o.castShadow = o.receiveShadow = true; b.add(o); } pen.add(b); UJ.penBoxes.push([x - 0.62, x + 0.62, z - 0.62, z + 0.62]);
+  }
+  pen.position.y = g.position.y; pen.visible = false; GS.root.add(pen); UJ.pen = pen;
 }
+function ujSetPen(on) { if (!UJ.pen) return; UJ.pen.visible = on; GS_EXTRA.length = 0; if (on) GS_EXTRA.push(...UJ.penBoxes); }
+function ujStarsTxt(n) { return '★'.repeat(n) + '☆'.repeat(3 - n); }
 function ujChip() {
   if (!UJ.chip) {
     const stl = document.createElement('style');
-    stl.textContent = '#ujchip{position:fixed;z-index:9;left:calc(120px + env(safe-area-inset-left,0px));top:calc(82px + env(safe-area-inset-top,0px));display:none;flex-direction:column;gap:3px;background:rgba(22,26,25,.84);color:#fff;border-radius:14px;padding:8px 14px;font:600 12px/1.25 system-ui,sans-serif;min-width:190px;pointer-events:none}'
-      + '#ujchip.show{display:flex}#ujchip .h{display:flex;justify-content:space-between;gap:12px;font-size:14px}#ujchip .h b{color:#ffc928;font-variant-numeric:tabular-nums}#ujchip .s{opacity:.55}#ujchip .s.now{opacity:1;color:#ffc928}#ujchip .s.ok{opacity:.8;color:#7ddc7a}#ujchip .s.ok:before{content:"✓ "}#ujchip .s.now:before{content:"▶ "}'
-      + '#ujchip .bar{height:5px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:2px}#ujchip .bar i{display:block;height:100%;background:#fff;width:0}';
+    stl.textContent = '#ujchip{position:fixed;z-index:9;left:calc(120px + env(safe-area-inset-left,0px));top:calc(82px + env(safe-area-inset-top,0px));display:none;flex-direction:column;gap:3px;background:rgba(22,26,25,.84);color:#fff;border-radius:14px;padding:8px 14px;font:600 12px/1.25 system-ui,sans-serif;min-width:200px;max-width:250px;pointer-events:none}'
+      + '#ujchip.show{display:flex}#ujchip .h{display:flex;justify-content:space-between;gap:12px;font-size:13px}#ujchip .h b{color:#ffc928;font-variant-numeric:tabular-nums}#ujchip .h b.red{color:#ff6b5b}#ujchip .s{opacity:.55}#ujchip .s.now{opacity:1;color:#ffc928}#ujchip .s.ok{opacity:.8;color:#7ddc7a}#ujchip .s.ok:before{content:"✓ "}#ujchip .s.now:before{content:"▶ "}'
+      + '#ujchip .bar{height:5px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:2px}#ujchip .bar i{display:block;height:100%;background:#fff;width:0}#ujchip .lim{font-size:11px;opacity:.75}#ujchip .lim.warn{opacity:1;color:#ff6b5b}'
+      + '#ujchip .res{display:none;flex-direction:column;gap:2px}#ujchip.r .res{display:flex}#ujchip.r .run{display:none}#ujchip .stars{font-size:22px;color:#ffc928;letter-spacing:2px}#ujchip .res .why{color:#ff8a7a}#ujchip .res .nx{color:#7ddc7a}';
     document.head.appendChild(stl);
     const c = document.createElement('div'); c.id = 'ujchip'; c.className = 'ui';
-    c.innerHTML = '<div class="h"><span>Urea job</span><b></b></div><div class="s" data-k="0">Open the shed door</div><div class="s" data-k="1">Reverse into the marked bay</div><div class="s" data-k="2">Tip the urea</div><div class="bar"><i></i></div><div class="s" data-k="3">Lower the box</div>';
+    c.innerHTML = '<div class="h"><span class="ti">Urea job</span><b></b></div><div class="run"><div class="s" data-k="0">Open the shed door</div><div class="s" data-k="1">Reverse into the marked bay</div><div class="s" data-k="2">Tip the urea</div><div class="bar"><i></i></div><div class="s" data-k="3">Lower the box</div><div class="lim"></div></div>'
+      + '<div class="res"><div class="stars"></div><div class="l1"></div><div class="l2"></div><div class="why"></div><div class="nx"></div></div>';
     document.body.appendChild(c); UJ.chip = c;
   }
-  const c = UJ.chip, on = UJ.st === 'on' && activeName === 'mack'; c.classList.toggle('show', on); if (!on) return;
-  c.querySelector('.h b').textContent = ujTime(UJ.t);
+  const c = UJ.chip, L = UJ_LV[UJ.lvl - 1], res = (UJ.st === 'done' || UJ.st === 'fail') && UJ.showT > 0;
+  const on = activeName === 'mack' && (UJ.st === 'on' || res); c.classList.toggle('show', on); if (!on) return;
+  c.classList.toggle('r', res);
+  c.querySelector('.ti').textContent = 'Urea job · L' + UJ.lvl + ' ' + L.n;
+  const hb = c.querySelector('.h b');
+  if (L.limit && UJ.st === 'on') { const left = Math.max(0, L.limit - UJ.t); hb.textContent = ujTime(left); hb.classList.toggle('red', left < 20); }
+  else { hb.textContent = ujTime(UJ.t); hb.classList.toggle('red', UJ.t > L.par && UJ.st === 'on'); }
+  if (res) {
+    const R = UJ.res || {};
+    c.querySelector('.stars').textContent = UJ.st === 'done' ? ujStarsTxt(R.stars) : '✖';
+    c.querySelector('.l1').textContent = UJ.st === 'done' ? 'Time ' + ujTime(UJ.t) + (R.par ? ' ✓ par ' : ' · par ') + ujTime(L.par) : 'Failed';
+    c.querySelector('.l2').textContent = UJ.st === 'done' ? 'Off centre ' + R.off.toFixed(2) + ' m · ' + R.ang.toFixed(1) + '° out' + (R.prec ? ' ✓' : '') : '';
+    c.querySelector('.why').textContent = UJ.st === 'fail' ? UJ.why : '';
+    c.querySelector('.nx').textContent = R.unlock ? 'Level ' + (UJ.lvl + 1) + ' unlocked!' : UJ.st === 'done' && R.stars < 3 ? 'Go again for ' + ujStarsTxt(3) : '';
+    return;
+  }
   const done = [GS.door > 0.97 || UJ.inBay || UJ.poured > 0, UJ.inBay || UJ.poured > 0, UJ.poured >= 0.999, false];
-  let now = done.indexOf(false);
+  const now = done.indexOf(false);
   c.querySelectorAll('.s').forEach(el => { const k = +el.dataset.k; el.classList.toggle('ok', done[k]); el.classList.toggle('now', k === now); });
   c.querySelector('.bar i').style.width = Math.round(UJ.poured * 100) + '%';
+  const lim = c.querySelector('.lim'); lim.textContent = UJ.fast > 0 ? 'SLOW DOWN! Shed limit ' + UJ_KMH + ' km/h' : 'Shed limit ' + UJ_KMH + ' km/h' + (L.pen ? ' · mind the bags' : '');
+  lim.classList.toggle('warn', UJ.fast > 0);
 }
 function ujTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
 function ujNearMack() { const v = VEH.mack; if (!v || !v.state) return false; const p = v.state.pos; return activeName === 'foot' && F.pos.distanceTo(p) < 9; }
+function ujStartLabel() { const L = UJ_LV[UJ.lvl - 1], b = UJ.stars[UJ.lvl] || 0; return (UJ.st === 'fail' ? 'Try again: ' : 'Urea job: ') + 'L' + UJ.lvl + ' ' + L.n + (b ? ' ' + ujStarsTxt(b) : ''); }
 function ujItems(items) {
   if (!VEHICLES.mack.ready) return;
-  if (activeName === 'foot') { if (ujNearMack() && !seqBusy()) items.push({ id: 'uj:start', label: UJ.st === 'fail' ? 'Urea job: try again' : UJ.st === 'done' ? 'Urea job: do it again' : 'Start the urea job', cls: 'warn' }); return; }
+  const lv = () => { if (UJ.top > 1) items.push({ id: 'uj:lvl', label: 'Level ' + UJ.lvl + '/' + UJ.top + ' ▸', cls: 'ghost' }); };
+  if (activeName === 'foot') { if (ujNearMack() && !seqBusy()) { items.push({ id: 'uj:start', label: ujStartLabel(), cls: 'warn' }); lv(); } return; }
   if (activeName !== 'mack') return;
-  if (UJ.st !== 'on') items.push({ id: 'uj:start', label: UJ.st === 'fail' ? 'Try the urea job again' : UJ.st === 'done' ? 'Do the urea job again' : 'Start the urea job', cls: 'warn' });
+  if (UJ.st !== 'on') { items.push({ id: 'uj:start', label: ujStartLabel(), cls: 'warn' }); lv(); }
+  if (UJ.st !== 'on' && UJ.tip === 0 && !UJ.tipT) return;
   const moving = UJ.tip > 0.001 && UJ.tip < 0.999;
   items.push({ id: 'uj:tip', label: UJ.tipT ? (moving ? 'Box going up…' : 'Lower the box') : moving ? 'Box coming down…' : UJ.load > 0 ? 'Tip the urea' : 'Raise the box', cls: UJ.st === 'on' && UJ.inBay && !UJ.tipT ? 'warn' : 'ghost', pressed: !!UJ.tipT });
 }
 function ujAct(id) {
-  if (id === 'uj:tip') { UJ.tipT = UJ.tipT ? 0 : 1; sfx('hiss', S.pos, 0.5, 0.8, 25); return; }
+  if (id === 'uj:tip') { UJ.tipT = UJ.tipT ? 0 : 1; if (AU.buf && AU.buf.hiss) sfx('hiss', S.pos, 0.5, 0.8, 25); return; }
+  if (id === 'uj:lvl') { UJ.lvl = UJ.lvl % UJ.top + 1; if (UJ.st !== 'on') UJ.st = 'idle'; UJ.showT = 0; toast('Urea job level ' + UJ.lvl + ': ' + UJ_LV[UJ.lvl - 1].n, 1.8); actKey = ''; return; }
   if (id === 'uj:start') { if (activeName === 'foot') { UJ.pend = true; enterVehicle('mack'); } else ujBegin(); }
 }
 function ujBegin() {
-  UJ.pend = false; const h = HOME.mack, [lx, lz] = gsLocal(S.pos.x, S.pos.z);
-  if (Math.hypot(S.pos.x - h.x, S.pos.z - h.z) > 4 || (Math.abs(lx) < 9 && Math.abs(lz) < 13)) {   // back to the start line
-    S.pos.set(h.x, homeY(h.x, h.z), h.z); S.yaw = h.yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; if (S.vy !== undefined) S.vy = 0; }
-  UJ.tip = 0; UJ.tipT = 0; mackTip(0); UJ.load = 1; UJ.poured = 0; UJ.t = 0; UJ.st = 'on'; UJ.why = ''; UJ.pile = null; UJ.said = '';
-  if (GS.want || GS.door > 0) { GS.want = 0; }
-  toast('Urea job: open the shed door, then back the Mack into the marked bay. Don’t touch the shed!', 4);
+  UJ.pend = false; const L = UJ_LV[UJ.lvl - 1], [x, z, yaw] = L.at;
+  S.pos.set(x, homeY(x, z), z); S.yaw = yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; if (S.vy !== undefined) S.vy = 0; camInit = false;
+  ujSetPen(!!L.pen);
+  UJ.tip = 0; UJ.tipT = 0; mackTip(0); UJ.load = 1; UJ.poured = 0; UJ.t = 0; UJ.st = 'on'; UJ.why = ''; UJ.said = ''; UJ.fast = 0; UJ.off = UJ.ang = null; UJ.res = null; UJ.showT = 0;
+  GS.want = 0;
+  toast('Level ' + UJ.lvl + ': ' + L.n + '. Open the door and back into the bay. Don’t touch anything, keep under ' + UJ_KMH + ' km/h in the shed' + (L.limit ? ', and beat the clock!' : '.'), 4.5);
   actKey = '';
 }
 function ujFail(why) {
-  if (UJ.st !== 'on') return; UJ.st = 'fail'; UJ.why = why; UJ.tipT = 0;
+  if (UJ.st !== 'on') return; UJ.st = 'fail'; UJ.why = why; UJ.tipT = 0; UJ.showT = 8; UJ.res = null;
   sfx('thud', S.pos, 0.9, 0.6, 30); S.shake = Math.min(1, (S.shake || 0) + 0.5);
-  toast('Urea job failed: ' + why, 4); actKey = '';
+  actKey = '';
 }
 function ujWin() {
-  UJ.st = 'done'; const t = UJ.t, best = !UJ.best || t < UJ.best; if (best) { UJ.best = t; try { localStorage.setItem('wfy.urea', t.toFixed(2)); } catch (e) {} }
-  toast('Urea job done in ' + ujTime(t) + (best ? '. Best time!' : '. Best ' + ujTime(UJ.best)), 4.5); actKey = '';
-  if (typeof chime === 'function') try { chime(); } catch (e) {}
+  const L = UJ_LV[UJ.lvl - 1], t = UJ.t, par = t <= L.par, off = UJ.off || 0, ang = UJ.ang || 0, prec = off < 0.3 && ang < 3;
+  const stars = 1 + (par ? 1 : 0) + (prec ? 1 : 0), unlock = UJ.lvl === UJ.top && UJ.top < UJ_LV.length;
+  UJ.st = 'done'; UJ.showT = 10; UJ.res = { stars, par, prec, off, ang, unlock };
+  if (!UJ.best[UJ.lvl] || t < UJ.best[UJ.lvl]) UJ.best[UJ.lvl] = +t.toFixed(2);
+  UJ.stars[UJ.lvl] = Math.max(UJ.stars[UJ.lvl] || 0, stars);
+  if (unlock) { UJ.top++; UJ.lvl = UJ.top; }
+  ujSave();
+  actKey = ''; if (AU.buf && AU.buf.ding) sfx('ding', S.pos, 0.7, 1, 30);
+  if (unlock) UJ.res.lvlDone = UJ.lvl - 1;
+}
+function ujLocal() {   // the truck in shed terms: tandem centre, tail, and heading error from straight at the door
+  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), [ox, oz] = gsLocal(S.pos.x, S.pos.z), [hx, hz] = gsLocal(S.pos.x + fx, S.pos.z + fz), [tx, tz] = gsLocal(S.pos.x - fx * 4.0, S.pos.z - fz * 4.0);
+  return { ox, oz, tx, tz, hd: Math.atan2(hx - ox, hz - oz) };
 }
 function ujInBay() {
-  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), q = (x, z) => { const [a, b] = gsLocal(x, z); return a > UJ_BAY[0] && a < UJ_BAY[1] && b > UJ_BAY[2] && b < UJ_BAY[3]; };
-  const [hx, hz] = gsLocal(S.pos.x + fx, S.pos.z + fz), [ox, oz] = gsLocal(S.pos.x, S.pos.z), hd = Math.atan2(hx - ox, hz - oz);
-  return q(S.pos.x, S.pos.z) && q(S.pos.x - fx * 4.0, S.pos.z - fz * 4.0) && Math.abs(hd) < 0.3;
+  const q = (a, b) => a > UJ_BAY[0] && a < UJ_BAY[1] && b > UJ_BAY[2] && b < UJ_BAY[3], l = ujLocal();
+  return q(l.ox, l.oz) && q(l.tx, l.tz) && Math.abs(l.hd) < 0.3;
 }
+function ujHitList(lx, lz, r, list) { for (const b of list) { const cx = THREE.MathUtils.clamp(lx, b[0], b[1]), cz = THREE.MathUtils.clamp(lz, b[2], b[3]); if (Math.hypot(lx - cx, lz - cz) < r) return true; } return false; }
 function ujFx(on, p, dt) {
   if (!UJ.fx) {
     const n = 140, g = new THREE.BufferGeometry(), pos = new Float32Array(n * 3).fill(-1e4); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -14320,20 +14375,27 @@ function ujStep(dt) {
   if (GS.ready) ujBay();
   const inMack = activeName === 'mack';
   if (UJ.pend && inMack && !seqBusy()) ujBegin();
+  if (UJ.showT > 0) UJ.showT -= dt;
   if (UJ.tip !== UJ.tipT) { UJ.tip = THREE.MathUtils.clamp(UJ.tip + Math.sign(UJ.tipT - UJ.tip) * dt / (UJ.tipT ? 5 : 4), 0, 1); mackTip(UJ.tip); }
   let flow = false;
   if (inMack && GS.ready) {
     UJ.inBay = ujInBay();
     if (UJ.bayMat) UJ.bayMat.color.setHex(UJ.st === 'on' && UJ.inBay ? 0x58d35a : 0xffc928);
     if (UJ.st === 'on') {
-      UJ.t += dt;
+      const L = UJ_LV[UJ.lvl - 1]; UJ.t += dt;
+      if (L.limit && UJ.t > L.limit) ujFail('out of time.');
       const sp = SPECS.mack, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), r = sp.halfW + 0.05, up = GS.door > 0.97;
-      const n = Math.ceil((sp.front + sp.rear - 2 * r) / 0.8);
-      for (let k = 0; k <= n; k++) { const t = -sp.rear + r + (sp.front + sp.rear - 2 * r) * k / n;
-        const [lx, lz] = gsLocal(S.pos.x + fx * t, S.pos.z + fz * t);
+      const n = Math.ceil((sp.front + sp.rear - 2 * r) / 0.8); let inside = false;
+      for (let k = 0; k <= n && UJ.st === 'on'; k++) { const t = -sp.rear + r + (sp.front + sp.rear - 2 * r) * k / n, wx = S.pos.x + fx * t, wz = S.pos.z + fz * t;
+        const [lx, lz] = gsLocal(wx, wz);
+        if (Math.abs(lx) < 8 && Math.abs(lz) < 12) inside = true;
         if (Math.abs(lx) > 9.5 + r || Math.abs(lz) > 13.5 + r) continue;
-        if (gsPushOut(S.pos.x + fx * t, S.pos.z + fz * t, r, up)) { const dl = !up && Math.abs(lx) < 2.6 && lz > 11 && lz < 14.6; ujFail(dl ? 'you hit the shed door. Wait till it’s right up.' : 'you hit the shed wall.'); break; }
+        if (GS_EXTRA.length && ujHitList(lx, lz, r, GS_EXTRA)) { ujFail('you hit the bulka bags.'); break; }
+        if (gsPushOut(wx, wz, r, up)) { const dl = !up && Math.abs(lx) < 2.6 && lz > 11 && lz < 14.6; ujFail(dl ? 'you hit the shed door. Wait till it’s right up.' : 'you hit the shed wall.'); break; }
       }
+      // the shed speed limit: a second over it and you're out
+      const kmh = Math.abs(S.v) * 3.6;
+      if (inside && kmh > UJ_KMH) { UJ.fast += dt; if (UJ.fast > 1) ujFail('too fast in the shed (limit ' + UJ_KMH + ' km/h).'); } else UJ.fast = Math.max(0, UJ.fast - dt * 2);
       if (UJ.st === 'on' && UJ.tip > 0.02) {
         C.root.updateMatrixWorld(true);
         for (const o of C.tops) { const w = o.getWorldPosition(new THREE.Vector3()), [lx, lz] = gsLocal(w.x, w.z);
@@ -14343,7 +14405,7 @@ function ujStep(dt) {
       }
       if (UJ.st === 'on' && UJ.tip > 0.35 && UJ.load > 0) {
         if (!UJ.inBay) ujFail('you tipped outside the marked bay. That one doesn’t count.');
-        else flow = true;
+        else { flow = true; if (UJ.off === null) { const l = ujLocal(); UJ.off = Math.abs(l.ox); UJ.ang = Math.abs(l.hd) * 180 / Math.PI; } }
       }
       if (UJ.st === 'on' && UJ.poured >= 0.999 && UJ.tip === 0 && UJ.tipT === 0) ujWin();
       if (UJ.st === 'on' && UJ.poured >= 0.999 && UJ.tipT && UJ.said !== 'empty') { UJ.said = 'empty'; toast('Empty. Lower the box to finish.', 2.5); actKey = ''; }
