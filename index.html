@@ -5137,8 +5137,8 @@ function teleStep(dt) {
   const lip = M.boom.lip.getWorldPosition(new THREE.Vector3());
   const g = groundAt(lip.x, lip.z, lip.y + 1.5, -1e9);
   // scoop: bucket on the ground, not tipped forward, driving into it
-  const pushing = TB.tilt > -0.35 && S.v > 0.2 && lip.y < rawGround(lip.x, lip.z, lip.y + 1.5) + 0.3 && ujPush(lip, dt);
-  if (!pushing && TB.fill < 1 && TB.tilt > -0.35 && g > -1e8 && lip.y < g + 0.12 && S.v > 0.25) {
+  const shove = S.v > 0.05 || input.gas || input.y > 0.2, pushing = TB.tilt > -0.35 && shove && g > -1e8 && lip.y < g + 0.35 && ujPush(lip, dt);
+  if (!pushing && !ujShedFloor(lip) && TB.fill < 1 && TB.tilt > -0.35 && g > -1e8 && lip.y < g + 0.12 && S.v > 0.25) {
     const d = Math.min(1 - TB.fill, dt * Math.min(1, S.v / 1.5) * 0.5);
     TB.fill += d;
     const fromPile = takeFromPile(lip.x, lip.z, d * BUCKET_M3);
@@ -14545,7 +14545,7 @@ function tkStep(dt) {
   const n = TK.n;
   if (TK.st === 'coming') tkDrive(dt, 7, () => { TK.st = 'parking'; });
   else if (TK.st === 'parking') { if (tkParked()) { TK.st = 'out'; TK.t = 0; tkPlaceDriverAtDoor(); const [x, z] = tkVehW(3.6, 3.2); n.route = null; n.tgt = [x, z]; } }
-  else if (TK.st === 'out') { TK.t += dt; n.face = tkMe(); if (tkWalk(dt) && TK.t > 1) { TK.st = 'wait'; v.npc = null; tkSay(TK_L.hello, 5.5); if (tkMe().distanceTo(n.pos) > 40) toast('The urea truck’s here at the grain shed.', 3); actKey = ''; } }
+  else if (TK.st === 'out') { TK.t += dt; n.face = tkMe(); if (tkWalk(dt) && TK.t > 1) { TK.st = 'wait'; v.npc = null; tkSay(TK_L.hello, 5.5); toast(tkMe().distanceTo(n.pos) > 40 ? 'The urea truck’s here at the grain shed.' : 'Truckie: “' + TK_L.hello + '”', 5.5); actKey = ''; } }
   else if (TK.st === 'wait') { n.face = tkMe(); tkWalk(dt); }
   else if (TK.st === 'watch') { n.face = activeName === 'mack' ? S.pos : tkMe(); tkWalk(dt);
     if (UJ.st === 'done' && activeName !== 'mack' && !seqBusy()) { TK.st = 'board'; tkGo(...tkVehW(2.15, 4.6)); tkSay(TK_L.bye, 3); } }
@@ -14587,15 +14587,26 @@ function ujBayShift() {
   const D = ujStackDims(), front = -11.45 + (D ? D.depth : 0), lv = ujShedLoose(); return Math.max(0, front + 0.9 + Math.min(1.8, lv / UJ_LOADV * 1.5) - (-10.3));
 }
 function ujApplyShift(sh) { UJ.shift = sh; if (UJ.bay) UJ.bay.position.z = sh; if (UJ.pen) UJ.pen.position.z = sh; ujExtra(); }
-function ujPush(lip, dt) {   // the Merlo's bucket flat on the floor in the shed, driving into loose urea: shove it up the stack
-  const [lx, lz] = gsLocal(lip.x, lip.z); if (!GS.ready || Math.abs(lx) > 7.5 || lz < -11.5 || lz > 11.5) return false;
-  const p = PILES.find(q => q.urea && Math.hypot(q.x - lip.x, q.z - lip.z) < q.r * 0.95); if (!p) return false;
-  if ((UJ.stackV || 0) >= UJ_STACK_MAX) { if (!TK.stackTold) { TK.stackTold = true; toast('The stack’s as high as it goes. The shed’s full.', 3); } return false; }
-  const amt = Math.min(p.vol, dt * 1.5 * Math.min(1, S.v / 1.2), UJ_STACK_MAX - (UJ.stackV || 0));
-  takeFromPile(p.x, p.z, amt); UJ.stackV = (UJ.stackV || 0) + amt; ujStackBuild();
-  S.v *= Math.exp(-1.2 * dt);
-  TB.digAcc += dt; if (TB.digAcc > 0.14) { TB.digAcc = 0; if (AU.buf.steps) playAt(sndPick('steps'), lip, 0.6, 0.55 + Math.random() * 0.2, 9); }
-  if (!TK.pushTold) { TK.pushTold = true; toast('Pushing the urea up the stack. Keep going till the floor’s clear.', 3); }
+function ujShedFloor(p) { if (!GS.ready) return false; const [lx, lz] = gsLocal(p.x, p.z); return Math.abs(lx) < 8 && Math.abs(lz) < 12 && !PILES.some(q => !q.urea && Math.hypot(q.x - p.x, q.z - p.z) < q.r * 0.92); }   // (the shed's floor is concrete: nothing to dig)
+function ujPush(lip, dt) {   // the Merlo's bucket into loose urea in the shed: the heap slides ahead of it, and once it's jammed against the stack it goes up the stack
+  if (!GS.ready) return false; const [lx0, lz0] = gsLocal(lip.x, lip.z); if (Math.abs(lx0) > 7.6 || lz0 < -11.5 || lz0 > 11.5) return false;
+  const p = PILES.find(q => q.urea && Math.hypot(q.x - lip.x, q.z - lip.z) < q.r * 0.8); if (!p) return false;
+  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), D = ujStackDims(), face = -11.45 + (D ? D.depth : 0);
+  let [plx, plz] = gsLocal(lip.x + fx * p.r * 0.8, lip.z + fz * p.r * 0.8), pinned = false;
+  if (plz < face + p.r * 0.55) { plz = face + p.r * 0.55; pinned = true; }
+  plx = THREE.MathUtils.clamp(plx, -7.4 + p.r * 0.5, 7.4 - p.r * 0.5);
+  const [wx, wz] = gsWorldDir(plx, plz), nx = GS.x + wx, nz = GS.z + wz;
+  if ((nx - p.x) * fx + (nz - p.z) * fz > 0) { p.x = nx; p.z = nz; pileDims(p); }
+  S.v = Math.min(S.v, 1.6);                                            // (heavy going)
+  if (pinned) {
+    const room = UJ_STACK_MAX - (UJ.stackV || 0);
+    if (room <= 0.01) { S.v = Math.min(S.v, 0); if (!TK.stackTold) { TK.stackTold = true; toast('The stack’s as high as it goes. The shed’s full.', 3); } return true; }
+    const amt = Math.min(p.vol, dt * 2.2, room); p.vol -= amt; UJ.stackV = (UJ.stackV || 0) + amt;
+    if (p.vol < 0.05) { scene.remove(p.mesh); PILES.splice(PILES.indexOf(p), 1); } else pileDims(p);
+    ujStackBuild();
+    if (!TK.pushTold) { TK.pushTold = true; toast('That’s it, shove it up the stack. Keep going till the floor’s clear.', 3); }
+  }
+  TB.digAcc += dt; if (TB.digAcc > 0.16) { TB.digAcc = 0; if (AU.buf.steps) playAt(sndPick('steps'), lip, 0.6, 0.55 + Math.random() * 0.2, 9); }
   return true;
 }
 
@@ -19678,7 +19689,7 @@ window.__game = { PCL_get: () => PCL, RIDE, RIDE_SEATS, rideIn, rideOut, rideabl
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
 Object.assign(window.__game, { lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
-Object.assign(window.__game, { GS, gsToggle, UJ, ujAct, mackTip, TK, drvPath, PILES, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
+Object.assign(window.__game, { GS, gsToggle, UJ, ujAct, mackTip, TK, drvPath, PILES, addToPile, ujMat, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
 load().catch(e => console.error(e));
 </script>
 </body>
