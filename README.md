@@ -49,8 +49,10 @@ These are public domain ([CC0 1.0](https://creativecommons.org/publicdomain/zero
   - the push bike's freewheel: bike-wheel-free-looped (274481) by **yurkobb**;
   - the tractor tyre lugs: thumps from the two body-fall recordings above.
 - Engines, also from Freesound, each idling recording pitched with the revs (the BMW is Angus's own recording):
-  - the truck: Truck Engine Idle Loops (187564) by **qubodup**;
-  - the tractor and the cotton picker: tractor idling (149193) by **videog**;
+  - the road train: Diesel Truck Idling Front (128160) by **ibirdfilm** (the older truck loop, Truck Engine Idle Loops (187564) by **qubodup**, is still in the pack);
+  - the Mack: FORD LTL 9000_engine start and idle (435656) by **YellowJacketStudios**, its start-up also the road train's and the Mack's starter;
+  - the cotton picker: Combine Harvester.wav (352688) by **underscore_001** (the steady pass for idling, the close pass for working);
+  - the tractor: tractor idling (149193) by **videog**;
   - the dozer: MB trac 1400 turbo running idle (440508) by **jmagiera**;
   - the telehandler: Back Hoe Tractor (462878) by **DrDufus**;
   - the ute: Diesel idle 1 (565598) by **C-V**;
@@ -140,6 +142,14 @@ are made in the game. It delivers urea to the grain shed when you order a load t
 The Module 8 Express cotton trailer (`module8-trailer.glb`) is from the Farming Simulator 25 mod **"Module 8 Express
 Cotton Trailer"** by **Jolly Farms Modding**, converted with `tools/fs-mod/build_vehicle.py`. It hitches to the prime
 mover or, through a dolly made in the game, to the Mack; the tyres and the deck's timber colour are made in the game.
+
+## The excavator
+
+The John Deere 50G (`jd50g.glb`, `jd50g-bucket.glb`, `jd50g-track.glb`) is from the Farming Simulator 25 mod
+**"John Deere 50G"**, converted with `tools/fs-mod/build_vehicle.py`. Its slew, boom, dipper, bucket, blade and boom swing
+are the mod's moving tools with the mod's limits and speeds, and its rams are the mod's moving parts; the bucket linkage is
+solved in the game. Its engine, crawler-track and hydraulic sounds are the mod's own recordings, cut into loops (the engine
+loop is unpacked from the mod's `.gls` file, an Ogg stream behind a short header).
 
 ## Libraries
 
