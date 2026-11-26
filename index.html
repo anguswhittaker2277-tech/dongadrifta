@@ -5010,10 +5010,10 @@ const DOOR_HP = 60;
 function vehDoorList(v) { return !v ? [] : v.doors ? Object.entries(v.doors) : v.door ? [['D', v.door]] : []; }
 // the door's box round its hinge (worked out once; the BMW's come from its split)
 function doorBox(d) {
-  const piv = d.obj; if (piv.userData.box) return piv.userData.box;
+  const piv = d.obj; if (piv.userData.box && !piv.userData.box.isEmpty()) return piv.userData.box;      // (worked out again until the model's loaded: a door filled in later, like the Merlo's, starts out empty)
   piv.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(piv.matrixWorld).invert(), b = new THREE.Box3(), M = new THREE.Matrix4();
   piv.traverse(m => { if (!m.isMesh || !m.geometry) return; if (!m.geometry.boundingBox) m.geometry.computeBoundingBox(); b.union(m.geometry.boundingBox.clone().applyMatrix4(M.multiplyMatrices(inv, m.matrixWorld))); });
-  return (piv.userData.box = b);
+  if (!b.isEmpty()) piv.userData.box = b; return b;
 }
 // the door nearest a world point, if the point is on (or just off) it
 function doorAt(v, P) {
