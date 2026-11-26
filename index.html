@@ -2467,6 +2467,44 @@ SPECS.rx = Object.assign({}, SPECS.tractor, { top: 40 / 3.6, rev: 15 / 3.6, acce
   front: 7.05, rear: 1.85, halfW: 1.6, rayH: [0.5, 1.3, 2.4, 3.6], lanes: [-1.5, -0.75, 0, 0.75, 1.5], noseLane: 0.9, rF: 0.56, rR: 0.56, step: 0.55,
   trackR: 1.12, trackF: 1.12, roll: 0.012, rollMax: 0.05, grip: 3.6, susK: 130, susC: 12, camBack: 13.5, camUp: 6.2, camPivot: 2.6, look: 4.2, lookH: 2.2 });
 
+/* ---------- the Mack: Pinnacle 64R grain truck, from the FS25 mod "Mack Pinnacle 64R" (mack-pinnacle.glb,
+   tools/fs-mod/build_vehicle.py). A rigid 6x4 with its own tipping grain box: the box tips back 19.5 deg over 5 s and
+   the grain door slides up, as in the mod (mackTip drives both). Tyres are base-game parts in FS, built here
+   (385/65R22.5 steer, 315/80R22.5 duals). Frame origin: the ground under the middle of the rear tandem. */
+const MK_REAR = -4.32, MK_UP = 0.03;
+function buildMack() {
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const frame = new THREE.Group(); frame.position.set(0, MK_UP, -MK_REAR); body.add(frame);
+  const tm = { rubber: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.9 }), rim: new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.25, metalness: 1, envMap: cpEnv(), envMapIntensity: 0.9 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0x9a9a98, roughness: 0.4, metalness: 1, envMap: cpEnv() }), dark: new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.8 }) };
+  for (const m of Object.values(tm)) m.userData.wet = 1;
+  const wheels = [], steerPivots = [];
+  for (const s of [-1, 1]) {
+    const p = new THREE.Group(); p.position.set(s * 0.96, 0.53, 1.94 - MK_REAR); root.add(p);
+    const fs = new THREE.Group(); const f = cpTyre(0.53, 0.29, 0.38, 22, tm); if (s < 0) f.scale.x = -1; fs.add(f); p.add(fs); wheels.push({ spin: fs, r: 0.53 }); steerPivots.push(p);
+    for (const z of [-3.67, -4.97]) { const sp = new THREE.Group(); sp.position.set(s * 0.69, 0.53, z - MK_REAR); root.add(sp);
+      for (const dx of [-0.17, 0.17]) { const t = cpTyre(0.53, 0.29, 0.31, 20, tm); t.position.x = dx; if (s < 0) t.scale.x = -1; sp.add(t); }
+      wheels.push({ spin: sp, r: 0.53, rear: true }); }
+  }
+  const C = { root, body, wheels, steerPivots, halo: null, dome: null, door: null, exhaustTip: new THREE.Vector3(1.05, 3.3, -0.2 - MK_REAR), nodes: {}, ready: false, frame };
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  fetch('mack-pinnacle.glb').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => loader.parse(buf, '', g => {
+    const N = C.nodes, cache = new Map();
+    g.scene.traverse(o => { if (o.name && !N[o.name]) N[o.name] = o; if (o.userData && o.userData.hidden) o.visible = false;
+      if (o.isMesh) { let m = cache.get(o.material); if (!m) { m = cpMaterial(o.material, {}); cache.set(o.material, m); } o.material = m; o.castShadow = true; } });
+    frame.add(g.scene);
+    C.box = N.grainBox; C.box0 = C.box.rotation.x; C.gate = N.backDoor; C.gate0 = C.gate ? C.gate.position.y : 0;
+    root.updateMatrixWorld(true);
+    // the front top corners of the box (for the roof check when it's tipped) and its tail
+    C.tops = [[1.25, 3.2, -0.6], [-1.25, 3.2, -0.6], [1.25, 3.2, -4.0], [-1.25, 3.2, -4.0]].map(q => { const o = new THREE.Object3D(); o.position.copy(C.box.worldToLocal(new THREE.Vector3(...q).applyMatrix4(frame.matrixWorld))); C.box.add(o); return o; });
+    C.spout = N.fillVolumeDischargeNode || C.gate;
+    C.ready = true; root.userData.ready = true;
+  }, e => console.warn('Mack model', e))).catch(e => console.warn('Mack file', e));
+  return C;
+}
+function mackTip(t) { const C = VEHICLES.mack; if (!C || !C.ready) return; C.box.rotation.x = C.box0 - 19.5 * Math.PI / 180 * t; if (C.gate) C.gate.position.y = C.gate0 + 0.302 * Math.min(1, t * 5); }
+SPECS.mack = Object.assign({}, SPECS.truck, { revCam: true, top: 100 / 3.6, rev: 12 / 3.6, wb: 6.26, front: 7.02, rear: 4.11, halfW: 1.27, rF: 0.53, rR: 0.53, trackR: 0.86, trackF: 0.96 });
+
 const CP_CFG_DEF = { model: 'cp690', wrap: 'yellow', tint: 0, gps: 'sf3000', num: 0, numLoc: 'picker' };
 const CP_CFG = (() => { let o = {}; try { o = JSON.parse(localStorage.getItem('wfy.cp') || '{}') || {}; } catch (_) {} const c = Object.assign({}, CP_CFG_DEF, o);
   for (const k in CP_CFG_DEF) if (typeof c[k] !== typeof CP_CFG_DEF[k]) c[k] = CP_CFG_DEF[k]; return c; })();
@@ -2501,6 +2539,7 @@ const UTE_GLB = "Z2xURgIAAABkThAA+A8AAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6ImdsVEY
 const VEHICLES = { bmw: buildE70(), tractor: buildTractor(), suv: buildSuv(), tele: buildTele(), scooter: buildScooter(), bike: buildBike(), dozer: buildDozer(), dirtbike: buildDirtBike(), trophy: buildTrophy(), truck: buildTruck() };
 VEHICLES.picker = cpModel(CP_CFG);
 VEHICLES.rx = buildRX();
+VEHICLES.mack = buildMack();
 VEHICLES.ute = buildX5(UTE_META, UTE_GLB);
 /* THE BUGGY: the owner's own youth side-by-side, cut out of their photo scan of it under the carport (buggy-v1.glb, built by
    tools in the session that made it: the buggy boxed out of the scan, the ground and the reflective blob on the roof dropped,
@@ -3057,7 +3096,7 @@ const HND = {
   buggy:   { g: 1.35, cs: 17, fw: 0.45, h: 0.75, drv: 'a', lk: 1.2 },
   trophy:  { g: 1.45, cs: 16, fw: 0.5, h: 0.85, drv: 'r', lk: 1.15 },  tractor: { g: 1.0, cs: 11, fw: 0.42, h: 1.1, drv: 'a', lk: 1.1 },
   tele:    { g: 1.0, cs: 11, fw: 0.5, h: 1.2, drv: 'a', lk: 1.1 },     truck:   { g: 0.85, cs: 10, fw: 0.45, h: 1.3, drv: 'r', lk: 1.1 },
-  picker:  { g: 0.72, cs: 9, fw: 0.55, h: 1.9, drv: 'a', lk: 1 },       rx:      { g: 0.95, cs: 12, fw: 0.55, h: 1.3, drv: 'a', lk: 1 },
+  picker:  { g: 0.72, cs: 9, fw: 0.55, h: 1.9, drv: 'a', lk: 1 },       rx:      { g: 0.95, cs: 12, fw: 0.55, h: 1.3, drv: 'a', lk: 1 },       mack:    { g: 0.85, cs: 10, fw: 0.42, h: 1.3, drv: 'r', lk: 1.05 },
         def:     { g: 1.25, cs: 14, fw: 0.5, h: 0.8, drv: 'a', lk: 1.1 } };
 const tyreCurve = (x) => x / Math.sqrt(1 + x * x);          // rises straight, then leans over to the limit: no cliff to fall off
 function carMotion(dt, throttle, steerIn, braking, handbrake) {
@@ -4059,6 +4098,7 @@ function footCam(dt) {
   if (hit) desired.copy(pivot).addScaledVector(dir, Math.max(0.7, hit.distance - 0.35));
   const gg = groundAt(desired.x, desired.z, desired.y + 2, -1e9);
   if (desired.y < gg + 0.35) desired.y = gg + 0.35;
+  gsCamClamp(desired, pivot);
   if (!camInit) { camPos.copy(desired); camInit = true; } else camPos.lerp(desired, 1 - Math.exp(-(hit ? 18 : inSeq ? 4 : 10) * dt));
   lookTarget.set(F.pos.x, F.pos.y + 1.45, F.pos.z);
   lookAt.lerp(lookTarget, 1 - Math.exp(-14 * dt));
@@ -4735,6 +4775,7 @@ function shedParking() {
     HOME[name] = { x, z, yaw: Math.atan2(U[0] * row, U[1] * row) };
   }
   HOME.truck = { x: -56, z: 28, yaw: Math.PI };
+  HOME.mack = { x: -67.2, z: 46.5, yaw: Math.PI };               // the Mack: waiting outside the grain shed, tail to the door
   HOME.rx = { x: -61, z: 13, yaw: Math.PI };                     // the 9RX: on the open ground south of the road train, nose to the south
   { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], v = -D.hv + 2 * D.hv / D.bays * 4.5, yaw = Math.atan2(-U[0], -U[1]);
     HOME.picker = { x: D.cx + V[0] * v - Math.sin(yaw) * 4.2, z: D.cz + V[1] * v - Math.cos(yaw) * 4.2, yaw }; }   // the cotton picker: the whole end bay of the machinery shed, header up, nose out
@@ -4829,7 +4870,7 @@ VEH.suv.model.door.userData.hole.visible = false;
 VEH.flyer.range = 3;
 
 /* ---------- the new machines join the yard ---------- */
-const GROUND = ['bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'dozer', 'dirtbike', 'trophy', 'truck', 'ute', 'picker', 'rx'], AIRS = ['drone', 'flyer', 'spray', 'duster', 'gyro', 'racer'];
+const GROUND = ['bmw', 'buggy', 'tractor', 'suv', 'tele', 'scooter', 'bike', 'dozer', 'dirtbike', 'trophy', 'truck', 'ute', 'picker', 'rx', 'mack'], AIRS = ['drone', 'flyer', 'spray', 'duster', 'gyro', 'racer'];
 VEH.tractor.pose = VEH.suv.pose = 'wheel'; VEH.flyer.pose = 'stick';
 Object.assign(VEH, {
   tele:    { name: 'tele', kind: 'ground', label: 'the telehandler', model: VEHICLES.tele, spec: SPECS.tele, state: null, pose: 'wheel', coast: false,
@@ -4854,6 +4895,8 @@ Object.assign(VEH, {
              seat: { x: -0.14, hip: 2.82, z: 5.09, k: 0.85 }, exit: [[3.5, 5.0], [-3.6, 5.0], [0, -3.7]], range: 5.5, top: 5.9, icon: ['C', '#367c2b'] },
   rx:      { name: 'rx', kind: 'ground', label: 'the 9RX', model: VEHICLES.rx, spec: SPECS.rx, state: null, pose: 'wheel', coast: false,
              seat: { x: 0, hip: 2.66, z: 2.51, k: 0.85 }, exit: [[2.6, 2.45], [-2.6, 2.45], [0, -2.6]], range: 4.5, top: 4.4, icon: ['9', '#367c2b'] },
+  mack:    { name: 'mack', kind: 'ground', label: 'the Mack', model: VEHICLES.mack, spec: SPECS.mack, state: null, pose: 'wheel', coast: false,
+             seat: { x: 0.52, hip: 1.82, z: 4.55, k: 0.85 }, exit: [[2.2, 4.6], [-2.2, 4.6], [0, -4.8]], range: 4.5, top: 3.4, icon: ['K', '#a3201d'] },
   truck:   { name: 'truck', kind: 'ground', label: 'the truck', model: VEHICLES.truck, spec: SPECS.truck, state: null, pose: 'wheel', coast: false,
              seat: { x: -0.6, hip: 2.35, z: 3.0, k: 0.85 }, exit: [[-2.4, 3.0], [2.4, 3.0], [0, 8.0]], range: 4.5, top: 4.3, icon: ['R', '#9c1b1b'] },
   gyro: makeAircraft('gyro', buildGyro()),
@@ -4901,6 +4944,11 @@ Object.assign(DOORS, {
   ute: { side: -1, max: 0, bail: [-1.3, 0.75, UTE_RIG.door.z],
     inn: v => ({ end: 1.7, ev: [], keys: [K(0, -1.6, 0, UTE_RIG.door.z, HP), K(0.3, -1.6, 0, UTE_RIG.door.z, HP, { reach: 1 }), K(0.85, -1.2, 0.18, UTE_RIG.door.z, HP, { duck: 0.45, sit: 0.15, climb: 0.5 }), seatKey(v, 1.4)] }),
     out: v => ({ end: 1.25, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3, 0, { reach: 0.7 }), K(0.75, -1.2, 0.18, UTE_RIG.door.z, -HP, { duck: 0.45, sit: 0.15, climb: 0.5 }), K(1.25, -1.65, 0, UTE_RIG.door.z, -2.2)] }) },
+  // the Mack: up the steps on the left (it's a left-hand drive)
+  mack: { side: 1, max: 0, bail: [1.9, 1.9, 4.6],
+    inn: v => ({ end: 2.1, ev: [], keys: [K(0, 2.15, 0, 4.6, -HP), K(0.35, 2.05, 0, 4.6, -HP, { reach: 1 }), K(0.85, 1.75, 0.75, 4.6, -HP, { climb: 1 }),
+      K(1.4, 1.2, 1.35, 4.55, -1.2, { climb: 0.5, duck: 0.3, sc: 0.85 }), seatKey(v, 2.1)] }),
+    out: v => ({ end: 1.9, ev: [], keys: [seatKey(v, 0), seatKey(v, 0.3), K(0.8, 1.2, 1.35, 4.55, 1.2, { duck: 0.3, sc: 0.85 }), K(1.35, 1.75, 0.75, 4.6, HP, { climb: 1 }), K(1.9, 2.15, 0, 4.6, HP)] }) },
   // the 9RX: up the steps on the left of the cab
   rx: { side: 1, max: 0, bail: [1.9, 2.2, 2.45],
     inn: v => ({ end: 2.1, ev: [], keys: [K(0, 2.4, 0, 2.45, -HP), K(0.35, 2.3, 0, 2.45, -HP, { reach: 1 }), K(0.9, 1.85, 1.05, 2.45, -HP, { climb: 1 }),
@@ -5018,7 +5066,7 @@ function doorRestoreAll() { for (const v of Object.values(VEH)) if (v.kind === '
 
 /* ---------- easy to spot: a name pin over every vehicle you're not in, and a tall whip flag on the drone ---------- */
 const PINS = {};
-const PIN_NAMES = { ute: 'Madman\u2019s ute', picker: 'Cotton picker', rx: '9RX', bmw: 'BMW', buggy: 'Buggy', dirtbike: 'Dirt bike', trophy: 'Trophy truck', truck: 'Truck', gyro: 'Gyro', racer: 'Racing drone', dozer: 'Dozer', tractor: 'Tractor', suv: '4WD', tele: 'Telehandler', scooter: 'E-scooter', bike: 'Bike', drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster' };
+const PIN_NAMES = { ute: 'Madman\u2019s ute', picker: 'Cotton picker', rx: '9RX', mack: 'Mack', bmw: 'BMW', buggy: 'Buggy', dirtbike: 'Dirt bike', trophy: 'Trophy truck', truck: 'Truck', gyro: 'Gyro', racer: 'Racing drone', dozer: 'Dozer', tractor: 'Tractor', suv: '4WD', tele: 'Telehandler', scooter: 'E-scooter', bike: 'Bike', drone: 'Drone', flyer: 'Flyer', spray: 'Spray drone', duster: 'Crop duster' };
 function pinTex(letter, color, label) {
   const c = document.createElement('canvas'); c.width = 320; c.height = 88; const x = c.getContext('2d');
   x.font = '800 34px -apple-system, system-ui, "Segoe UI", Roboto, sans-serif'; const w = label ? Math.min(300, 92 + x.measureText(label).width) : 70;
@@ -5142,7 +5190,7 @@ function addToPile(x, z, vol) {
   if (!best && PILES.length >= 36) for (const p of PILES) { const d = Math.hypot(x - p.x, z - p.z); if (d < bd) { bd = d; best = p; } }
   if (best) { const k = vol / (best.vol + vol) * 0.5; best.x += (x - best.x) * k; best.z += (z - best.z) * k; best.vol += vol; }
   else { best = { x, z, vol, base: rawGround(x, z, 30), mesh: new THREE.Mesh(pileGeo, pileMat) }; best.mesh.rotation.y = Math.random() * 6.28; scene.add(best.mesh); PILES.push(best); }
-  pileDims(best);
+  pileDims(best); return best;
 }
 function takeFromPile(x, z, vol) {
   for (let i = 0; i < PILES.length; i++) { const p = PILES[i]; if (Math.hypot(x - p.x, z - p.z) < p.r * 0.92) {
@@ -5709,7 +5757,7 @@ function setActive(name, opts = {}) {
   } else drift.on = false;
   if (name === 'foot' && F.mode === 'pilot') { F.mode = 'walk'; setFarmerProps('walk'); }
   S.air = false; S.vy = 0; S.pitchV = 0; MOTO.lean = MOTO.x = 0;
-  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'tele' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
+  document.body.className = 'c-' + name + (name === 'suv' || name === 'trophy' || name === 'bmw' || name === 'buggy' || name === 'ute' || name === 'rx' || name === 'tele' || name === 'mack' ? ' drift' : '') + (name === 'dirtbike' ? ' moto' : '') + (VEH[name] && VEH[name].kind === 'ground' ? ' gnd' : '') + ({ racer: ' c-drone', gyro: ' c-duster nospray' }[name] || '');
   camYaw = Math.atan2(lookAt.x - camera.position.x, lookAt.z - camera.position.z);
   if (name === 'foot') camYawF = camYaw;
   input.x = input.y = input.rx = input.ry = 0; input.gas = input.brake = input.hb = input.jump = false;
@@ -5746,11 +5794,11 @@ function updateActions() {
     if ((F.mode === 'walk' || F.mode === 'air') && !seqBusy()) {
       const jk = mpJackable(); if (jk) items.push({ id: 'jack:' + jk.v.name, label: 'Pull ' + jk.p.name + ' out', cls: 'neg' });
       if (wpnLockerNear()) items.push({ id: 'locker', label: wpnMmLockerNear() ? 'Open Madman\u2019s gun locker' : 'Open the gun locker', cls: 'warn' });
-      cpFootItems(items); gsItems(items);
+      cpFootItems(items); gsItems(items); ujItems(items);
       const v = nearestVehicle();
       if (v) {
         const far = isRemote(v) ? F.pos.distanceTo(v.st.pos) : 0;
-        const LBL = { ute: 'Get in Madman\u2019s ute', picker: 'Drive the cotton picker', rx: 'Drive the 9RX', bmw: 'Drive the BMW', buggy: 'Drive the buggy', drone: 'Fly the drone', spray: 'Fly the spray drone', suv: 'Drive the 4WD', scooter: 'Ride the e-scooter', bike: 'Ride the bike', duster: 'Fly the crop duster', tele: 'Drive the telehandler', dozer: 'Drive the dozer', dirtbike: 'Ride the dirt bike', trophy: 'Drive the trophy truck', truck: 'Drive the truck', gyro: 'Fly the gyro', racer: 'Fly the racing drone' };
+        const LBL = { ute: 'Get in Madman\u2019s ute', picker: 'Drive the cotton picker', rx: 'Drive the 9RX', mack: 'Drive the Mack', bmw: 'Drive the BMW', buggy: 'Drive the buggy', drone: 'Fly the drone', spray: 'Fly the spray drone', suv: 'Drive the 4WD', scooter: 'Ride the e-scooter', bike: 'Ride the bike', duster: 'Fly the crop duster', tele: 'Drive the telehandler', dozer: 'Drive the dozer', dirtbike: 'Ride the dirt bike', trophy: 'Drive the trophy truck', truck: 'Drive the truck', gyro: 'Fly the gyro', racer: 'Fly the racing drone' };
         items.push({ id: 'in:' + v.name, label: LBL[v.name] || 'Get in ' + v.label, sub: far > 10 ? Math.round(far / 5) * 5 + ' m away' : '' });
       }
     }
@@ -5772,7 +5820,7 @@ function updateActions() {
         }
       }
       if (v.name === 'picker') cpItems(items);
-      gsItems(items);
+      gsItems(items); ujItems(items);
       if (v.name === 'truck') { items.push({ id: 'tip', label: TIP.tiltT > 0 ? 'Lower the bin' : TIP.load > 0.5 ? 'Tip it out' : 'Bin empty', cls: 'ghost', pressed: TIP.tiltT > 0 });
         items.push({ id: 'jake', label: AU.eng.truck && AU.eng.truck.jakeOn === false ? 'Jake off' : 'Jake on', cls: 'ghost', pressed: !(AU.eng.truck && AU.eng.truck.jakeOn === false) }); }
       if (v.name === 'tele') { items.push({ id: 'extOut', label: 'Boom out', cls: 'ghost hold' }); items.push({ id: 'extIn', label: 'Boom in', cls: 'ghost hold' }); }
@@ -5795,7 +5843,7 @@ function updateActions() {
   // keep the right-hand column short: the essentials up front, everything else behind a ⋯ button
   if (activeName !== ACT.for) { ACT.for = activeName; ACT.more = false; }
   const fun = activeName === 'dirtbike' || activeName === 'trophy';
-  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa|px):|^radio$|^cp:(on|hdr|drop|wrap)$|^gs:/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
+  const pri = it => /^(out|to|land|in:|jack:|hook|lower|tip|unload|extOut|extIn|spray|flip|locker)$|^(in|jack|lad|npc|mm|mh|sa|px):|^radio$|^cp:(on|hdr|drop|wrap)$|^gs:|^uj:/.test(it.id) || (it.id === 'fold' && it.label === 'Unfold') || (it.id === 'mxgo' && fun);
   if (items.length > 3) { const keep = items.filter(pri), rest = items.filter(it => !pri(it));
     if (rest.length) items = ACT.more ? [...keep, { id: 'more', label: '\u2715', cls: 'more' }, ...rest] : [...keep, { id: 'more', label: '\u22ef', cls: 'more' }]; }
   const key = JSON.stringify(items); if (key === actKey) return; actKey = key;
@@ -5834,6 +5882,7 @@ function doAction(id) {
   else if (id === 'flip' && v && v.name === 'racer' && !v.st.landed && !(v.st.flipT > 0)) { v.st.flipT = 0.5; }
   else if (id.startsWith('cp:')) cpAct(id);
   else if (id === 'gs:door') gsToggle();
+  else if (id.startsWith('uj:')) ujAct(id);
   else if (id === 'tip' && v && v.name === 'truck') { if (TIP.tiltT > 0) TIP.tiltT = 0; else if (TIP.load > 0.5) { TIP.tiltT = 0.85; if (!TIP.told) { TIP.told = true; toast('Tipping out the left side. Keep rolling slowly for a windrow, or sit still for one big heap', 3); } } else toast('Bin\u2019s empty. Load it with the telehandler bucket', 2.4); }
   else if (id === 'hook' && v && v.name === 'tractor') { const I = implNear(); if (I) implHook(I); }
   else if (id === 'unhook' && v && v.name === 'tractor') implUnhook();
@@ -5959,6 +6008,7 @@ function setStickLabels(name) {
 
 const HINTS = {
   ute: ['Madman\u2019s ute. <b>Hold GAS</b> to go; <b>Brake</b> reverses when stopped. Drive off in it and he\u2019ll come after you in whatever he can find.', '<b>W/S</b> gas and brake &middot; <b>A/D</b> steer &middot; <b>Space</b> handbrake'],
+  mack:    ['The Mack grain truck. Walk up to it outside the grain shed for the <b>urea job</b>: open the shed door, <b>reverse into the marked bay</b> without touching the shed, and tip.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   rx:      ['The 9RX: 690 hp on four tracks. It <b>bends in the middle</b> to steer, so it turns tighter than it looks. <b>Left thumb</b> drives.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out'],
   picker:  ['<b>Left thumb</b> drives; the <b>back wheels steer</b>, so the tail swings wide. <b>Start picking</b>, <b>Lower header</b> and drive up the cotton rows. The basket dumps into the chamber, a full chamber wraps a <b>module</b> and rolls it onto the handler: <b>Drop module</b> where you want it. <b>Configure</b> (stopped) picks the model and wrap colour.', '<b>W A S D</b> drive &middot; <b>Space</b> brake &middot; <b>E</b> get out &middot; buttons for the picker'],
   dirtbike: ['<b>Left thumb</b> steers and shifts your weight. <b>GAS</b> and <b>Brake</b> on the right. Lean back + gas = <b>wheelie</b>. Jumps: lean back up the face, <b>flick forward at the lip</b>. Stopped? Hold <b>Brake</b> to back up.', '<b>W</b> gas &middot; <b>S</b> brake &middot; <b>A/D</b> steer &middot; <b>&uarr;/&darr;</b> lean &middot; <b>Q</b> camera &middot; <b>E</b> get off'],
@@ -6156,7 +6206,7 @@ function updateWorld(dt) {
   camShake = Math.max(0, camShake - dt * 1.6);
   if (crashBigT > 0) { crashBigT -= dt; if (crashBigT <= 0) $('crashbig').classList.remove('show'); }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
-  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); gsStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt); rideStep(dt);
+  hudStep(dt); npcStep(dt); ntStep(); fmxStep(dt); harvStep(dt); cpStep(dt); ujStep(dt); gsStep(dt); mmStep(dt); saStep(dt); bbStep(dt); bpStep(dt); mtStep(dt); snVisual(dt); dnStep(dt); mhStep(dt); phStep(dt); structStep(dt); implStep(dt); implChip(); faunaStep(dt); wpnStep(dt); melStep(dt); hsStep(dt); mxStep(dt); wxStep(dt); motoUI(dt); mpStep(dt); rideStep(dt);
   trialUpdate(dt); huntUpdate(dt); updateFogForHeight();
   updateFX(dt); updateSay(dt); updateActions(); updateHud(); audioUpdate(dt);
   if ((mmFrame++ % 3) === 0) { drawMinimap(); if (CHAT.open && CHAT.map) drawMinimap(CHAT.map, CHAT.R); }
@@ -6412,10 +6462,10 @@ function spatial() {
       ramp(pan.pan, THREE.MathUtils.clamp((dx * rx + dz * rz) / Math.max(3, d), -0.7, 0.7), 0.05); }
   } };
 }
-const CRANK_REAL = { tractor: 'crankDiesel', truck: 'crankDiesel', dozer: 'crankDiesel', tele: 'crankDiesel', picker: 'crankDiesel', rx: 'crankDiesel', ute: 'crankDiesel',
+const CRANK_REAL = { tractor: 'crankDiesel', truck: 'crankDiesel', dozer: 'crankDiesel', tele: 'crankDiesel', picker: 'crankDiesel', rx: 'crankDiesel', mack: 'crankDiesel', ute: 'crankDiesel',
   suv: 'crankCar', trophy: 'crankCar', buggy: 'crankCar', dirtbike: 'crankCar', gyro: 'crankCar' };
 // real engine recordings (idling, so the recording's pitch is the engine's idle): which one each engine uses. The BMW has its own
-const REAL_ENG = { truck: 'e_trk', tractor: 'e_trac', picker: 'e_trac', rx: 'e_doz', dozer: 'e_doz', tele: 'e_tele', ute: 'e_ute', suv: 'e_car',
+const REAL_ENG = { truck: 'e_trk', tractor: 'e_trac', picker: 'e_trac', rx: 'e_doz', mack: 'e_trk', dozer: 'e_doz', tele: 'e_tele', ute: 'e_ute', suv: 'e_car',
   trophy: 'e_big8', dirtbike: 'e_mx', buggy: 'e_big8', gyro: 'e_gyro' };      // the buggy: the deep big-V8 recording
 const realEng = (name) => { const k = REAL_ENG[name], A = AU.real; return !!(k && A && A[k] && A[k + 'On']); };
 function realEngApply(V, name) {           // one real loop pair (off and on throttle) pitched by rpm, the way the BMW's recording runs
@@ -6610,7 +6660,7 @@ function hornStart(kind) {
   if (kind === 'bike' || kind === 'scooter') { sfx('bikeBell', activeVeh() ? S.pos : F.pos, 0.9); return; }
   AU.hornOn = true;
   // real horns: the truck's air horns, one electric horn on the farm machines (higher on the dirt bike), the usual car horn on the rest
-  const hk = kind === 'truck' ? 'horn_truck' : ['tractor', 'tele', 'dozer', 'picker', 'rx', 'dirtbike'].includes(kind) ? 'horn_one' : 'horn_car', hb = AU.real && AU.real[hk];
+  const hk = kind === 'truck' || kind === 'mack' ? 'horn_truck' : ['tractor', 'tele', 'dozer', 'picker', 'rx', 'dirtbike'].includes(kind) ? 'horn_one' : 'horn_car', hb = AU.real && AU.real[hk];
   if (hb) { const c = AU.ctx, out = gn(0), sp = spatial(); out.connect(sp.in); const v = activeVeh(); sp.place(v ? S.pos : F.pos, 8, 1);
     const s = src(hb, true); s.playbackRate.value = kind === 'dirtbike' ? 1.35 : 1; s.connect(out); s.start();
     out.gain.setValueAtTime(0, c.currentTime); out.gain.linearRampToValueAtTime(0.45, c.currentTime + 0.02); AU.horn = { out, oscs: [s], sp }; return; }
@@ -6657,7 +6707,7 @@ function audioInit() {
     () => { AU.buf.noise = AU.buf.noise || toBuf(noiseLoop(4.3, 1)); }, () => { AU.buf.gravel = AU.buf.gravel || toBuf(gravelLoop(5, 900, 1)); }, () => { AU.buf.scrab = AU.buf.scrab || toBuf(gravelLoop(6, 5200, 1.25)); },
     () => { AU.buf.lug = AU.buf.lug || toBuf((() => { const sr = AU.sr, n = Math.round(sr / 40) * 40, d = new Float32Array(n), lp = bq('lp', 160, 0.9, sr), r = rng(8); for (let k = 0; k < 2; k++) for (let i = 0; i < n; i++) { const t = (i % (n / 40)) / sr; const y = lp(Math.exp(-t / 0.004) * (1 + 0.2 * (r() - 0.5)) + (r() - 0.5) * 0.05); if (k) d[i] = y; } return normRms(d, 0.25); })()); }, () => shotBufs(0), () => shotBufs(1), () => shotBufs(4), () => shotBufs(2), () => shotBufs(3), () => shotBufs(5),
     () => { AU.tyre = makeTyreVoice(); AU.wind = makeWindVoice(); },
-    ...['suv', 'bmw', 'buggy', 'tractor', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'gyro', 'ute', 'picker', 'rx'].flatMap(name => {
+    ...['suv', 'bmw', 'buggy', 'tractor', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'gyro', 'ute', 'picker', 'rx', 'mack'].flatMap(name => {
       const L = ENG[name].rpms.map(r => ({ r, on: null, off: null }));
       return [...L.flatMap(l => [() => { if (!realEng(name)) l.on = toBuf(synthEngineLoop(ENG[name], l.r, true)); }, () => { if (!realEng(name)) l.off = toBuf(synthEngineLoop(ENG[name], l.r, false)); }]),   // (no made-up loops for an engine with a real recording)
               () => { AU.eng[name] = makeEngineVoice(name, L); }];
@@ -6731,7 +6781,7 @@ function dozerDrive(thr, v, active) {
 function audioUpdate(dt) {
   if (!AU.ctx || AU.busy || AU.ctx.state !== 'running') return;
   const v = activeVeh();
-  for (const name of ['tractor', 'suv', 'bmw', 'buggy', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'ute', 'picker', 'rx']) {
+  for (const name of ['tractor', 'suv', 'bmw', 'buggy', 'tele', 'dozer', 'dirtbike', 'trophy', 'truck', 'ute', 'picker', 'rx', 'mack']) {
     const veh = VEH[name], V = AU.eng[name]; if (!V) continue;
     const running = veh === v || veh.coast;
     if (running && !V.on) V.start(); if (!running && V.on) V.stop();
@@ -7221,7 +7271,7 @@ const BOX_DEFS = [
   { id: 'redbox', kind: 'container', cx: 49.8, cz: 3.7, ang: -18.4, L: 6.06, W: 2.44, H: 2.59, mass: 2300, color: 0x9e2a1f },
   { id: 'tank', kind: 'tank', cx: 46.1, cz: -1.6, ang: 84, L: 4.1, W: 2.3, H: 2.6, mass: 3000 },
 ];
-const VEH_MASS = { buggy: 750, ute: 2300, picker: 26000, rx: 24000, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
+const VEH_MASS = { buggy: 750, ute: 2300, picker: 26000, rx: 24000, mack: 14000, bmw: 2200, dirtbike: 110, trophy: 2700, truck: 26000, gyro: 450, racer: 0.75, dozer: 18000, tractor: 11000, suv: 2300, tele: 7500, scooter: 110, bike: 95, drone: 1, flyer: 120, spray: 80, duster: 3200, foot: 85 };
 const STRUCTS = { ready: false, parts: [], groups: [], debris: [], boxes: {}, fx: [], fires: [], blown: false, slowT: 0, scorch: null };
 
 // ---------- which scan triangles to drop (called while the scan is being set up) ----------
@@ -8330,6 +8380,7 @@ const VIEWS = {
   tractor: ['chase', 'rear', 'cine'],
   picker: ['chase', 'rear', 'cine'],
   rx: ['chase', 'rear', 'cine'],
+  mack: ['chase', 'rear', 'cine'],
   drone: ['chase', 'fpv', 'down', 'cine'],
   spray: ['chase', 'fpv', 'cine'],
   duster: ['chase', 'cockpit', 'wing', 'cine'],
@@ -8533,7 +8584,9 @@ function updateCamera(dt) {
   fmxCamRestore();
   let targetYaw = S.yaw;
   const spd = Math.hypot(S.vx, S.vz);
-  if (drift.on && spd > 3) {                                    // in a slide, look partly along the direction of travel
+  const rc = V.revCam && (S.v < -0.4 || (S.revCam && S.v < 0.4)); S.revCam = rc;      // reversing the Mack: swing round and look back over it
+  if (rc) targetYaw = S.yaw + Math.PI;
+  else if (drift.on && spd > 3 && S.v > 0) {                     // in a slide, look partly along the direction of travel
     const hv = Math.atan2(S.vx, S.vz); let dv = hv - S.yaw; dv = Math.atan2(Math.sin(dv), Math.cos(dv));
     targetYaw = S.yaw + dv * 0.65;
   }
@@ -8549,12 +8602,14 @@ function updateCamera(dt) {
   if (hit) desired.copy(pivot).addScaledVector(dir, Math.max(2.5, hit.distance - 0.8));
   const g = groundAt(desired.x, desired.z, desired.y + 3, -1e9);
   if (desired.y < g + 1.5) desired.y = g + 1.5;
+  gsCamClamp(desired, pivot);
   if (!camInit) { camPos.copy(desired); camInit = true; }
   else {
     const k = 1 - Math.exp(-(hit ? 14 : 5) * dt);
-    camPos.lerp(desired, k);
+    camPos.lerp(desired, k); gsCamClamp(camPos, pivot);
   }
-  lookTarget.set(S.pos.x + Math.sin(S.yaw + pc.vyaw) * V.look, S.pos.y + V.lookH, S.pos.z + Math.cos(S.yaw + pc.vyaw) * V.look);
+  const ly = (rc ? S.yaw + Math.PI : S.yaw) + pc.vyaw, lk = rc ? V.look + (V.rear || 0) : V.look;
+  lookTarget.set(S.pos.x + Math.sin(ly) * lk, S.pos.y + V.lookH, S.pos.z + Math.cos(ly) * lk);
   lookAt.lerp(lookTarget, 1 - Math.exp(-8 * dt));
   if (lookAt.lengthSq() === 0) lookAt.copy(lookTarget);
   camera.position.copy(camPos);
@@ -10533,7 +10588,7 @@ const WPN_ORDER = ['pistol', 'shotgun', 'rifle', 'sniper', 'minigun', 'grenade',
 const WPN = { owned: {}, ammo: {}, mag: {}, cur: null, fire: false, firePrev: false, cd: 0, reloadT: 0, spin: 0, scope: false, shots: 0, flameT: 0,
               proj: [], sticks: [], fires: [], booms: [], decals: [], splats: [], hops: [], VD: {}, hitT: 0, hitKind: '', netT: 0, told: {}, locker: null, ready: false };
 const LOCKER = { x: 41.6, z: -6.4, yaw: -Math.PI / 2 };
-const VEH_HP = { buggy: 180, ute: 300, picker: 560, rx: 690, bmw: 260, tractor: 420, suv: 230, tele: 360, scooter: 60, bike: 45, dozer: 650, dirtbike: 95, trophy: 280, truck: 520, drone: 12, flyer: 90, spray: 70, duster: 220, gyro: 100, racer: 8 };
+const VEH_HP = { buggy: 180, ute: 300, picker: 560, rx: 690, mack: 505, bmw: 260, tractor: 420, suv: 230, tele: 360, scooter: 60, bike: 45, dozer: 650, dirtbike: 95, trophy: 280, truck: 520, drone: 12, flyer: 90, spray: 70, duster: 220, gyro: 100, racer: 8 };
 const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _w3 = new THREE.Vector3(), _w4 = new THREE.Vector3(), _wq = new THREE.Quaternion();
 
 /* ---------- textures and shared materials ---------- */
@@ -13657,11 +13712,13 @@ function harvStep(dt) { if (!HV.ready && window.__game && __game.ready) harvBuil
 function harvReset() {}
 ENG.picker = Object.assign({}, ENG.tractor, { seed: 91 });
 ENG.rx = Object.assign({}, ENG.dozer, { seed: 97 });
+ENG.mack = Object.assign({}, ENG.truck, { seed: 101 });
 // two-handed controls like the X5 and the ute (left thumb steers, GAS and BRAKE on the right): a machine this big is
 // hard to hold on one stick. The numbers are its own, not a car's
 SPECS.rx.drift = Object.assign({}, DRIFT, { m: 24000, Iz: 60000, a: 2.3, top: 40 / 3.6, rev: 15 / 3.6, drive: 1.7, steer: 0.58, steerFast: 0.24, kick: 0.6, catch: 0.3 });
 // the telehandler too: steer on the left, GAS and BRAKE beside the boom stick on the right
 SPECS.tele.drift = Object.assign({}, DRIFT, { m: 7500, Iz: 9000, a: 1.4, top: 40 / 3.6, rev: 20 / 3.6, drive: 1.8, steer: 0.6, steerFast: 0.18, kick: 0.6, catch: 0.3 });
+SPECS.mack.drift = Object.assign({}, DRIFT, { m: 14000, Iz: 60000, a: 3.2, top: 100 / 3.6, rev: 12 / 3.6, drive: 1.5, steer: 0.6, steerFast: 0.14, kick: 0.5, catch: 0.3 });
 
 /* ================================================================
    COTTON PICKING, FIELD 6 (south of the wheat, at the yard end): the CP690 round-module picker at work
@@ -14114,7 +14171,8 @@ function gsWorldDir(lx, lz) { const c = Math.cos(GS.yaw), s = Math.sin(GS.yaw); 
 function gsDoorDist(p) { const [lx, lz] = gsLocal(p.x, p.z); return Math.hypot(lx, Math.max(0, Math.abs(lz - 11.8) - 0.5)); }
 function gsItems(items) {
   if (!GS.ready) return; const p = activeName === 'foot' ? F.pos : S.pos;
-  if (gsDoorDist(p) > (activeName === 'foot' ? 7 : 12)) return;
+  let d = gsDoorDist(p); if (activeName !== 'foot' && activeVeh()) { const r = activeVeh().spec.rear || 1; d = Math.min(d, gsDoorDist({ x: p.x - Math.sin(S.yaw) * r, z: p.z - Math.cos(S.yaw) * r })); }
+  if (d > (activeName === 'foot' ? 7 : 12)) return;
   const moving = GS.door > 0.001 && GS.door < 0.999;
   items.push({ id: 'gs:door', label: moving ? (GS.want ? 'Door going up\u2026' : 'Door coming down\u2026') : GS.want ? 'Close the shed door' : 'Open the shed door', cls: 'ghost', pressed: !!GS.want });
 }
@@ -14131,6 +14189,22 @@ function gsPushOut(x, z, r, doorUp) {
   }
   return hit ? gsWorldDir(px, pz) : null;
 }
+// keep the camera inside the shed while what it's following is inside (the walls aren't in the camera's ray cast)
+function gsCamClamp(c, piv) {
+  if (!GS.ready) return; const [px, pz] = gsLocal(piv.x, piv.z);
+  if (Math.abs(px) > 7.6 || pz < -11.4 || pz > 11.6) {           // following from outside: stop the camera at the walls
+    const inB = (x, z) => { const [a, b] = gsLocal(x, z); return Math.abs(a) < 8.8 && Math.abs(b) < 12.6; };
+    if (!inB(c.x, c.z)) return; const dx = c.x - piv.x, dy = c.y - piv.y, dz = c.z - piv.z; let t = 1;
+    while (t > 0.05 && inB(piv.x + dx * t, piv.z + dz * t)) t -= 0.04;
+    c.set(piv.x + dx * t, piv.y + dy * t, piv.z + dz * t); return;
+  }
+  let [lx, lz] = gsLocal(c.x, c.z); const out = Math.abs(lx) < 2.2 && lz > 11 && GS.door > 0.9;     // out through the open door is fine, under the header
+  if (out) { if (lz > 11.3) c.y = Math.min(c.y, GS.y0 + 4.35 * GS.door - 0.3); }
+  else { lx = THREE.MathUtils.clamp(lx, -7.2, 7.2); lz = THREE.MathUtils.clamp(lz, -11.1, 11.1); }
+  lx = THREE.MathUtils.clamp(lx, -7.2, 7.2); lz = Math.max(lz, -11.1);
+  c.y = Math.min(c.y, GS.y0 + 5.5 + 1.6 * Math.max(0, 1 - Math.abs(lx) / 7.7));
+  const [wx, wz] = gsWorldDir(lx, lz); c.x = GS.x + wx; c.z = GS.z + wz;
+}
 function gsStep(dt) {
   if (!GS.ready) { if (window.__game && __game.ready) gsBuild(); return; }
   if (GS.door !== GS.want) { const was = GS.door; GS.door = THREE.MathUtils.clamp(GS.door + Math.sign(GS.want - GS.door) * dt / 5, 0, 1);
@@ -14139,12 +14213,150 @@ function gsStep(dt) {
   const v = activeVeh();
   if (v && v.kind === 'ground' && !SIM.npc) {
     const sp = v.spec, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), r = Math.min(1.5, (sp.halfW || 1) * 0.95), up = GS.door > 0.97 && (v.top || 3) < 4.3;
-    for (let t = -(sp.rear || 1) + r * 0.6; t <= (sp.front || 3) - r * 0.4; t += Math.max(0.6, r * 0.8)) {
+    const L = (sp.front || 3) + (sp.rear || 1) - 2 * r, n = Math.max(1, Math.ceil(L / Math.max(0.6, r * 0.8)));
+    for (let k = 0; k <= n; k++) { const t = -(sp.rear || 1) + r + L * k / n;
       const h = gsPushOut(S.pos.x + fx * t, S.pos.z + fz * t, r, up); if (!h) continue;
       S.pos.x += h[0]; S.pos.z += h[1]; if (Math.abs(S.v) > 2.5) { sfx('thud', S.pos, Math.min(1, Math.abs(S.v) / 10), 0.7, 20); S.shake = Math.min(1, (S.shake || 0) + 0.3); }
       S.v *= -0.1; if (S.vx !== undefined) { S.vx *= -0.1; S.vz *= -0.1; } break;
     }
   } else if (activeName === 'foot' && F && F.pos && F.pos.y < GS.y0 + 8) { const h = gsPushOut(F.pos.x, F.pos.z, 0.35, GS.door > 0.42); if (h) { F.pos.x += h[0]; F.pos.z += h[1]; } }
+}
+
+/* ---------- the urea job: back the Mack into the grain shed and tip a load of urea in the marked bay ----------
+   Touch the shed with any part of the truck (walls, door, or the raised box under the roof or door header) and it's
+   a fail. Tipping outside the bay doesn't count. The heap stays (the Merlo can scoop it) and the job can be redone. */
+const UJ = { st: 'idle', t: 0, tip: 0, tipT: 0, load: 0, poured: 0, pend: false, why: '', best: 0, chip: null, bay: null, bayMat: null, mat: null, fx: null, inBay: false, pile: null, said: '' };
+try { UJ.best = +localStorage.getItem('wfy.urea') || 0; } catch (e) {}
+const UJ_BAY = [-2.2, 2.2, -10.3, -2.4];
+function ujMat() {
+  if (UJ.mat) return UJ.mat;
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'), r = rng(77); x.fillStyle = '#eceeec'; x.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 900; i++) { const v = 200 + Math.floor(r() * 55); x.fillStyle = `rgb(${v},${v},${Math.min(255, v + 4)})`; x.beginPath(); x.arc(r() * 128, r() * 128, 0.8 + r() * 1.6, 0, 6.3); x.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(5, 2);
+  return UJ.mat = new THREE.MeshLambertMaterial({ map: t });
+}
+function ujBay() {
+  if (UJ.bay || !GS.root) return;
+  const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: 0xffc928, polygonOffset: true, polygonOffsetFactor: -4, depthWrite: false, transparent: true, opacity: 0.9 });
+  UJ.bayMat = m;
+  const [x0, x1, z0, z1] = UJ_BAY, w = 0.14, L = (a, b, c, d) => { const q = new THREE.Mesh(new THREE.PlaneGeometry(Math.abs(b - a) || w, Math.abs(d - c) || w), m); q.rotation.x = -Math.PI / 2; q.position.set((a + b) / 2, 0.06, (c + d) / 2); g.add(q); };
+  L(x0 - w / 2, x0 + w / 2, z0, z1); L(x1 - w / 2, x1 + w / 2, z0, z1); L(x0, x1, z0 - w / 2, z0 + w / 2);
+  // chevrons pointing to the back wall
+  for (let k = 0; k < 3; k++) { const z = z1 - 1.4 - k * 1.8; for (const s of [-1, 1]) { const q = new THREE.Mesh(new THREE.PlaneGeometry(1.2, w), m); q.rotation.set(-Math.PI / 2, 0, s * 0.6); q.position.set(s * 0.48, 0.06, z - 0.33); g.add(q); } }
+  g.position.y = (homeY(GS.x, GS.z) - GS.y0); GS.root.add(g); UJ.bay = g;
+}
+function ujChip() {
+  if (!UJ.chip) {
+    const stl = document.createElement('style');
+    stl.textContent = '#ujchip{position:fixed;z-index:9;left:calc(120px + env(safe-area-inset-left,0px));top:calc(82px + env(safe-area-inset-top,0px));display:none;flex-direction:column;gap:3px;background:rgba(22,26,25,.84);color:#fff;border-radius:14px;padding:8px 14px;font:600 12px/1.25 system-ui,sans-serif;min-width:190px;pointer-events:none}'
+      + '#ujchip.show{display:flex}#ujchip .h{display:flex;justify-content:space-between;gap:12px;font-size:14px}#ujchip .h b{color:#ffc928;font-variant-numeric:tabular-nums}#ujchip .s{opacity:.55}#ujchip .s.now{opacity:1;color:#ffc928}#ujchip .s.ok{opacity:.8;color:#7ddc7a}#ujchip .s.ok:before{content:"✓ "}#ujchip .s.now:before{content:"▶ "}'
+      + '#ujchip .bar{height:5px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:2px}#ujchip .bar i{display:block;height:100%;background:#fff;width:0}';
+    document.head.appendChild(stl);
+    const c = document.createElement('div'); c.id = 'ujchip'; c.className = 'ui';
+    c.innerHTML = '<div class="h"><span>Urea job</span><b></b></div><div class="s" data-k="0">Open the shed door</div><div class="s" data-k="1">Reverse into the marked bay</div><div class="s" data-k="2">Tip the urea</div><div class="bar"><i></i></div><div class="s" data-k="3">Lower the box</div>';
+    document.body.appendChild(c); UJ.chip = c;
+  }
+  const c = UJ.chip, on = UJ.st === 'on' && activeName === 'mack'; c.classList.toggle('show', on); if (!on) return;
+  c.querySelector('.h b').textContent = ujTime(UJ.t);
+  const done = [GS.door > 0.97 || UJ.inBay || UJ.poured > 0, UJ.inBay || UJ.poured > 0, UJ.poured >= 0.999, false];
+  let now = done.indexOf(false);
+  c.querySelectorAll('.s').forEach(el => { const k = +el.dataset.k; el.classList.toggle('ok', done[k]); el.classList.toggle('now', k === now); });
+  c.querySelector('.bar i').style.width = Math.round(UJ.poured * 100) + '%';
+}
+function ujTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
+function ujNearMack() { const v = VEH.mack; if (!v || !v.state) return false; const p = v.state.pos; return activeName === 'foot' && F.pos.distanceTo(p) < 9; }
+function ujItems(items) {
+  if (!VEHICLES.mack.ready) return;
+  if (activeName === 'foot') { if (ujNearMack() && !seqBusy()) items.push({ id: 'uj:start', label: UJ.st === 'fail' ? 'Urea job: try again' : UJ.st === 'done' ? 'Urea job: do it again' : 'Start the urea job', cls: 'warn' }); return; }
+  if (activeName !== 'mack') return;
+  if (UJ.st !== 'on') items.push({ id: 'uj:start', label: UJ.st === 'fail' ? 'Try the urea job again' : UJ.st === 'done' ? 'Do the urea job again' : 'Start the urea job', cls: 'warn' });
+  const moving = UJ.tip > 0.001 && UJ.tip < 0.999;
+  items.push({ id: 'uj:tip', label: UJ.tipT ? (moving ? 'Box going up…' : 'Lower the box') : moving ? 'Box coming down…' : UJ.load > 0 ? 'Tip the urea' : 'Raise the box', cls: UJ.st === 'on' && UJ.inBay && !UJ.tipT ? 'warn' : 'ghost', pressed: !!UJ.tipT });
+}
+function ujAct(id) {
+  if (id === 'uj:tip') { UJ.tipT = UJ.tipT ? 0 : 1; sfx('hiss', S.pos, 0.5, 0.8, 25); return; }
+  if (id === 'uj:start') { if (activeName === 'foot') { UJ.pend = true; enterVehicle('mack'); } else ujBegin(); }
+}
+function ujBegin() {
+  UJ.pend = false; const h = HOME.mack, [lx, lz] = gsLocal(S.pos.x, S.pos.z);
+  if (Math.hypot(S.pos.x - h.x, S.pos.z - h.z) > 4 || (Math.abs(lx) < 9 && Math.abs(lz) < 13)) {   // back to the start line
+    S.pos.set(h.x, homeY(h.x, h.z), h.z); S.yaw = h.yaw; S.v = S.vx = S.vz = S.r = 0; S.steer = 0; if (S.vy !== undefined) S.vy = 0; }
+  UJ.tip = 0; UJ.tipT = 0; mackTip(0); UJ.load = 1; UJ.poured = 0; UJ.t = 0; UJ.st = 'on'; UJ.why = ''; UJ.pile = null; UJ.said = '';
+  if (GS.want || GS.door > 0) { GS.want = 0; }
+  toast('Urea job: open the shed door, then back the Mack into the marked bay. Don’t touch the shed!', 4);
+  actKey = '';
+}
+function ujFail(why) {
+  if (UJ.st !== 'on') return; UJ.st = 'fail'; UJ.why = why; UJ.tipT = 0;
+  sfx('thud', S.pos, 0.9, 0.6, 30); S.shake = Math.min(1, (S.shake || 0) + 0.5);
+  toast('Urea job failed: ' + why, 4); actKey = '';
+}
+function ujWin() {
+  UJ.st = 'done'; const t = UJ.t, best = !UJ.best || t < UJ.best; if (best) { UJ.best = t; try { localStorage.setItem('wfy.urea', t.toFixed(2)); } catch (e) {} }
+  toast('Urea job done in ' + ujTime(t) + (best ? '. Best time!' : '. Best ' + ujTime(UJ.best)), 4.5); actKey = '';
+  if (typeof chime === 'function') try { chime(); } catch (e) {}
+}
+function ujInBay() {
+  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), q = (x, z) => { const [a, b] = gsLocal(x, z); return a > UJ_BAY[0] && a < UJ_BAY[1] && b > UJ_BAY[2] && b < UJ_BAY[3]; };
+  const [hx, hz] = gsLocal(S.pos.x + fx, S.pos.z + fz), [ox, oz] = gsLocal(S.pos.x, S.pos.z), hd = Math.atan2(hx - ox, hz - oz);
+  return q(S.pos.x, S.pos.z) && q(S.pos.x - fx * 4.0, S.pos.z - fz * 4.0) && Math.abs(hd) < 0.3;
+}
+function ujFx(on, p, dt) {
+  if (!UJ.fx) {
+    const n = 140, g = new THREE.BufferGeometry(), pos = new Float32Array(n * 3).fill(-1e4); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    UJ.fx = { pts: new THREE.Points(g, new THREE.PointsMaterial({ color: 0xf4f4f0, size: 0.07 })), v: new Float32Array(n * 3), life: new Float32Array(n), i: 0, n };
+    UJ.fx.pts.frustumCulled = false; scene.add(UJ.fx.pts);
+  }
+  const F2 = UJ.fx, P = F2.pts.geometry.attributes.position.array;
+  if (on) for (let k = 0; k < 6; k++) { const i = F2.i = (F2.i + 1) % F2.n, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw);
+    P[i * 3] = p.x + (Math.random() - 0.5) * 1.6 * Math.cos(S.yaw); P[i * 3 + 1] = p.y; P[i * 3 + 2] = p.z - (Math.random() - 0.5) * 1.6 * Math.sin(S.yaw);
+    F2.v[i * 3] = -fx * (0.6 + Math.random()); F2.v[i * 3 + 1] = -0.3; F2.v[i * 3 + 2] = -fz * (0.6 + Math.random()); F2.life[i] = 0.9; }
+  for (let i = 0; i < F2.n; i++) { if (F2.life[i] <= 0) continue; F2.life[i] -= dt; F2.v[i * 3 + 1] -= 9.8 * dt;
+    P[i * 3] += F2.v[i * 3] * dt; P[i * 3 + 1] += F2.v[i * 3 + 1] * dt; P[i * 3 + 2] += F2.v[i * 3 + 2] * dt; if (F2.life[i] <= 0 || P[i * 3 + 1] < GS.y0) { F2.life[i] = 0; P[i * 3 + 1] = -1e4; } }
+  F2.pts.geometry.attributes.position.needsUpdate = true;
+}
+function ujStep(dt) {
+  const C = VEHICLES.mack; if (!C || !C.ready) return;
+  if (GS.ready) ujBay();
+  const inMack = activeName === 'mack';
+  if (UJ.pend && inMack && !seqBusy()) ujBegin();
+  if (UJ.tip !== UJ.tipT) { UJ.tip = THREE.MathUtils.clamp(UJ.tip + Math.sign(UJ.tipT - UJ.tip) * dt / (UJ.tipT ? 5 : 4), 0, 1); mackTip(UJ.tip); }
+  let flow = false;
+  if (inMack && GS.ready) {
+    UJ.inBay = ujInBay();
+    if (UJ.bayMat) UJ.bayMat.color.setHex(UJ.st === 'on' && UJ.inBay ? 0x58d35a : 0xffc928);
+    if (UJ.st === 'on') {
+      UJ.t += dt;
+      const sp = SPECS.mack, fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), r = sp.halfW + 0.05, up = GS.door > 0.97;
+      const n = Math.ceil((sp.front + sp.rear - 2 * r) / 0.8);
+      for (let k = 0; k <= n; k++) { const t = -sp.rear + r + (sp.front + sp.rear - 2 * r) * k / n;
+        const [lx, lz] = gsLocal(S.pos.x + fx * t, S.pos.z + fz * t);
+        if (Math.abs(lx) > 9.5 + r || Math.abs(lz) > 13.5 + r) continue;
+        if (gsPushOut(S.pos.x + fx * t, S.pos.z + fz * t, r, up)) { const dl = !up && Math.abs(lx) < 2.6 && lz > 11 && lz < 14.6; ujFail(dl ? 'you hit the shed door. Wait till it’s right up.' : 'you hit the shed wall.'); break; }
+      }
+      if (UJ.st === 'on' && UJ.tip > 0.02) {
+        C.root.updateMatrixWorld(true);
+        for (const o of C.tops) { const w = o.getWorldPosition(new THREE.Vector3()), [lx, lz] = gsLocal(w.x, w.z);
+          if (Math.abs(lx) > 8.3 || lz < -12.1 || lz > 12.7) continue;
+          const lim = lz > 11.2 ? GS.y0 + 4.35 * GS.door : GS.y0 + 5.7 + 1.8 * Math.max(0, 1 - Math.abs(lx) / 7.7);
+          if (w.y > lim - 0.05) { ujFail(lz > 11.2 ? 'the raised box hit the door header.' : 'the raised box hit the roof.'); break; } }
+      }
+      if (UJ.st === 'on' && UJ.tip > 0.35 && UJ.load > 0) {
+        if (!UJ.inBay) ujFail('you tipped outside the marked bay. That one doesn’t count.');
+        else flow = true;
+      }
+      if (UJ.st === 'on' && UJ.poured >= 0.999 && UJ.tip === 0 && UJ.tipT === 0) ujWin();
+      if (UJ.st === 'on' && UJ.poured >= 0.999 && UJ.tipT && UJ.said !== 'empty') { UJ.said = 'empty'; toast('Empty. Lower the box to finish.', 2.5); actKey = ''; }
+    }
+  }
+  if (flow) {
+    const sp = C.spout.getWorldPosition(new THREE.Vector3()), q = Math.min(UJ.load, dt * (0.12 + 0.2 * (UJ.tip - 0.35) / 0.65));
+    UJ.load -= q; UJ.poured = Math.min(1, UJ.poured + q); if (UJ.load < 1e-3) { UJ.load = 0; UJ.poured = 1; }
+    const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), px = sp.x - fx * 0.9, pz = sp.z - fz * 0.9;
+    const P = addToPile(px, pz, q * 9); if (P) { P.mesh.material = ujMat(); P.urea = true; }
+  }
+  ujFx(flow, flow ? C.spout.getWorldPosition(new THREE.Vector3()) : null, dt);
+  ujChip();
 }
 
 /* ================================================================
@@ -19226,7 +19438,7 @@ window.__game = { PCL_get: () => PCL, RIDE, RIDE_SEATS, rideIn, rideOut, rideabl
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
 Object.assign(window.__game, { lookSet, npcBurn, snCompany, mtWeldTier, fpSet, FPS, addMark, markGeo, dmLineLen, DM_: () => DM, mtTvBuild, mtEnd, mtLoad, mtMenuOpen, MTTV, PCL, pclLook, AFK, afkIdle, mpRecv, mpwHostSend, mmPick, mhPick, RAD, radioReal, radioCycle, musicGet, EM, setActive, MT, MATT_L, mtStart, mtDo, mtChoose, mtMenuOpen, mtW, mtUV, mtWeldEnter, mtWeldExit, mtSend, mtFixLocal, mtReset, mtTalkable, MT_PARTS, MT_SPOT, ILOD, HS, hsFlatten, hsShrubsReset, extractTree, restoreTree, SLOD, slodStep, TREES, DTL, dtlStep, dtlScan, WPN, wpnVehDamage, MPW_UTE, SA, DG, BB, WL, STRUCTS, BP, bpStart, dmUnit, mmBackpackers, melPow, bpWonTest: () => bpWon(), bpDo, bpTap, bpAct, bpTapMode, bpP, bpLying, bpSpotting, DIMA_L, WMAT, input, CRE, creatorOpen, creatorDone, AWAY, awayMark, awayBack, vehSt, vehicleOBB, npcEnter, mmLeanXZ, bubDom, boxSegHit, mmRound, mmEnterRide, npcDrive, SIM, PX, plWith, plList, REAL_SND, DN, dnInside, melStart: (b) => melStart(b), bbQuality: () => bbQuality(), BB, SN, bbIgnite, bbDo, bbNail, bbPileXZ, bbSiteD, snPerch, plList, drvOkXZ, walkPath, walkLOS, npcGoTo, WALK, mmPark, WL, wlSwing: (k) => wlSwing(k), wlQuality: () => wlQuality(), wpnPigShot: (...a) => wpnPigShot(...a), npcShot: (...a) => npcShot(...a), melHitAnimal: (...a) => melHitAnimal(...a), mmChoose: (...a) => mmChoose(...a), activeName: () => activeName, MP, MPW, PX, SPK, plList, plFocus, npcByName, mpStart, mpLeave, mpwCli, MH, FA, NPC, DM, DIMA_L, dmSay, dgVia, brzVia, mmUteHome, CT, tbSlot, tbEdge, tbDogsGo, saSitting, EM, MM, SA, saAct, saChoose, saInside, saOccupants, mmBanter, mmDefend, dmgRammed, MM_L, MH_L, MM_C, MH_C, NPC_L, VOX, voxSplit, voxNorm, voxLoad, npcSay, standFarmerAt, DG_UNITS, dgRoom, faWalk, step, HND, wpnHurt, npcShot, mmDrive, mhNavTo, wpnTraceX: (o,d,f)=>wpnTrace(o,d,f), MH, mhStartGuided, mhStartSolo, mhAbort, mhStep, drvPath, mhCam, MM, buildDog, mmDogPose, PH: typeof PH !== 'undefined' ? PH : null, mmStep, mmReset, mmParkHome, mmFixUte, mmMenuOpen, mmChoose, mmSay, mmTalkable, dgWalk, DG, AU, dgSend, UTE_RIG, HV, driftModeSet, AU, FMX, fmxHeight, fmxIn, fmxAir, FMX_RAMPS, SLD, slideSet, RAD, radioCycle, radioTick, radioSet, wpnApplyHit, fsStr: () => farmerStep.toString().slice(0,70), LOOK_REF: () => LOOK, lookSet, lookUIOpen, NPC, npcStep, npcEnter, npcEject, npcKick, npcKickTarget, npcHit, npcPickVehicle, npcSay, ladAct, ladNear, LAD, siloRoofY, SILO, FA, spawnShedPig, STRUCTS, VEH, buildFarmer, lookApply, lookFix, lookCode, lookFromCode, LK, DAZZA, F, scene, camera, renderer });
-Object.assign(window.__game, { GS, gsToggle, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
+Object.assign(window.__game, { GS, gsToggle, UJ, ujAct, mackTip, CP, CF, CP_CFG, cpAct, cpSetCfg, cpCfgClose, cpPose, cpAnimApply, makePickerVoice, makeEngineVoice, ENG });
 load().catch(e => console.error(e));
 </script>
 </body>

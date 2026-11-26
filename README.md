@@ -129,6 +129,12 @@ bucket are made in the game.
 The green barn (`grain-shed.glb`) is from the Farming Simulator 25 mod **"Grain Shed Pack"**, converted with
 `tools/fs-mod/build_vehicle.py`. Its roller door works as in the mod.
 
+## The Mack
+
+The Mack Pinnacle 64R grain truck (`mack-pinnacle.glb`) is from the Farming Simulator 25 mod **"Mack Pinnacle 64R"**,
+converted with `tools/fs-mod/build_vehicle.py`. Its grain box tips and its back door opens as in the mod; the tyres
+are made in the game. It waits outside the grain shed for the urea job.
+
 ## Libraries
 
 Loaded from jsDelivr: [three.js](https://threejs.org) (MIT), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) (MIT),
