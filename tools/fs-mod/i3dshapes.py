@@ -75,7 +75,7 @@ def parse_shape(b, version):
     if version >= 10:
         for _ in range(nsub):
             n = struct.unpack_from('<H', r.b, r.p)[0]; r.p += 2
-            mats.append(r.bytes(n).decode('latin1'))
+            mats.append(r.bytes(n).decode('latin1')); r.align(2)      # (names are padded to an even length)
         r.align(4)
     big = nverts > 65536
     idx = r.arr('<u4' if big else '<u2', corners).astype(np.uint32)
