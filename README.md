@@ -146,7 +146,8 @@ mover or, through a dolly made in the game, to the Mack; the tyres and the deck'
 The John Deere 50G (`jd50g.glb`, `jd50g-bucket.glb`, `jd50g-track.glb`) is from the Farming Simulator 25 mod
 **"John Deere 50G"**, converted with `tools/fs-mod/build_vehicle.py`. Its slew, boom, dipper, bucket, blade and boom swing
 are the mod's moving tools with the mod's limits and speeds, and its rams are the mod's moving parts; the bucket linkage is
-solved in the game.
+solved in the game. Its engine, crawler-track and hydraulic sounds are the mod's own recordings, cut into loops (the engine
+loop is unpacked from the mod's `.gls` file, an Ogg stream behind a short header).
 
 ## Libraries
 
