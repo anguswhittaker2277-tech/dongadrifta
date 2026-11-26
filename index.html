@@ -4772,8 +4772,9 @@ const PARK = {
   duster:  { at: [-7, 108],  dir: [0.41, -0.91] },
 };
 const HOME = {};
-// the machines live in the open machinery shed: front row nosed out to the south, bikes in the back row nosed out north
-const SHED_PARK = [['bmw', 0, 1], ['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['suv', 4, -1], ['dirtbike', 1, 1], ['bike', 2, 1], ['scooter', 3, 1]];
+// the machines live in the open machinery shed: front row nosed out to the south, the truck and the 9RX in the back row nosed
+// out north (the bikes and the scooter are in Matt's shed: see shedParking)
+const SHED_PARK = [['tractor', 0, -1], ['tele', 1, -1], ['dozer', 2, -1], ['trophy', 3, -1], ['rx', 1, 1, 4.0], ['truck', 3, 1, 8.0]];      // (the back row sits further in; the truck's tipper is long, so its cab noses just out the open side and the tail clears the trophy truck)
 function homeY(x, z) { const sf = STRUCTS.ready ? shedFloorAt(x, z) : null; return groundAt(x, z, sf !== null ? sf + 2.5 : 30, 0); }    // under a shed roof, start below it
 // where you start (and get back up): the dunny by the dongas, or out the front of the machinery shed (menu: Start at)
 let START_AT = (() => { try { return localStorage.getItem('wfy.start') === 'shed' ? 'shed' : 'dongas'; } catch (_) { return 'dongas'; } })();
@@ -4787,20 +4788,22 @@ function startSpot() { return START_AT === 'shed' && HOME.shedStart ? HOME.shedS
 function farmerHomeY(h0) { const h = h0 || startSpot(); if (h.dunny && DN.root) return groundAt(h.x, h.z, DN.gy + 1.4, DN.gy); return h.indoors && typeof DG !== 'undefined' && DG.root ? groundAt(h.x, h.z, DG.gy + 1.5, DG.gy) : homeY(h.x, h.z); }      // under a roof: look for the floor from head height
 function shedParking() {
   const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], da = 2 * D.hv / D.bays;
-  for (const [name, bay, row] of SHED_PARK) {
-    const u = row * 6.2, v = -D.hv + da * (bay + 0.5), x = D.cx + U[0] * u + V[0] * v, z = D.cz + U[1] * u + V[1] * v;
+  for (const [name, bay, row, uu] of SHED_PARK) {
+    const u = uu !== undefined ? uu : row * 6.2, v = -D.hv + da * (bay + 0.5), x = D.cx + U[0] * u + V[0] * v, z = D.cz + U[1] * u + V[1] * v;
     HOME[name] = { x, z, yaw: Math.atan2(U[0] * row, U[1] * row) };
   }
-  HOME.truck = { x: -56, z: 28, yaw: Math.PI };
+  // the dirt bike, the push bike and the e-scooter: in a row in the open lean-to of Matt's shed, nosed out its open side, clear of
+  // his workshop and of the rocket's way out down the middle
+  { const A = STRUCT_DEFS.find(d => d.id === 'shedA'), t = A.ang * Math.PI / 180, yaw = Math.atan2(Math.cos(t), Math.sin(t));
+    for (const [name, v] of [['scooter', 5.2], ['bike', 7.3], ['dirtbike', 9.6]]) { const [x, z] = mtW(11.4, v); HOME[name] = { x, z, yaw }; } }
   HOME.mack = { x: 48, z: 50, yaw: -Math.PI / 2 };               // the Mack: waiting outside the grain shed, tail to the door
-  HOME.rx = { x: -61, z: 13, yaw: Math.PI };                     // the 9RX: on the open ground south of the road train, nose to the south
   { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], V = [-Math.sin(t), Math.cos(t)], v = -D.hv + 2 * D.hv / D.bays * 4.5, yaw = Math.atan2(-U[0], -U[1]);
     HOME.picker = { x: D.cx + V[0] * v - Math.sin(yaw) * 4.2, z: D.cz + V[1] * v - Math.cos(yaw) * 4.2, yaw }; }   // the cotton picker: the whole end bay of the machinery shed, header up, nose out
   HOME.suv = { x: 166.3, z: 43.4, yaw: -Math.PI / 2 };         // the backpackers' runabout, on the gravel by their bunks, nose out
   HOME.bmw = { x: 166.3, z: 46.9, yaw: -Math.PI / 2 };         // on the gravel by the dongas, nose out to the open ground
   HOME.buggy = { x: 166.3, z: 53.4, yaw: -Math.PI / 2 };       // the buggy: north end of the dongas' gravel past Madman's ute, nose out, its driver's side (left) to the open ground
   { const D = STRUCT_DEFS.find(d => d.id === 'shedB'), t = D.ang * Math.PI / 180, U = [Math.cos(t), Math.sin(t)], u = D.hu + 2.5;
-    HOME.shedStart = { x: D.cx + U[0] * u, z: D.cz + U[1] * u, yaw: Math.atan2(-U[0], -U[1]) }; }   // out the front of the machinery shed, looking in at the bikes
+    HOME.shedStart = { x: D.cx + U[0] * u, z: D.cz + U[1] * u, yaw: Math.atan2(-U[0], -U[1]) }; }   // out the front of the machinery shed, looking in at the machines
   { const [x, z] = dgW(0, 0.12, DN); HOME.farmer = { x, z, yaw: DN.yaw, indoors: true, dunny: true }; }   // you wake up in the dunny south of the water tanks, facing the door (not in the bunks: they might be on fire)
   HOME.ute = { x: 166.3, z: 50.4, yaw: -Math.PI / 2 };   // on the gravel beside the BMW, nose out to the open ground (tailgate to the dongas)   // on the headland at the bottom of Field 6's wheat, facing up into it       // the road train sits out on the open ground where the old row was
 }
