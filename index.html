@@ -449,7 +449,7 @@ body.fight #hpbar{display:block}
 @media (max-height:360px){#wDraw{height:34px;bottom:calc(128px + env(safe-area-inset-bottom,0px))}}
 body.armed #xhair{display:block}body.armed #wFire,body.armed #wPill,body.armed #wHolster{display:flex}body.armed #wAlt.on{display:grid}
 /* riding in a mate's car: no walking, jumping or fighting, and the look takes the whole screen */
-body.ride #stick,body.ride #stickZone,body.ride #jump,body.ride #mHead,body.ride #mKick,body.ride #mPunch,body.ride #emobtn,body.ride #wDraw{display:none!important}body.ride #lookZone{display:block!important;left:0!important;right:0!important;width:auto!important}
+body.ride #stick,body.ride #stickZone,body.ride #jump,body.ride #mHead,body.ride #mKick,body.ride #mPunch,body.ride #emobtn{display:none!important}body.ride #lookZone{display:block!important;left:0!important;right:0!important;width:auto!important}
 #xhair{left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;pointer-events:none;z-index:6}
 #xhair i{position:absolute;background:#fff;box-shadow:0 0 2px rgba(0,0,0,.8)}#xhair i:nth-child(1){left:21px;top:2px;width:2px;height:12px}#xhair i:nth-child(2){left:21px;bottom:2px;width:2px;height:12px}
 #xhair i:nth-child(3){top:21px;left:2px;width:12px;height:2px}#xhair i:nth-child(4){top:21px;right:2px;width:12px;height:2px}#xhair b{position:absolute;left:20px;top:20px;width:4px;height:4px;border-radius:50%;background:#fff}
@@ -2551,7 +2551,8 @@ function buildExc() {
     for (const [k, sx] of [['crawlerDriveNodeLeft1', 1], ['crawlerDriveNodeRight1', -1]]) { const t = gt.scene.clone(); if (sx < 0) t.scale.x = -1; N[k] && N[k].add(t); }
     // the bucket on its quick hitch: its own joint lined up with the arm's (the mod's objectChange turns the arm's joint to 90 0 90)
     const J = N.BucketAttacherJoint, bk = gb.scene, bj = bk.getObjectByName('bucketAttacherJoint');
-    if (J && bj) { J.rotation.set(Math.PI / 2, 0, Math.PI / 2); J.add(bk); bk.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(bj.matrix).invert(); inv.decompose(bk.position, bk.quaternion, bk.scale); }
+    if (J && bj) { J.rotation.set(Math.PI / 2, 0, Math.PI / 2, 'ZYX'); J.add(bk);      // (the mod's 90 0 90 is in the engine's order, not three's default: the bucket sat turned sideways)
+      bk.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(bj.matrix).invert(); inv.decompose(bk.position, bk.quaternion, bk.scale); }
     C.tip = bk.getObjectByName('pickUpNode') || bk; C.bucket = bk;
     if (!pileGeo) pileAssets();
     const fv = bk.getObjectByName('fillVolume') || bk.getObjectByName('fillVolumes') || bk;
@@ -8605,11 +8606,12 @@ function implChip() {
    The chase camera keeps running underneath, so switching back is seamless.
    ================================================================ */
 const VIEWS = {
-  tele: ['chase', 'operator', 'bucket', 'cine'],
+  tele: ['chase', 'cab', 'operator', 'bucket', 'cine'],
   tractor: ['chase', 'rear', 'cine'],
-  picker: ['chase', 'rear', 'cine'],
-  rx: ['chase', 'rear', 'cine'],
-  mack: ['chase', 'rear', 'cine'],
+  picker: ['chase', 'cab', 'rear', 'cine'],
+  rx: ['chase', 'cab', 'rear', 'cine'],
+  mack: ['chase', 'cab', 'rear', 'cine'],
+  bmw: ['chase', 'cab', 'cine'],
   exc: ['chase', 'rear', 'cine'],
   drone: ['chase', 'fpv', 'down', 'cine'],
   spray: ['chase', 'fpv', 'cine'],
@@ -8618,9 +8620,9 @@ const VIEWS = {
   racer: ['fpv', 'chase', 'cine'],
   foot: ['chase'],
 };
-const VIEW_NAMES = { cab: 'In the cab', dig: 'Over the bucket', rear: 'Looking back', chase: 'Chase camera', operator: 'Over the bucket', bucket: 'Bucket view', cine: 'Cinematic', fpv: 'Camera view', down: "Bird's-eye", cockpit: 'Cockpit', wing: 'Wingtip camera' };
+const VIEW_NAMES = { cab: 'Inside', dig: 'Over the bucket', rear: 'Looking back', chase: 'Chase camera', operator: 'Over the bucket', bucket: 'Bucket view', cine: 'Cinematic', fpv: 'Camera view', down: "Bird's-eye", cockpit: 'Cockpit', wing: 'Wingtip camera' };
 const VIEW = { sel: STORE.get('wfy.views', {}), cur: 'chase', for: '', cine: null, fpvT: 0, battery: 100, baseFov: 58 };
-function viewList(name) { if (name === 'exc') return ['chase', 'cab', 'dig', 'cine']; return VIEWS[name] || ['chase', 'cine']; }
+function viewList(name) { if (name === 'exc') return ['cab', 'chase', 'dig', 'cine']; return VIEWS[name] || ['chase', 'cine']; }      // (the excavator starts in its cab)
 function currentView() {
   const name = activeName;
   if (VIEW.for !== name) { VIEW.for = name; VIEW.cine = null; const l = viewList(name); VIEW.cur = l.includes(VIEW.sel[name]) ? VIEW.sel[name] : l[0]; viewChanged(); }
@@ -8642,6 +8644,19 @@ function viewChanged() {
 const _vK = new THREE.Vector3(), _vq = new THREE.Quaternion(), _vq2 = new THREE.Quaternion(), _ve = new THREE.Euler(), _vA = new THREE.Vector3(), _vB = new THREE.Vector3(), _vC = new THREE.Vector3();
 const Q_BACK = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);   // cameras look down -z, our models face +z
 let viewSm = null;     // smoothed look point for the views that track something
+// in the cab: through the driver's eyes (the model's own indoor camera where it has one, else from the seat), turning and
+// tipping with the machine; drag (or the mouse) to look round, and it settles back to the windscreen
+const CAB_NODES = ['indoorCamera', 'indoorCamera1', 'indoorCamera01'];
+function cabView(v, dt) {
+  const M = v.model, body = M.body; M.root.updateMatrixWorld(true);
+  if (M.cabNode === undefined) { M.cabNode = null; for (const k of CAB_NODES) { M.root.traverse(o => { if (!M.cabNode && o.name === k) M.cabNode = o; }); if (M.cabNode) break; } }
+  if (M.cabNode === null && M.ready === false) M.cabNode = undefined;          // (a model still loading: look again next time)
+  const s = v.seat, seatEye = body.localToWorld(_vC.set(s.x, s.hip + 0.86 * s.k, s.z + 0.06));
+  const eye = M.cabNode && M.cabNode.getWorldPosition(_vK).distanceTo(seatEye) < 0.4 ? seatEye.copy(_vK) : seatEye;      // (the model's own camera, unless the seat's been moved: the Mack's right-hand drive)
+  const pc = typeof PCL !== 'undefined' ? PCL : { vyaw: 0, vpitch: 0 }, yaw = THREE.MathUtils.clamp(pc.vyaw, -2.3, 2.3), pt = -0.12 - pc.vpitch * 0.8;
+  const dir = _vA.set(Math.sin(yaw) * Math.cos(pt), Math.sin(pt), Math.cos(yaw) * Math.cos(pt)).applyQuaternion(body.getWorldQuaternion(_vq));
+  camera.position.copy(eye); camera.lookAt(_vB.copy(eye).add(dir)); setFov(74, dt); setNear(0.04);
+}
 function setFov(f, dt) { const k = dt == null ? 1 : 1 - Math.exp(-6 * dt); const n = camera.fov + (f - camera.fov) * k; if (Math.abs(n - camera.fov) > 0.01) { camera.fov = n; camera.updateProjectionMatrix(); } }
 function setNear(n) { if (camera.near !== n) { camera.near = n; camera.updateProjectionMatrix(); } }
 function keepClear(from, to, minD) {     // pull a camera in front of any wall between the subject and it
@@ -8667,6 +8682,7 @@ function applyView(dt) {
     return;
   }
   if (v.name === 'exc' && (view === 'cab' || view === 'dig')) { excView(view, dt); return; }
+  if (view === 'cab' && v.kind === 'ground') { cabView(v, dt); return; }
   if (v.name === 'tele') {
     const M = v.model; M.root.updateMatrixWorld(true);
     const lip = M.boom.lip.getWorldPosition(VIEW.lip || (VIEW.lip = new THREE.Vector3())), mid = M.boom.bucket.getWorldPosition(_vB).lerp(lip, 0.5);
@@ -10623,7 +10639,7 @@ function rideIn(name) {
   const r = rideable(); if (!r || r.v.name !== name) return;
   const v = r.v, s = RIDE_SEATS[name][r.i];
   cancelSeq(); if (typeof MEL !== 'undefined') { MEL.cur = null; MEL.queued = false; }
-  if (typeof WPN !== 'undefined' && WPN.cur) { WPN.stowed = WPN.stowed || WPN.cur; wpnSelect(null); }
+  if (typeof WPN !== 'undefined' && WPN.cur && WEAPONS[WPN.cur].kind !== 'gun') wpnSelect(null);      // (a gun stays in your hands, to shoot out the window)
   seatFarmer(v.model.body, s); F.mode = 'seated'; F.seatPose = 'sit'; F.vel.set(0, 0, 0); F.speedH = 0; setFarmerProps('seated');
   Object.assign(RIDE, { v, i: r.i, yaw0: undefined, dist: 0 }); rideSeatDoor(v, r.i, 1.0);
   camYawF = v.state.yaw; camPitchF = 0.3; document.body.classList.add('ride'); actKey = '';
@@ -10665,6 +10681,7 @@ function rideCam(dt, v, s) {
   if (RIDE.yaw0 !== undefined) camYawF += rideAng(st.yaw - RIDE.yaw0); RIDE.yaw0 = st.yaw;
   lookIdleT += dt; camYawF -= input.kLR * 1.9 * dt; camPitchF = THREE.MathUtils.clamp(camPitchF - input.kUD * 1.2 * dt, -0.2, 1.1); if (input.kLR || input.kUD) lookIdleT = 0;
   if (lookIdleT > 2 && Math.abs(st.v) > 4) camYawF += rideAng(st.yaw - camYawF) * (1 - Math.exp(-1.2 * dt));      // not looking anywhere in particular: it drifts back behind
+  if (wpnArmed()) { rideAimCam(dt, v, s); return; }
   const fp = fpPref(); F.fp = fp; F.fpK = fp ? 1 : 0;
   if (fp) {
     v.model.body.localToWorld(_rideV.set(s.x, s.hip + 0.86 * s.k, s.z + 0.04)); camera.position.copy(_rideV); camPos.copy(_rideV);
@@ -10681,6 +10698,25 @@ function rideCam(dt, v, s) {
   const g = groundAt(camera.position.x, camera.position.z, camera.position.y + 2, -1e9); if (camera.position.y < g + 0.4) camera.position.y = g + 0.4;
   camPos.copy(camera.position); lookAt.set(piv.x, piv.y + 0.2, piv.z); camera.lookAt(lookAt);
   if (camShake > 0) camera.position.addScaledVector(_rideV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), 0.2 * camShake);
+}
+// a gun out in the passenger seat: the camera goes up over your shoulder, high enough to see over the roof whichever way you aim,
+// and you turn in the seat with the gun up; the crosshair is where it goes (the shot leaves the muzzle, not through the car)
+function rideAimCam(dt, v, s) {
+  F.fp = false; F.fpK = 0;
+  const st = v.state, body = v.model.body, top = st.pos.y + (v.top || 1.9);
+  const yaw = camYawF, pit = THREE.MathUtils.clamp(camPitchF - 0.3, -0.5, 0.6); camPitchF = pit + 0.3;
+  const f = _v3.set(Math.sin(yaw) * Math.cos(pit), -Math.sin(pit), Math.cos(yaw) * Math.cos(pit)), rx = -Math.cos(yaw), rz = Math.sin(yaw);
+  body.localToWorld(_rideV.set(s.x, s.hip, s.z));
+  const scoped = WPN.scope, back = scoped ? -0.3 : 3.0, up = scoped ? 0 : 0.55;
+  const cam = _v1.set(_rideV.x - f.x * back + rx * (scoped ? 0 : 0.55), (scoped ? _rideV.y + 0.75 * s.k : Math.max(top + up, _rideV.y + 0.9)) - f.y * back, _rideV.z - f.z * back + rz * (scoped ? 0 : 0.55));
+  { const o = _v2.set(_rideV.x, top + 0.3, _rideV.z), dv = new THREE.Vector3().copy(cam).sub(o), L = dv.length(); if (L > 0.1 && !scoped) { dv.normalize(); const h = castHit(o, dv, L + 0.25); if (h) cam.copy(o).addScaledVector(dv, Math.max(0.6, h.distance - 0.3)); } }
+  camera.position.copy(cam); camPos.copy(cam); lookAt.copy(cam).addScaledVector(f, 40); camera.lookAt(lookAt);
+  const want = scoped ? SCOPE_FOV : 60; if (Math.abs(camera.fov - want) > 0.1) { camera.fov += (want - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); WPN.fovMod = true; }
+  DAZZA.root.visible = !scoped;
+  // you, turned in the seat with the gun up toward where you're aiming
+  const rel = rideAng(yaw - st.yaw), P = DAZZA, kk = 1 - Math.exp(-14 * dt), set = (o, ax, val) => { o.rotation[ax] += (val - o.rotation[ax]) * kk; }, tw = THREE.MathUtils.clamp(rel, -1.3, 1.3);
+  set(P.torso, 'y', tw * 0.7); set(P.head, 'y', tw * 0.35); set(P.head, 'x', pit * 0.5);
+  set(P.shR, 'x', -1.55 + pit * 0.9); set(P.shR, 'z', -0.12); set(P.elR, 'x', -0.08); set(P.shL, 'x', -1.45 + pit * 0.9); set(P.shL, 'z', -0.55); set(P.elL, 'x', -0.55);
 }
 // a mate climbing into or out of a seat: that seat's door swings on everyone's screen
 function rideDoorKey(key) { if (!key) return; const [n, i] = key.split(':'), v = VEH[n]; if (v) rideSeatDoor(v, +i, 1.0); }
@@ -11305,14 +11341,14 @@ function wpnTrace(o, d, far) {
   let best = { t: far, kind: 'none' };
   const h = castHit(o, d, far);
   if (h && h.distance < best.t) { best = { t: h.distance, kind: h.struct ? 'struct' : 'world', part: h.struct || null, n: h.face ? (h.struct ? _w1.copy(h.face.normal) : _w1.copy(h.face.normal).transformDirection(collider.matrixWorld)).clone() : new THREE.Vector3(0, 1, 0) }; }
-  for (const v of Object.values(VEH)) { if ((v === activeVeh() && v.kind === 'ground') || (MH.pax && v.name === 'ute')) continue; if (v.kind === 'air' && v.st.crashed) continue;
+  for (const v of Object.values(VEH)) { if ((v === activeVeh() && v.kind === 'ground') || (MH.pax && v.name === 'ute') || v === RIDE.v) continue; if (v.kind === 'air' && v.st.crashed) continue;      // (and not the car you're shooting out of)
     let b = vehicleOBB(v); if (!b && v.name === 'drone') { const p = v.st.pos; b = { cx: p.x, cz: p.z, fx: 1, fz: 0, lx: 0, lz: 1, hl: 0.25, hw: 0.25, bottom: p.y, top: p.y + 0.15 }; } if (!b) continue;
     const t = rayOBB(o, d, b, best.t); if (t !== null && t < best.t && t > 0.3) best = { t, kind: 'veh', v }; }
   for (const a of FA.pigs) { const s = a.s || 1, c = _w2.set(a.pos.x, a.pos.y + (a.st === 'down' ? 0.25 : 0.45) * s, a.pos.z);
     const t = raySphere(o, d, c, 0.42 * s, best.t); if (t !== null && t < best.t) best = { t, kind: 'pig', a }; }
   if (BB.bottle && BB.bottle.visible && BB.st === 'ok') { const c = bbBottleP(_w2), t = raySphere(o, d, c, 0.24, far); if (t !== null && (t < best.t || (best.kind === 'struct' && best.part === BB.bbqPart && t < best.t + 0.8))) best = { t, kind: 'gas' }; }
   npcTrace(o, d, best);
-  if (MP.on) for (const p of MP.peers.values()) { if (p.veh) continue; const R = p.av.root.position;
+  if (MP.on) for (const p of MP.peers.values()) { if (p.veh || (RIDE.v && p.seat && p.seat.v === RIDE.v)) continue; const R = p.av.root.position;
     for (const [hy, r] of [[0.35, 0.3], [0.8, 0.32], [1.2, 0.3], [1.6, 0.2]]) { const t = raySphere(o, d, _w2.set(R.x, R.y + hy, R.z), r, best.t); if (t !== null && t < best.t) best = { t, kind: 'mate', p, head: hy > 1.5 }; } }
   best.point = o.clone().addScaledVector(d, best.t);
   return best;
@@ -11377,7 +11413,7 @@ function wpnShoot(W) {
   WPN.vmKick = 1;
   let o = camera.position.clone(), aim = camera.getWorldDirection(new THREE.Vector3());
   const muzzle = wpnMuzzle(new THREE.Vector3());
-  if (MH.pax) { const tgt = wpnTrace(o, aim, W.range).point; aim = tgt.sub(muzzle).normalize(); o = muzzle.clone(); } const n = W.pellets || 1; const spread = W.spread * (WPN.scope ? 0.2 : 1) * (1 + Math.min(1, F.speedH / 4));
+  if (MH.pax || RIDE.v) { const tgt = wpnTrace(o, aim, W.range).point; aim = tgt.sub(muzzle).normalize(); o = muzzle.clone(); } const n = W.pellets || 1; const spread = W.spread * (WPN.scope ? 0.2 : 1) * (1 + Math.min(1, F.speedH / 4));
   const ends = [];
   for (let k = 0; k < n; k++) {
     const d = aim.clone().add(_w1.set((Math.random() - 0.5) * 2 * spread, (Math.random() - 0.5) * 2 * spread, (Math.random() - 0.5) * 2 * spread)).normalize();
@@ -11554,7 +11590,6 @@ function wpnJob() {
     if (bpMine() || bpLying() || bpSpotting()) return { why: 'the bench', ok: null };
     if (BB.st === 'build' && BB.help && BB.help[MP.me]) return { why: 'the rebuild', ok: null };
     if (saSitting()) return { why: 'the sauna', ok: null };
-    if (RIDE.v) return { why: 'the ride', ok: null };
     if (SA.q && SA.q.who === MP.me) return { why: 'the sauna challenge', ok: 'axe' };
   } catch (_) {}
   return null;
@@ -11567,6 +11602,7 @@ function wpnJobStep() {
 function wpnSelect(id) {
   if (id) { const J = wpnJob(); if (J && id !== J.ok) { toast('Not now, you need your hands for ' + J.why, 1.6); return; } }
   if (MH.pax && (!id || WEAPONS[id].kind !== 'gun')) { toast(id ? 'Guns only out the window' : 'Keep it out, mate. We\u2019re huntin\u2019', 1.6); return; }
+  if (RIDE.v && id && WEAPONS[id].kind !== 'gun') { toast('Guns only out the window', 1.6); return; }
   if (id && !WPN.owned[id]) return; if (id) WPN.last = id; WPN.cur = id; WPN.reloadT = 0; WPN.spin = 0; WPN.scope = false; WPN.fire = false;
   if (id && WEAPONS[id].kind === 'gun' && WPN.mag[id] == null) WPN.mag[id] = 0;
   if (id && WEAPONS[id].kind === 'gun' && !WPN.mag[id]) wpnReload(true);
@@ -11603,6 +11639,7 @@ function wpnHud(force) {
 }
 function wpnCam(dt) {
   if (MH.pax) { mhCam(dt); return; }
+  if (RIDE.v) return;              // riding along: rideCam (after the car has moved) aims out the window
   if (wpnArmed() && WEAPONS[WPN.cur].kind === 'melee') {            // an axe: no aiming down it, the usual camera, carried in the right hand
     if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; WPN.fovNow = null; } if (DAZZA.can) DAZZA.can.visible = false; return; }
   if (!wpnArmed()) { if (WPN.fovMod) { camera.fov = 58; camera.updateProjectionMatrix(); WPN.fovMod = false; WPN.fovNow = null; } if (DAZZA.root.visible === false && activeName === 'foot' && WPN.hidFarmer) { DAZZA.root.visible = true; WPN.hidFarmer = false; } return; }
@@ -11657,7 +11694,7 @@ function wpnStep(dt) {
   if (!armed) { WPN.fire = false; WPN.scope = false; WPN.spin = Math.max(0, WPN.spin - dt * 2); WPN.firePrev = false; wpnCam(dt); wpnViewModel(dt); if (WPN.cache && WPN.cache.id && activeName !== 'foot') wpnHold(DAZZA, null, WPN.cache); return; }
   if (WPN.cache.id !== WPN.cur) wpnHold(DAZZA, WPN.cur, WPN.cache);
   wpnCam(dt); WPN.camDone = true;          // the aiming camera before the shot: the shot goes out along what's drawn (the on-foot camera from earlier in the frame can look elsewhere)
-  const id = WPN.cur, W = WEAPONS[id], fire = (WPN.fire || keys.has('f')) && (F.mode === 'walk' || F.mode === 'air' || MH.pax);
+  const id = WPN.cur, W = WEAPONS[id], fire = (WPN.fire || keys.has('f')) && (F.mode === 'walk' || F.mode === 'air' || MH.pax || !!RIDE.v);
   WPN.cd -= dt; WPN.throwT = Math.max(0, (WPN.throwT || 0) - dt);
   if (WPN.pend) { WPN.pend.t -= dt; if (WPN.pend.t <= 0) { const p = WPN.pend; WPN.pend = null; wpnThrow(p.id); } }
   if (WPN.reloadT > 0) { WPN.reloadT -= dt; if (WPN.reloadT <= 0) wpnReload(true); }
@@ -17719,7 +17756,7 @@ function saStep(dt) {
   if (SA.lit && Math.random() < dt * 3) { const s = SA.smoke.find(s => s.life <= 0); if (s) { s.life = s.max = 4 + Math.random() * 2; const [cx, cz] = saW(0.85, 0.45); s.sp.position.set(cx, SA.gy + SA.fl + SA.H + 1.0, cz); s.v = new THREE.Vector3(0.3 + Math.random() * 0.3, 0.8, (Math.random() - 0.5) * 0.3); s.sp.visible = true; } }
   for (const s of SA.smoke) { if (s.life <= 0) continue; s.life -= dt; s.sp.position.addScaledVector(s.v, dt); const k = s.life / s.max; s.sp.material.opacity = Math.max(0, Math.min(1, (1 - k) * 3) * k * 0.35); s.sp.scale.setScalar(0.5 + (1 - k) * 2.2); if (s.life <= 0) s.sp.visible = false; }
   // you, in the heat
-  if (me) SA.heat = Math.min(100, SA.heat + dt * Math.max(0, feel - 60) / 28);      // (a minute at full heat is fine; keep piling on steam and you'll go) else SA.heat = Math.max(0, SA.heat - dt * 1.6);
+  if (me) SA.heat = Math.min(100, SA.heat + dt * Math.max(0, feel - 60) / 28); else SA.heat = Math.max(0, SA.heat - dt * 1.6);      // (a minute at full heat is fine; keep piling on steam and you'll go)
   if (me && SA.heat >= 100 && (F.mode === 'walk' || saSitting() === 'bench')) {               // passed out: you come to outside the door
     if (saSitting()) { EM.cur = null; F.mode = 'walk'; }
     const [ox, oz] = saDoorOut(); standFarmerAt({ x: ox, y: groundAt(ox, oz, SA.gy + 2, SA.gy), z: oz + 0.4 }, 0, true); startTumble(new THREE.Vector3(0, 1.5, 1.2)); SA.heat = 55; const mine = SA.q && (!SA.q.who || SA.q.who === MP.me);
