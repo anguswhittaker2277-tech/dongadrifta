@@ -5235,7 +5235,7 @@ function doorHit(v, P, dmg, dir) {
   doorKnock(v, k, d, dir ? _doffV2.copy(dir).setY(0).normalize().multiplyScalar(Math.min(6, 1.5 + dmg * 0.04)) : null);
 }
 function doorKnock(v, k, d, push, net) {
-  if (d.off || !d.obj) return; d.off = true; d.a = d.tgt = 0; d.slamT = 0; d.hp = 0;
+  if (d.off || !d.obj) return; d.off = true; d.a = d.tgt = 0; d.slamT = 0; d.hp = 0; cabGlass(null, false);      // (the windows back on first, so the loose door has its glass)
   const piv = d.obj, b = doorBox(d); piv.updateMatrixWorld(true);
   // a loose copy of the door where it hangs, spinning round its own middle
   const ctr = b.getCenter(new THREE.Vector3()), W = piv.localToWorld(ctr.clone()), q = piv.getWorldQuaternion(new THREE.Quaternion());
@@ -8607,7 +8607,9 @@ function implChip() {
    ================================================================ */
 const VIEWS = {
   tele: ['chase', 'cab', 'operator', 'bucket', 'cine'],
-  tractor: ['chase', 'rear', 'cine'],
+  tractor: ['chase', 'cab', 'rear', 'cine'],
+  dozer: ['chase', 'cab', 'cine'],
+  dirtbike: ['chase', 'cab', 'cine'],
   picker: ['chase', 'cab', 'rear', 'cine'],
   rx: ['chase', 'cab', 'rear', 'cine'],
   mack: ['chase', 'cab', 'rear', 'cine'],
@@ -8625,7 +8627,8 @@ const VIEW = { sel: STORE.get('wfy.views', {}), cur: 'chase', for: '', cine: nul
 function viewList(name) { if (name === 'exc') return ['cab', 'chase', 'dig', 'cine']; return VIEWS[name] || ['chase', 'cine']; }      // (the excavator starts in its cab)
 function currentView() {
   const name = activeName;
-  if (VIEW.for !== name) { VIEW.for = name; VIEW.cine = null; const l = viewList(name); VIEW.cur = l.includes(VIEW.sel[name]) ? VIEW.sel[name] : l[0]; viewChanged(); }
+  if (VIEW.for !== name) { VIEW.for = name; VIEW.cine = null; const l = viewList(name);
+    VIEW.cur = typeof FPS !== 'undefined' && FPS.on && l.includes('cab') ? 'cab' : l.includes(VIEW.sel[name]) ? VIEW.sel[name] : l[0]; viewChanged(); }      // (first person picked in the menu: in the cab, where there's one)
   return seqBusy() ? 'chase' : VIEW.cur;
 }
 function cycleView() {
@@ -8664,8 +8667,17 @@ function keepClear(from, to, minD) {     // pull a camera in front of any wall b
   const h = castHit(from, d, L + 0.25); if (h) to.copy(from).addScaledVector(d, Math.max(minD, h.distance - 0.25));
   const g = groundAt(to.x, to.z, to.y + 2, -1e9); if (to.y < g + 0.35) to.y = g + 0.35;
 }
+// from inside, the machine's own windows aren't drawn: their reflections washed out everything seen through them (the excavator's
+// black arm came out a pale grey through its windscreen)
+const CABG = { v: null, list: [] };
+function cabGlass(v, hide) {
+  if (CABG.v && (CABG.v !== v || !hide)) { for (const m of CABG.list) m.visible = true; CABG.v = null; CABG.list = []; }
+  if (!hide || !v || CABG.v === v) return; CABG.v = v;
+  v.model.root.traverse(o => { const m = o.material; if (o.isMesh && o.visible && m && !Array.isArray(m) && m.transparent && !m.depthWrite && (/glass/i.test(m.name || '') || m.opacity < 0.9)) { o.visible = false; CABG.list.push(o); } });
+}
 function applyView(dt) {
   const view = currentView(), v = activeVeh();
+  cabGlass(v, view === 'cab' && !!v && v.kind === 'ground');
   DAZZA.root.visible = !(view === 'cockpit' || view === 'cab' || (view === 'fpv' && v && !isRemote(v))) && !(typeof WPN !== 'undefined' && WPN.hidFarmer) && !(activeName === 'foot' && F.fp && !lookSheetOn());
   if (v && v.name === 'racer') v.model.root.visible = view !== 'fpv';
   if (view !== 'operator') VIEW.oPos = null;
