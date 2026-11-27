@@ -11076,7 +11076,9 @@ function wpnVehDamage(v, dmg, dir, how, net) {
 }
 function wpnWreck(v) {
   const D = vd(v.name); if (D.mats) return; D.mats = [];
-  const walk = o => { if (o === DAZZA.root || o.userData.noWreck) return; if (o.isMesh && !o.isInstancedMesh && o.material && o.material !== WMAT.hole && o.material !== WMAT.blood) { D.mats.push([o, o.material]); o.material = Math.random() < 0.8 ? WMAT.wreck : WMAT.wreck2; } for (const c of o.children) walk(c); };
+  const M = v.model, lit = new Set([M.halo, M.dome, M.beacon, M.beaconGlow].filter(Boolean));
+  // (lights, glows and glass keep their own materials: code that animates them would otherwise be changing the one burnt material every wreck shares)
+  const walk = o => { if (o === DAZZA.root || o.userData.noWreck || lit.has(o)) return; if (o.isMesh && !o.isInstancedMesh && o.material && !Array.isArray(o.material) && !o.material.transparent && o.material !== WMAT.hole && o.material !== WMAT.blood) { D.mats.push([o, o.material]); o.material = Math.random() < 0.8 ? WMAT.wreck : WMAT.wreck2; } for (const c of o.children) walk(c); };
   walk(v.model.root);
 }
 function wpnUnwreck(name) {
@@ -11545,6 +11547,13 @@ function wpnFlameStep(dt, on) {
 }
 
 /* ---------- explosions ---------- */
+// how far a point is from a machine's nearest side (its box), not its middle
+function vehSurfDist(v, P, c) {
+  const o = vehicleOBB(v); if (!o) return c.distanceTo(P);
+  const dx = P.x - o.cx, dz = P.z - o.cz, f = dx * o.fx + dz * o.fz, l = dx * o.lx + dz * o.lz;
+  const ef = Math.max(0, Math.abs(f) - o.hl), el = Math.max(0, Math.abs(l) - o.hw), ey = P.y < o.bottom ? o.bottom - P.y : P.y > o.top ? P.y - o.top : 0;
+  return Math.hypot(ef, el, ey);
+}
 function wpnBoom(P, R, pw, local, quiet) {
   if (!local && MP.on) mpSend({ k: 'boom', f: MP.me, p: [P.x, P.y, P.z].map(mpR), r: R, pw });
   blastTex();
@@ -11568,11 +11577,11 @@ function wpnBoom(P, R, pw, local, quiet) {
     for (const part of G.parts) { if (!part.alive || part.fixed) continue; const c = part.m ? _w3.setFromMatrixPosition(part.m) : G.ctr; const h = part.h || [1, 1, 1];
       const dd = Math.max(0, c.distanceTo(P) - Math.min(h[0], h[2]) * 0.6), k = 1 - dd / (R * 1.25); if (k <= 0) continue;
       const dir = _w4.copy(c).sub(P).normalize(); structImpact(part, c.clone(), dir.clone(), 15 * k * pw, 4000); } }
-  for (const v of Object.values(VEH)) { const c = vehCentre(v, _w3); if (!c) continue; const dd = c.distanceTo(P), k = 1 - dd / (R * 1.5); if (k <= 0) continue;
+  for (const v of Object.values(VEH)) { const c = vehCentre(v, _w3); if (!c) continue; const dd = vehSurfDist(v, P, c), k = 1 - dd / (R * 1.5); if (k <= 0) continue;
     const dir = _w4.copy(c).sub(P).normalize();
     if (v === activeVeh() && v.kind === 'ground') { S.v += (dir.x * Math.sin(S.yaw) + dir.z * Math.cos(S.yaw)) * 9 * k; S.shake = 1; prevShake = 1; }
     if (v.kind === 'air' && !v.st.crashed && !v.st.landed && v === activeVeh()) v.st.vel.addScaledVector(dir, 14 * k).y += 6 * k;
-    wpnVehDamage(v, 300 * k * pw, dir, 'blast', true); dmgBlast(v, P, R); }
+    wpnVehDamage(v, (300 * k + (pw >= 1 ? 0.75 * (VEH_HP[v.name] || 200) * k * k : 0)) * pw, dir, 'blast', true); dmgBlast(v, P, R); }
   for (const a of FA.pigs) { const dd = a.pos.distanceTo(P), k = 1 - dd / (R * 1.3); if (k <= 0) continue; const dir = _w4.copy(a.pos).sub(P).setY(0).normalize();
     wpnPigShot(a, dir, 120 * k, _w3.copy(a.pos).setY(a.pos.y + 0.4)); if (a.st === 'tumble') { a.vel.set(dir.x * 10 * k, 5 + 6 * k, dir.z * 10 * k); a.spin.multiplyScalar(2); } wpnBloodSpray(_w3.copy(a.pos).setY(a.pos.y + 0.4), _w2.set(0, 1, 0), 30); }
   npcBlast(P, R);
@@ -14131,7 +14140,7 @@ function cpModuleMat(C, wrap, live) {
   m.customProgramCacheKey = () => 'cpmod';
   return (CP_MODMAT[key] = m);
 }
-function cpModuleMesh(C, wrap, live) { const g = new THREE.Mesh(C.moduleSrc.geometry, cpModuleMat(C, wrap, live)); g.name = 'cpModule'; g.userData.nodent = true; return g; }
+function cpModuleMesh(C, wrap, live) { const g = new THREE.Mesh(C.moduleSrc.geometry, cpModuleMat(C, wrap, live)); g.name = 'cpModule'; g.userData.nodent = true; g.userData.noWreck = true; return g; }      // (cotton doesn't char black with the machine)
 
 // ---------- lint and dust: one small sprite pool ----------
 function cpFxInit() {
@@ -14340,10 +14349,10 @@ function cpStep(dt) {
   // the module growing in the chamber (diameter with the fill, the way the mod's scaleNode does it)
   if (CP.inner) { const f = CP.phase === 'unload' ? 1 : Math.min(1, CP.ch / CP_CAP); CP.inner.visible = f > 0.01 || CP.phase === 'unload';
     if (CP.phase !== 'unload') { const s = 0.35 + 0.65 * f; CP.inner.scale.set(s, s, 1); } else CP.inner.scale.set(1, 1, 1);
-    CP.inner.material.userData.U.wrapAmt.value = CP.phase === 'unload' ? 1 : CP.wrapAmt; }
+    const U = CP.inner.material.userData.U; if (U) U.wrapAmt.value = CP.phase === 'unload' ? 1 : CP.wrapAmt; }      // (a wreck's module has the burnt material, without the wrap's settings)
 
   // beacon while picking, wipers in the rain
-  if (C.beacon) { CP.beacon += dt * 7.5; const on = CP.on && inP, k = on ? Math.max(0, Math.cos(CP.beacon)) ** 4 : 0; C.beacon.material.emissiveIntensity = 0.2 + k * 3; C.beaconGlow.material.opacity = k * 0.75; }
+  if (C.beacon && !VEH.picker.wrecked) { CP.beacon += dt * 7.5; const on = CP.on && inP, k = on ? Math.max(0, Math.cos(CP.beacon)) ** 4 : 0; C.beacon.material.emissiveIntensity = 0.2 + k * 3; C.beaconGlow.material.opacity = k * 0.75; }
   if (C.nodes.wiperArm01) { const wet = typeof WX !== 'undefined' && WX.rain > 0.15 && inP; if (wet || CP.wipe > 0) { CP.wipe = (CP.wipe + dt * 0.75) % 2; cpAnimApply(C, 'wiperFrontAnimation', CP.wipe < 1 ? CP.wipe : 2 - CP.wipe); if (!wet && CP.wipe < 0.05) CP.wipe = 0; } }
   cpPose(C);
   cpModStep(dt); cpModPush(); cpFxStep(dt);
