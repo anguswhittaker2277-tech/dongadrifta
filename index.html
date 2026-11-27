@@ -2551,7 +2551,7 @@ function buildExc() {
     for (const [k, sx] of [['crawlerDriveNodeLeft1', 1], ['crawlerDriveNodeRight1', -1]]) { const t = gt.scene.clone(); if (sx < 0) t.scale.x = -1; N[k] && N[k].add(t); }
     // the bucket on its quick hitch: its own joint lined up with the arm's (the mod's objectChange turns the arm's joint to 90 0 90)
     const J = N.BucketAttacherJoint, bk = gb.scene, bj = bk.getObjectByName('bucketAttacherJoint');
-    if (J && bj) { J.rotation.set(Math.PI / 2, 0, Math.PI / 2, 'ZYX'); J.add(bk);      // (the mod's 90 0 90 is in the engine's order, not three's default: the bucket sat turned sideways)
+    if (J && bj) { J.rotation.set(0, Math.PI / 2, -Math.PI / 2); J.add(bk);      // (worked out against the arm: hung off the dipper's tip pin, nothing passing through it, teeth down when it's opened right out)
       bk.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(bj.matrix).invert(); inv.decompose(bk.position, bk.quaternion, bk.scale); }
     C.tip = bk.getObjectByName('pickUpNode') || bk; C.bucket = bk;
     if (!pileGeo) pileAssets();
@@ -5338,7 +5338,7 @@ function updatePins() {
 }
 
 /* ---------- telehandler: boom up/down, telescope, bucket curl/dump; dig, carry and make piles ---------- */
-const TB = { a: -0.25, ext: 0, tilt: 0.2, fill: 0, extIn: 0, digAcc: 0, pourAcc: 0, markAcc: 0, hyd: 0, told: false };
+const TB = { a: -0.115, ext: 0, tilt: 0.2, fill: 0, extIn: 0, digAcc: 0, pourAcc: 0, markAcc: 0, hyd: 0, told: false };
 const BUCKET_M3 = 1.0;
 function teleApply() {
   const B = VEH.tele.model.boom; if (!B.ready) return;
@@ -5431,7 +5431,7 @@ function addScrape(x, y, z, yaw) {
   else { m = SCRAPES.shift(); SCRAPES.push(m); }
   m.position.set(x, y + 0.04, z); m.rotation.set(-Math.PI / 2, yaw, 0);
 }
-function clearDirt() { for (const p of PILES) scene.remove(p.mesh); PILES.length = 0; for (const m of SCRAPES) scene.remove(m); SCRAPES.length = 0; Object.assign(TB, { a: -0.25, ext: 0, tilt: 0.2, fill: 0, extIn: 0, told: false }); teleApply(); }
+function clearDirt() { for (const p of PILES) scene.remove(p.mesh); PILES.length = 0; for (const m of SCRAPES) scene.remove(m); SCRAPES.length = 0; Object.assign(TB, { a: -0.115, ext: 0, tilt: 0.2, fill: 0, extIn: 0, told: false }); teleApply(); }
 
 /* ---------- spraying: mist from the nozzles, a wet swath on the ground, and how much cotton you've covered ---------- */
 const SPRAYFX = { n: 1400, slot: 0, last: {}, mist: [], cov: null };
@@ -20087,7 +20087,7 @@ function mpwSnd(o, pos) { if (!MPW.sim || !MP.on || !MP.host || !pos) return; fo
   const _occ = saOccupants; saOccupants = function () { const out = _occ.apply(this, arguments); if (MP.on) for (const p of MP.peers.values()) if (!p.veh && saInside(p.av.root.position)) out.push(p.name); return out; };
 }
 
-window.__game = { snOpen, TK_L_get: () => TK_L, VOX_get: () => VOX, voxSay2: (...a) => voxSay(...a), PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
+window.__game = { snOpen, teleApply2: () => teleApply(), exApply2: () => exApply(), EX_get: () => EX, TK_L_get: () => TK_L, VOX_get: () => VOX, voxSay2: (...a) => voxSay(...a), PCL_get: () => PCL, buildFarmer, LOOK_get: () => LOOK, RIDE, RIDE_SEATS, rideIn, rideOut, rideable, doorSwing, allDoors, enterVehicle, DOFF, doorHit, doorKnock, doorAt, vehDoorList, dmgCrash, wpnVehDamage2: (...a) => wpnVehDamage(...a), saSitDown, startTumble, ladAct, ladNear, ladBase, LAD, DMG, dmgPop, dmgDent, dmgCrash, dentRound, treePush, structImpact, dmgResetAll, HS, hsIn, hsScrub, hsRel, padHeight, TREES, mxGo, MEL, melStart, melTarget, FOOT, homeY, shedFloorAt, HUNT_ST, PICKUPS, WPN, WEAPONS, wpnVehDamage, wpnSelect, wpnTake, wpnBoom, wpnTrace, wpnShoot, wpnDetonate, wpnStartFire, MP, mpStart, mpLeave, mpJack, mpJackable, MX, WX, MOTO, mxHeight, mxIn, wxCycle, FA, faunaScare, faWalk, faTop, IMPL, CULT, TIP, DAZZA, startEmote, DZ, TREES, STRUCTS, BLAST, structImpact, structRay, setView(v) { VIEW.cur = v; VIEW.sel[activeName] = v; VIEW.for = activeName; VIEW.cine = null; viewChanged(); }, viewNow: () => currentView(), VIEW, AU, VOX, voxSay, sndPick, playAt, footstep, sfx: (...a) => sfx(...a), TR, COURSES, TB, PILES, SCRAPES, coverPct, hornStart, hornStop, S, F, VEH, input, drift, DRIFT, clearMarks, ready: false, camera, scene, renderer, keys, THREE, groundAt, castHit, insidePoly, HOME, get boundary() { return boundary; },
   reset: () => resetAll(), setCamYawF: y => { camYawF = y; lookIdleT = 0; }, setCamPitchF: p => { camPitchF = p; }, enter: n => enterVehicle(n), enterNow: n => enterVehicle(n, true), exit: () => exitVehicle(), seq: () => SEQ.phase + (SEQ.dir ? ':' + SEQ.dir : ''), act: id => doAction(id), active: () => activeName,
   mudLive: () => mud.filter(p => p.life > 0).length, step: dt => updateWorld(dt),
   sim(n) { for (let i = 0; i < n; i++) updateWorld(1 / 60); slodStep(); dtlStep(n / 60); mtTvRender(n / 60); renderer.render(scene, camera); bubDom(); } };
